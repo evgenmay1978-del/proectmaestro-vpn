@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"log"
 	"context"
 	"time"
 
@@ -63,6 +64,7 @@ ORDER BY cr.protocol`,
 		return BusinessSubscriptionSnapshot{}, ErrUnavailable
 	}
 	if len(results) != 1 || len(results[0].Rows) == 0 {
+		log.Printf("subscription snapshot miss: token_len=%d token_hmac=%s device_hmac=%s", len(rawToken), tokenHMAC[:12], deviceHMAC[:12])
 		return BusinessSubscriptionSnapshot{}, ErrNotFound
 	}
 	rows := results[0].Rows
@@ -161,3 +163,4 @@ ORDER BY cr.protocol`,
 		DatabaseNowUnix: databaseNow, VerifiedAt: s.clock.Now().UTC(),
 	}, nil
 }
+

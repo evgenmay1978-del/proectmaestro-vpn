@@ -24,6 +24,12 @@ const (
 	MaxDesiredBytes   = 1 << 20
 )
 
+// MaxReceiptTTL bounds how long a node may keep a delivered desired state that
+// the control plane has not refreshed. The short use lease still gates every
+// forwarded byte, so this is a deliberate availability/latency trade-off with a
+// hard upper bound, never an unbounded freshness window.
+const MaxReceiptTTL = 10 * time.Minute
+
 var (
 	ErrConflict        = errors.New("sidecar agent: desired state conflicts with stored generation")
 	ErrInvalidDesired  = errors.New("sidecar agent: invalid desired state")

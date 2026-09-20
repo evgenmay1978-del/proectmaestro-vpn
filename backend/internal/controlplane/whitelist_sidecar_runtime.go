@@ -74,14 +74,18 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		facts.ReceiptSetReady = approvedNodeCount > 0
 		facts.ReceiptsFreshUntilUnix = now.Unix() + 1
 		facts.ApprovedNodeCount = approvedNodeCount
-		_, wasManaged := previousEntitlements[entitlementID]
-		if wasManaged && publication.Enabled && publication.PrimaryStatus == "active" &&
+		// An enabled, funded and active account belongs in the managed set even
+		// when an earlier incident dropped it from the previous generation.
+		// Membership is not forwarding authority: the agent still enforces the
+		// independently authorized byte and time lease, and provisioning only
+		// starts the observation loop that publication needs. Requiring a prior
+		// generation membership made a dropped account unrecoverable: it was not
+		// observed, so it could never be re-published, so it never returned to
+		// the subscription.
+		if publication.Enabled && publication.PrimaryStatus == "active" &&
 			publication.PrimaryExpiresAtUnix > now.Unix() && facts.AvailableBytes > 0 &&
 			(publication.Source == WhiteListActivationConfirmedGBPurchase || publication.Source == WhiteListActivationAdminEnable) &&
 			releaseBindingExact && facts.CredentialUsable {
-			// Keep authenticated, funded membership across transient metering or
-			// receipt delays. Membership grants no forwarding authority: the agent
-			// still enforces the independently authorized byte and time lease.
 			factsByEntitlement[entitlementID] = facts
 			decisions[entitlementID] = EvaluateWhiteListPublication(facts)
 			provisioning[entitlementID] = true

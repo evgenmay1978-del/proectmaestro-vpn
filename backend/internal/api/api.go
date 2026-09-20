@@ -101,6 +101,20 @@ type Config struct {
 	SBPPhone                string // СБП phone shown to the customer for in-app purchase
 	PayURL                  string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
 	CustomerCDNSalesEnabled bool   // Explicit commissioning gate for the browser CDN checkout.
+	// FlatCDNSubFile is the root-only file holding the standalone CDN subscription
+	// payload — the second subscription a customer receives once CDN traffic is
+	// bought (Akonit-style flat stack). Delivery through /cdn-sub/ requires an
+	// ACTIVE regular subscription and a positive white-list balance. Empty → the
+	// endpoint is disabled.
+	FlatCDNSubFile          string
+	// FlatCDNNodeFile is the JSON subgen.WhiteListNode (or an array of them) that
+	// renders the standalone CDN subscription in every client representation.
+	// Empty → /cdn-sub/ serves FlatCDNSubFile verbatim.
+	FlatCDNNodeFile         string
+	// FlatCDNUUIDSecret derives the stable per-customer VLESS credential of the
+	// standalone CDN subscription (HMAC-SHA256 → UUIDv4). Empty → the node file
+	// keeps its own shared credential.
+	FlatCDNUUIDSecret string
 	TGBotToken              string // bot token for owner payment notifications (send-only, no poll)
 	TGAdminID               string // owner's Telegram chat id
 	UpdateDir               string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/

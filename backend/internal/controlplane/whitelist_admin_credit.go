@@ -224,3 +224,113 @@ AND access_order.payment_state='confirmed' AND access_order.decision='confirmed'
 OR EXISTS(SELECT 1 FROM whitelist_customer_access_sources AS access_source JOIN whitelist_entitlement_identities AS owner ON owner.entitlement_id=period.entitlement_id
 WHERE access_source.source_id=period.customer_access_source_id AND access_source.entitlement_id=period.entitlement_id AND access_source.customer_id=owner.customer_id
 AND access_source.captured_at_unix=period.starts_at_unix AND access_source.customer_expires_at_unix=period.ends_at_unix AND period.included_grant_bytes=0))`
+
+// DebitWhiteListUsageCommand consumes already-metered bytes. The amount comes
+// from the origin's own per-client counters, so the flat CDN charges exactly the
+// traffic it served.
+type DebitWhiteListUsageCommand struct {
+	EntitlementID  string
+	Bytes          int64
+	IdempotencyKey string
+	Actor          string
+}
+
+// DebitWhiteListUsage is the flat-CDN counterpart of the managed interval
+// settlement. It shares the idempotency ledger and the projection CAS with the
+// manual credit, so a retried sample can never charge twice.
+func (s *Service) DebitWhiteListUsage(ctx context.Context, command DebitWhiteListUsageCommand) (WhiteListManualCreditResult, error) {
+	var empty WhiteListManualCreditResult
+	if command.Bytes <= 0 || command.Bytes >= whitelistbalance.MaxExclusive {
+		return empty, ErrConflict
+	}
+	if !validWhiteListID(command.EntitlementID) || !validWhiteListID(command.IdempotencyKey) || !validWhiteListID(command.Actor) {
+		return empty, ErrConflict
+	}
+	const kind = "whitelist_flat_usage"
+	scope := kind + ":" + command.EntitlementID
+	hash, err := whiteListCanonicalHash(struct {
+		Version       int
+		EntitlementID string
+		Bytes         int64
+		Actor         string
+		Kind          string
+	}{1, command.EntitlementID, command.Bytes, s.auditActor(command.Actor), kind})
+	if err != nil {
+		return empty, ErrUnavailable
+	}
+	if saved, found, err := s.resolveWhiteListAdministrativeBalance(ctx, scope, kind, command.IdempotencyKey, hash); found || err != nil {
+		return saved, err
+	}
+	now := s.clock.Now().Unix()
+	loaded, err := s.loadWhiteListBalance(ctx, now, command.EntitlementID)
+	if err != nil {
+		return empty, err
+	}
+	if loaded.CommercialPending || loaded.RenewalPending || (loaded.State.Projection != nil && loaded.State.Projection.Pending) {
+		return empty, ErrConflict
+	}
+	next := whitelistbalance.BalanceProjection{EntitlementID: command.EntitlementID, Version: 1}
+	if loaded.State.Projection != nil {
+		next = *loaded.State.Projection
+		if next.Version >= whitelistbalance.MaxExclusive-1 {
+			return empty, ErrConflict
+		}
+		next.Version++
+	}
+	remaining := command.Bytes
+	if next.PurchasedRemainingBytes > 0 {
+		take := next.PurchasedRemainingBytes
+		if take > remaining {
+			take = remaining
+		}
+		next.PurchasedRemainingBytes -= take
+		remaining -= take
+	}
+	if remaining > 0 && next.IncludedRemainingBytes > 0 {
+		take := next.IncludedRemainingBytes
+		if take > remaining {
+			take = remaining
+		}
+		next.IncludedRemainingBytes -= take
+		remaining -= take
+	}
+	applied := command.Bytes - remaining
+	if applied <= 0 {
+		return WhiteListManualCreditResult{Bytes: 0, PurchasedRemainingBytes: next.PurchasedRemainingBytes, ProjectionVersion: next.Version}, nil
+	}
+	operation, err := s.ids.NewID(kind)
+	if err != nil {
+		return empty, ErrUnavailable
+	}
+	resource := whiteListSourceKey(kind, command.EntitlementID, command.IdempotencyKey)
+	result := WhiteListManualCreditResult{OperationID: operation, CreditID: resource, Bytes: applied, PurchasedRemainingBytes: next.PurchasedRemainingBytes, ProjectionVersion: next.Version}
+	statements := []rqlite.Statement{{SQL: `INSERT INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,resource_id,decision,operation_id,status,response_json,created_at_unix,applied_at_unix)
+VALUES(?,?,?,?,?,'flat_usage',?,'applying',NULL,?,NULL)`, Args: []any{scope, kind, command.IdempotencyKey, hash, command.EntitlementID, operation, now}}}
+	guard := `EXISTS(SELECT 1 FROM whitelist_entitlement_identities AS identity JOIN customers AS customer ON customer.customer_id=identity.customer_id WHERE identity.entitlement_id=? AND customer.status<>'deleted')`
+	args := []any{command.EntitlementID}
+	if _, changed, err := appendWhiteListProjectionCAS(&statements, loaded.State.Projection, next, now, guard, args); err != nil || !changed {
+		return empty, ErrUnavailable
+	}
+	statements = append(statements, rqlite.Statement{SQL: `UPDATE idempotency_requests SET status='admin-projection-rejected' WHERE scope=? AND command_type=? AND idempotency_key=? AND status='applying' AND changes()<>1`, Args: []any{scope, kind, command.IdempotencyKey}})
+	auditEventID := auditID(kind, command.EntitlementID, next.Version, now)
+	envelope, digest, err := s.orderAuditDetails(auditEventID, orderAuditMetadata{Channel: "flat-meter", SourceEventID: command.IdempotencyKey, ResultHash: hash})
+	if err != nil {
+		return empty, err
+	}
+	body, err := json.Marshal(result)
+	if err != nil {
+		return empty, ErrUnavailable
+	}
+	statements = append(statements, backupRPODirtyGenerationStatement(now), rqlite.Statement{SQL: `INSERT INTO audit_events(event_id,actor_hmac,action,resource_type,resource_id_hmac,details_envelope,details_sha256,created_at_unix) VALUES(?,?,?,'whitelist-entitlement',?,?,?,?)`, Args: []any{auditEventID, s.auditActor(command.Actor), kind, s.auditResource(command.EntitlementID), envelope, digest, now}}, rqlite.Statement{SQL: `UPDATE idempotency_requests SET status='applied',response_json=?,applied_at_unix=? WHERE scope=? AND command_type=? AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying'`, Args: []any{string(body), now, scope, kind, command.IdempotencyKey, hash, operation}})
+	_, writeErr := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
+	if writeErr == nil {
+		return result, nil
+	}
+	if saved, found, err := s.resolveWhiteListAdministrativeBalance(ctx, scope, kind, command.IdempotencyKey, hash); found || err != nil {
+		return saved, err
+	}
+	if isUnknownWrite(writeErr) {
+		return empty, ErrUnavailable
+	}
+	return empty, ErrConflict
+}

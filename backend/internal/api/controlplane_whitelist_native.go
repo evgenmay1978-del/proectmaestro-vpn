@@ -113,14 +113,31 @@ func (s *ControlPlaneServer) handleControlPlaneWhiteListNativeRuntime(w http.Res
 		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
+	token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
 	native, ok := s.business.(WhiteListNativeBusiness)
-	if !ok {
-		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
-		return
+	var view WhiteListNativeRuntimeView
+	var err error
+	if ok {
+		view, err = native.WhiteListNativeRuntime(r.Context(), token)
+	} else {
+		err = businessError(controlplane.ErrUnavailable)
 	}
-	view, err := native.WhiteListNativeRuntime(r.Context(), strings.TrimSpace(strings.TrimPrefix(header, prefix)))
 	if err != nil {
-		writeControlPlaneCommercialError(w, err)
+		// Сайдкар-публикация выключена (flat-CDN). Отдаём нативный вид, собранный
+		// из тех же flat-нод, что и подписка: приложение перестаёт получать 503 и
+		// крутить опрос, а «белые списки» приходят тем же контуром, что и CDN.
+		if flatView, flatErr := s.flatCDNNativeRuntime(r.Context(), token); flatErr == nil {
+			writeControlPlaneJSON(w, http.StatusOK, flatView)
+			return
+		} else if status := controlPlaneCommercialStatus(flatErr); status == http.StatusForbidden || status == http.StatusNotFound {
+			writeControlPlaneCommercialError(w, flatErr)
+			return
+		}
+		if ok {
+			writeControlPlaneCommercialError(w, err)
+			return
+		}
+		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
 		return
 	}
 	writeControlPlaneJSON(w, http.StatusOK, view)

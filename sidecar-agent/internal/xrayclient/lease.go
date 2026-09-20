@@ -29,7 +29,7 @@ var (
 
 const managedControlMaxBytes = 4096
 
-const managedLeaseWindow = 60 * time.Second
+const managedLeaseWindow = 180 * time.Second
 
 type leaseRPC interface {
 	Invoke(context.Context, string, any, any, ...grpc.CallOption) error

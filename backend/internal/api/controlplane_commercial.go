@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const (
@@ -87,6 +88,10 @@ type WhiteListBalanceView struct {
 	PeriodEndsAtUnix        int64  `json:"period_ends_at_unix"`
 	PrimaryAccessState      string `json:"primary_access_state"`
 	PublicationVerdict      string `json:"publication_verdict"`
+	// CDNSubURL is the standalone CDN subscription of this customer: the second
+	// subscription that carries the same private token as the regular one and is
+	// gated by an active VPN subscription plus a positive CDN balance.
+	CDNSubURL string `json:"cdn_sub_url,omitempty"`
 }
 
 type CommercialPublicationCommand struct {
@@ -226,14 +231,29 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialBalance(w http.Response
 	}
 	view, err := s.commercial.WhiteListBalance(r.Context(), customer.CustomerID)
 	if err != nil {
-		writeControlPlaneCommercialError(w, err)
-		return
+		// A customer who never bought CDN traffic has no white-list account yet.
+		// Report the honest zero balance, together with the regular VPN state,
+		// instead of turning a first-time buyer away with "not found".
+		if controlPlaneCommercialStatus(err) != http.StatusNotFound {
+			writeControlPlaneCommercialError(w, err)
+			return
+		}
+		view = WhiteListBalanceView{PrimaryAccessState: "INACTIVE"}
+		if customer.Active {
+			view.PrimaryAccessState = "ACTIVE"
+		}
 	}
 	if view.AccountID != "" && view.AccountID != customer.CustomerID {
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return
 	}
 	view.AccountID = ""
+	// Only publish the second subscription when it would actually work: a
+	// customer without paid CDN traffic (or with an expired VPN) must not receive
+	// a link that answers 403.
+	if view.AvailableBytes > 0 && customer.Active && customer.Expires.After(time.Now()) {
+		view.CDNSubURL = flatCDNSubscriptionURL(s.cfg.SubBaseURL, controlPlaneBearerToken(r))
+	}
 	writeControlPlaneJSON(w, http.StatusOK, view)
 }
 
@@ -260,6 +280,9 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialDelivery(w http.Respons
 	}
 	var request struct {
 		Client string `json:"client"`
+		// CDN asks for the standalone CDN subscription in the same
+		// per-application descriptor the regular subscription uses.
+		CDN bool `json:"cdn"`
 	}
 	if !decodeControlPlanePublicMutation(w, r, &request) {
 		return
@@ -271,6 +294,10 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialDelivery(w http.Respons
 	}
 	idempotencyKey, ok := s.controlPlanePublicIdempotencyKey(w, r, "/account/subscription-delivery", customer.CustomerID, client)
 	if !ok {
+		return
+	}
+	if request.CDN {
+		s.writeFlatCDNSubscriptionDelivery(w, r, client)
 		return
 	}
 	view, err := s.commercial.SubscriptionDelivery(r.Context(), CommercialDeliveryCommand{
