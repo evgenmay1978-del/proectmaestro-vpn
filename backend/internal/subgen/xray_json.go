@@ -633,3 +633,25 @@ type xrayJSONBurstPingConfig struct {
 	Sampling    int    `json:"sampling"`
 	Timeout     string `json:"timeout"`
 }
+
+// WhiteListAutoXrayJSONConfig prepends the shared "auto" (leastPing) config to an
+// already rendered per-node subscription. The flat-CDN scheme gives every node the
+// same customer credential, so the combined renderer (which rejects duplicate
+// client ids) cannot be used; this keeps the automatic choice available anyway.
+func WhiteListAutoXrayJSONConfig(rendered []byte) ([]byte, error) {
+	var configs []xrayJSONFullConfig
+	if err := json.Unmarshal(rendered, &configs); err != nil {
+		return nil, errInvalidWhiteListNode
+	}
+	if len(configs) == 0 || len(configs) > 32 {
+		return nil, errInvalidWhiteListNode
+	}
+	auto, err := whiteListAutoXrayJSONConfig(configs)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]xrayJSONFullConfig, 0, len(configs)+1)
+	candidates = append(candidates, auto)
+	candidates = append(candidates, configs...)
+	return marshalWhiteListXrayJSONConfigs(candidates)
+}

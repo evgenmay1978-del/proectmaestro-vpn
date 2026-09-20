@@ -402,7 +402,20 @@ func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
 	if len(merged) == 0 {
 		return nil, errFlatCDNUnavailable
 	}
-	return json.Marshal(merged)
+	document, err := json.Marshal(merged)
+	if err != nil {
+		return nil, errFlatCDNUnavailable
+	}
+	// Добавляем общий узел «Авто» (leastPing-балансировщик по всем CDN-нодам) —
+	// ровно такой же, как в обычной подписке, чтобы и в CDN-провайдере был выбор
+	// «самый быстрый сервер». Если subgen не смог собрать авто-конфиг, отдаём
+	// подписку как есть: узлы важнее.
+	if withAuto, autoErr := subgen.WhiteListAutoXrayJSONConfig(document); autoErr == nil {
+		return withAuto, nil
+	} else {
+		log.Printf("flat cdn auto config skipped: %v", autoErr)
+	}
+	return document, nil
 }
 
 func flatCDNShareLinkPayload(nodes []subgen.WhiteListNode) ([]byte, error) {
