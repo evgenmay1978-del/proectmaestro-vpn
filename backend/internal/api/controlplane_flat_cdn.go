@@ -209,6 +209,70 @@ func (s *ControlPlaneServer) ordinarySubscriptionPayload(ctx context.Context, to
 }
 
 
+
+// flatCDNNativeRuntime renders the native white-list runtime view from the SAME
+// flat CDN nodes the /cdn-sub/ subscription uses. The legacy exit-route sidecar
+// was retired with the flat stack, so this keeps the app's native runtime
+// endpoint alive (it used to answer 503 and loop) without re-enabling the old
+// sidecar publication path.
+func (s *ControlPlaneServer) flatCDNNativeRuntime(ctx context.Context, token string) (WhiteListNativeRuntimeView, error) {
+	closed := WhiteListNativeRuntimeView{}
+	if s.commercial == nil {
+		return closed, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
+	}
+	entitlement, err := s.flatCDNEntitlement(ctx, token)
+	if err != nil {
+		return closed, err
+	}
+	if !entitlement.Known {
+		return closed, serviceBusinessError{err: controlplane.ErrNotFound, status: http.StatusNotFound}
+	}
+	if !entitlement.Entitled() || entitlement.AvailableBytes <= 0 {
+		// Оба состояния — «белые списки недоступны»: просроченная обычная подписка
+		// или нулевой баланс купленных ГБ.
+		return closed, serviceBusinessError{err: controlplane.ErrForbidden, status: http.StatusForbidden}
+	}
+	nodes, err := s.flatCDNNodes()
+	if err != nil {
+		return closed, err
+	}
+	uuid := flatCDNCustomerUUID(s.cfg.FlatCDNUUIDSecret, entitlement.CustomerID)
+	if uuid == "" {
+		return closed, errFlatCDNUnavailable
+	}
+	profiles := make([]subgen.WhiteListNativeProfile, 0, len(nodes))
+	for index, node := range nodes {
+		label := strings.TrimSpace(node.Label)
+		if label == "" {
+			label = fmt.Sprintf("CDN %d", index+1)
+		}
+		profiles = append(profiles, subgen.WhiteListNativeProfile{
+			RouteID:               fmt.Sprintf("flat-cdn-%d", index+1),
+			Label:                 label,
+			TransportProfileID:    "flat-cdn",
+			TransportReleaseID:    "flat-cdn-2026-09",
+			CompatibilityPresetID: "incy-flat-1",
+			Address:               node.Address,
+			Port:                  node.Port,
+			ServerName:            node.ServerName,
+			Host:                  node.Host,
+			Path:                  node.Path,
+			ClientID:              uuid,
+			Encryption:            node.Encryption,
+		})
+	}
+	now := time.Now()
+	view := WhiteListNativeRuntimeView{
+		SchemaVersion: 1, IssuedAtUnix: now.Unix(), FreshUntilUnix: now.Add(4 * time.Second).Unix(),
+		ProjectionVersion: 1, DesiredGeneration: 1, Profiles: profiles,
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil || len(encoded)+1 > 64<<10 {
+		return closed, errFlatCDNUnavailable
+	}
+	return view, nil
+}
+
 // handleControlPlaneFlatCDNCharge charges already-metered bytes to the customer
 // that owns the reported credential. The origin meter sends only the credential
 // and a byte delta; entitlement and balances stay owned by the control plane.
@@ -308,11 +372,11 @@ func (s *ControlPlaneServer) flatCDNNodes() ([]subgen.WhiteListNode, error) {
 	return nodes, nil
 }
 
-// flatCDNXrayDocument renders every node separately and merges the arrays. When
-// more than one node survives validation, the selectable "Авто" profile is
-// prepended so Incy/Happ users can pick the fastest CDN origin automatically.
+// flatCDNShareLinkPayload is the encoded share-link subscription every
+// third-party client understands.
+// flatCDNXrayDocument renders every node separately and merges the arrays.
 func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
-	items := make([]map[string]any, 0, len(nodes))
+	merged := make([]json.RawMessage, 0, len(nodes))
 	for _, node := range nodes {
 		// The plural renderer is the one that works per node; it is called with a
 		// single node and the remark is replaced by the node label.
@@ -320,107 +384,25 @@ func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
 		if err != nil {
 			continue
 		}
-		var rendered []map[string]any
-		if json.Unmarshal(part, &rendered) != nil {
+		var items []map[string]any
+		if json.Unmarshal(part, &items) != nil {
 			continue
 		}
-		for _, item := range rendered {
+		for _, item := range items {
 			if label := strings.TrimSpace(node.Label); label != "" {
 				item["remarks"] = label
 			}
-			items = append(items, item)
+			encoded, encodeErr := json.Marshal(item)
+			if encodeErr != nil {
+				continue
+			}
+			merged = append(merged, encoded)
 		}
 	}
-	if len(items) == 0 {
+	if len(merged) == 0 {
 		return nil, errFlatCDNUnavailable
 	}
-	merged := make([]json.RawMessage, 0, len(items)+1)
-	if len(items) > 1 {
-		if auto, ok := flatCDNAutoItem(items); ok {
-			if encoded, err := json.Marshal(auto); err == nil {
-				merged = append(merged, encoded)
-			}
-		}
-	}
-	for _, item := range items {
-		encoded, err := json.Marshal(item)
-		if err != nil {
-			continue
-		}
-		merged = append(merged, encoded)
-	}
 	return json.Marshal(merged)
-}
-
-// flatCDNAutoItem builds the selectable "Авто" profile for the CDN subscription:
-// every validated node becomes a proxy-N outbound behind a least-ping balancer,
-// so the client switches to whichever CDN origin answers probes. The first
-// node's inbounds are reused verbatim; per-node validation stays as it was.
-func flatCDNAutoItem(items []map[string]any) (map[string]any, bool) {
-	outbounds := make([]any, 0, len(items)+2)
-	for index, item := range items {
-		rawOutbounds, ok := item["outbounds"].([]any)
-		if !ok {
-			continue
-		}
-		for _, rawOutbound := range rawOutbounds {
-			outbound, ok := rawOutbound.(map[string]any)
-			if !ok {
-				continue
-			}
-			tag, _ := outbound["tag"].(string)
-			if tag == "direct" || tag == "block-quic" {
-				continue
-			}
-			proxy := make(map[string]any, len(outbound))
-			for key, value := range outbound {
-				proxy[key] = value
-			}
-			proxy["tag"] = fmt.Sprintf("proxy-%d", index+1)
-			outbounds = append(outbounds, proxy)
-			break
-		}
-	}
-	if len(outbounds) == 0 {
-		return nil, false
-	}
-	outbounds = append(outbounds,
-		map[string]any{"tag": "direct", "protocol": "freedom"},
-		map[string]any{"tag": "block-quic", "protocol": "blackhole"},
-	)
-	auto := map[string]any{
-		"remarks":   "🇪🇺 ⚡ Авто",
-		"log":       map[string]any{"loglevel": "warning"},
-		"meta":      map[string]any{"serverDescription": "Сам выбирает самый быстрый сервер и уходит с упавшего"},
-		"outbounds": outbounds,
-		"routing": map[string]any{
-			"domainStrategy": "AsIs",
-			"balancers": []any{map[string]any{
-				"tag":      "auto",
-				"selector": []any{"proxy"},
-				"strategy": map[string]any{"type": "leastPing"},
-			}},
-			"rules": []any{
-				map[string]any{"type": "field", "network": "udp", "port": "443", "outboundTag": "block-quic"},
-				map[string]any{"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
-			},
-		},
-		"burstObservatory": map[string]any{
-			"subjectSelector": []any{"proxy"},
-			"pingConfig": map[string]any{
-				"destination": "http://www.gstatic.com/generate_204",
-				"interval":    "3m",
-				"sampling":    5,
-				"timeout":     "3s",
-			},
-		},
-	}
-	for _, key := range []string{"inbounds", "stats", "policy"} {
-		if value, ok := items[0][key]; ok {
-			auto[key] = value
-		}
-	}
-	return auto, true
 }
 
 func flatCDNShareLinkPayload(nodes []subgen.WhiteListNode) ([]byte, error) {
