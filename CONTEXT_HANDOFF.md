@@ -1,5 +1,25 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0Z. 20.09.2026: клиентская маршрутизация РФ (iPhone) — механизм и дырки
+
+Проблема владельца: на iPhone российские сервисы не открываются при включённом VPN (per-app там нет),
+клиенты постоянно включают/выключают. Обход РФ возможен **только на клиенте**: узлы флота в NL/CZ,
+поэтому серверный `direct`/`geoip:ru` отдаст в РФ-сервис иностранный IP и не поможет. Своё приложение
+уже обходит РФ (`subgen.GenerateSingbox`, `geosite-ru-available-only-inside.srs` + `geoip-ru.srs`), но
+форматы `?format=mihomo`, `?format=xray` и `?format=links` (Karing) RU-правил не несут.
+
+Решение: INCY/Happ принимают профиль маршрутизации **HTTP-заголовком ответа подписки** (`routing:` /
+`autorouting:`; живой референс — Akonit `routing: happ://routing/add/…`). Точка правки — nginx на primary,
+локации `/sub/` и `/cdn-sub/` (там уже `add_header announce/support-url/profile-web-page-url`).
+Плюс RU-правила в `backend/internal/subgen/mihomo.go` и `xray_json.go`, и перевод Karing с `?format=links`
+на mihomo-профиль. Профиль — `DirectSites: geosite:ru/category-gov-ru/yandex/vk/mailru`, `DirectIp: geoip:ru`,
+`DomainStrategy: IPIfNonMatch`, раздельные Remote/Domestic DNS, `useChunkFiles: true`.
+
+Подробности, доступ к узлам и план — в приватном репозитории памяти `maestro-memory`,
+`ru-routing-split-tunnel-2026-09-20.md`; дело `ru-routing-all-clients` — в OPEN.md. ORIENT.md — раздел 3а.
+
+---
+
 
 ## 1C. 19.09.2026: панель коммерции легла из-за раздутой БД rqlite — вылечено
 
