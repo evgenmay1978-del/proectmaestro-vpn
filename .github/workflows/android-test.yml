@@ -329,6 +329,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's historical default installs the removed `tools` package on
+          # current GitHub runners. SDK components are installed explicitly below.
+          packages: ''
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
