@@ -82,6 +82,8 @@ fun TvHomeScreen(
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit = {},
     onShareIos: () -> Unit = {},
+    onOpenServers: () -> Unit = {},
+    onOpenSupport: () -> Unit = {},
     onScanQr: () -> Unit = {},
     onEnterTrial: () -> Unit = {},
 ) {
@@ -157,6 +159,8 @@ fun TvHomeScreen(
                     onEnterCode = onEnterCode,
                     onSplitTunnel = onSplitTunnel,
                     onShareIos = onShareIos,
+                    onOpenServers = onOpenServers,
+                    onOpenSupport = onOpenSupport,
                     onScanQr = onScanQr,
                     onEnterTrial = onEnterTrial,
                 )

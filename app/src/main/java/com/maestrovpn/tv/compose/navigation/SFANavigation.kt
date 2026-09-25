@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.navigation
 
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -81,6 +82,7 @@ fun SFANavHost(
     groupsViewModel: GroupsViewModel? = null,
     modifier: Modifier = Modifier,
 ) {
+    val appContext = LocalContext.current
     // Hoisted ABOVE the NavHost so it survives the Home destination being disposed/recomposed
     // as the user navigates: have we already auto-opened the payment screen for the current
     // expired state? Keeps the user from being trapped on Buy (Back returns home and stays).
@@ -182,6 +184,10 @@ fun SFANavHost(
                     onEnterCode = { navController.navigate("claim") },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
+                    onOpenServers = { navController.navigate(Screen.Groups.route) },
+                    onOpenSupport = {
+                        olcCtx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/wapmixx")))
+                    },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
                 )
@@ -202,6 +208,10 @@ fun SFANavHost(
                     onEnterCode = { navController.navigate("claim") },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
+                    onOpenServers = { navController.navigate(Screen.Groups.route) },
+                    onOpenSupport = {
+                        appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/wapmixx")))
+                    },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
                 )

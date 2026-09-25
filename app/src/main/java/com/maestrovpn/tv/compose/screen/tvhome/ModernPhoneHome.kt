@@ -44,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -62,7 +61,6 @@ import com.maestrovpn.tv.compose.premium.PremiumGoldMuted
 import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.premium.PremiumTextMuted
 import com.maestrovpn.tv.compose.premium.PremiumWalnut
-import com.maestrovpn.tv.compose.theme.PlayfairFamily
 
 private val ModernInk = Color(0xFF080B0E)
 private val ModernPanel = Color(0xFF11171B)
@@ -96,6 +94,8 @@ internal fun ModernPhoneHome(
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit,
     onShareIos: () -> Unit,
+    onOpenServers: () -> Unit,
+    onOpenSupport: () -> Unit,
     onScanQr: () -> Unit,
     onEnterTrial: () -> Unit,
     modifier: Modifier = Modifier,
@@ -123,11 +123,7 @@ internal fun ModernPhoneHome(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF10191C), ModernInk, Color(0xFF050708)),
-                ),
-            )
+            .background(ModernInk)
             .testTag("premium-phone-home"),
     ) {
         Column(
@@ -148,19 +144,8 @@ internal fun ModernPhoneHome(
                 modifier = Modifier.testTag("premium-account"),
             )
             Spacer(Modifier.height(24.dp))
-            Text(
-                text = "MaestroVPN",
-                color = PremiumText,
-                fontFamily = PlayfairFamily,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Ваш интернет. Под защитой.",
-                color = PremiumTextMuted,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            Text("Подключение", color = PremiumText, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
+            Text("Защищённый доступ к интернету", color = PremiumTextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(18.dp))
             ModernConnectButton(
                 connected = connected,
@@ -204,17 +189,21 @@ internal fun ModernPhoneHome(
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 ModernSmallAction(Icons.Default.QrCode2, "QR-код", onScanQr, Modifier.weight(1f))
-                ModernSmallAction(Icons.Default.CloudDownload, "Пробный доступ", onEnterTrial, Modifier.weight(1f))
+                if (daysLeft == null || daysLeft <= 0) {
+                    ModernSmallAction(Icons.Default.CloudDownload, "Пробный доступ", onEnterTrial, Modifier.weight(1f))
+                } else {
+                    ModernSmallAction(Icons.Default.CalendarMonth, "Моя подписка", onBuy, Modifier.weight(1f))
+                }
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                ModernSmallAction(Icons.Default.HeadsetMic, "Поддержка", onShareIos, Modifier.weight(1f))
+                ModernSmallAction(Icons.Default.HeadsetMic, "Поддержка", onOpenSupport, Modifier.weight(1f))
                 ModernSmallAction(Icons.Default.Settings, "Раздельный туннель", onSplitTunnel, Modifier.weight(1f))
             }
             Spacer(Modifier.height(28.dp))
             ModernBottomNav(
                 onHome = {},
-                onServers = { onSelectProtocol(selected ?: protocols.firstOrNull() ?: "auto") },
+                onServers = onOpenServers,
                 onSubscription = onBuy,
                 onSettings = onSplitTunnel,
             )
@@ -291,7 +280,9 @@ private fun ModernConnectButton(connected: Boolean, connecting: Boolean, stateCo
 
 @Composable
 private fun ModernProtocolCard(protocols: List<String>, selected: String?, activeProtocol: String?, hasOlcrtcCreds: Boolean, olcrtcProvider: String?, onSelectProtocol: (String) -> Unit, onSelectOlcrtc: () -> Unit) {
+    val available = protocols.toSet() + if (hasOlcrtcCreds) setOf("olcrtc") else emptySet()
     val options = orderedHomeProtocols(protocols, includeOwnerProtocols = hasOlcrtcCreds)
+        .filter { it in available }
     Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(ModernPanel).border(1.dp, ModernLine, RoundedCornerShape(18.dp)).padding(16.dp).semantics { selectableGroup() }) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
@@ -301,10 +292,13 @@ private fun ModernProtocolCard(protocols: List<String>, selected: String?, activ
             Icon(Icons.Default.Speed, null, tint = PremiumEmerald, modifier = Modifier.size(22.dp))
         }
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            options.take(3).forEach { tag ->
-                val isSelected = (activeProtocol ?: selected) == tag
-                ProtocolChip(tag, isSelected, { onSelectProtocol(tag) }, Modifier.weight(1f))
+        options.chunked(3).forEach { rowOptions ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                rowOptions.forEach { tag ->
+                    val isSelected = selected == tag
+                    ProtocolChip(tag, isSelected, { onSelectProtocol(tag) }, Modifier.weight(1f))
+                }
+                repeat(3 - rowOptions.size) { Spacer(Modifier.weight(1f)) }
             }
         }
         if (hasOlcrtcCreds) {
