@@ -113,6 +113,33 @@ internal fun Mobile4DHome(
     onEnterTrial: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    ModernPhoneHome(
+        statusText = statusText,
+        connected = connected,
+        connecting = connecting,
+        protocols = protocols,
+        selected = selected,
+        activeProtocol = activeProtocol,
+        accountLogin = accountLogin,
+        daysLeft = daysLeft,
+        accountExpires = accountExpires,
+        hasSubProfile = hasSubProfile,
+        hasOlcrtcCreds = hasOlcrtcCreds,
+        olcrtcProvider = olcrtcProvider,
+        onToggleConnect = onToggleConnect,
+        onSelectProtocol = onSelectProtocol,
+        onSelectOlcrtc = onSelectOlcrtc,
+        onBuy = onBuy,
+        onEnterCode = onEnterCode,
+        onSplitTunnel = onSplitTunnel,
+        onShareIos = onShareIos,
+        onScanQr = onScanQr,
+        onEnterTrial = onEnterTrial,
+        modifier = modifier,
+    )
+    return
+
+    @Suppress("UNREACHABLE_CODE")
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
