@@ -315,7 +315,7 @@ private fun ModernProtocolCard(protocols: List<String>, selected: String?, activ
 
 @Composable
 private fun ProtocolChip(tag: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) PremiumEmerald.copy(alpha = 0.18f) else ModernPanelRaised).border(1.dp, if (selected) PremiumEmerald.copy(alpha = 0.7f) else ModernLine, RoundedCornerShape(12.dp)).selectable(selected, Role.RadioButton, onClick).padding(vertical = 11.dp, horizontal = 4.dp)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) PremiumEmerald.copy(alpha = 0.18f) else ModernPanelRaised).border(1.dp, if (selected) PremiumEmerald.copy(alpha = 0.7f) else ModernLine, RoundedCornerShape(12.dp)).selectable(selected = selected, role = Role.RadioButton, onClick = onClick).padding(vertical = 11.dp, horizontal = 4.dp)) {
         Icon(if (tag == "auto") Icons.Default.Speed else Icons.Default.Shield, null, tint = if (selected) PremiumEmerald else PremiumGoldMuted, modifier = Modifier.size(18.dp))
         Text(protocolLabel(tag), color = if (selected) PremiumText else PremiumTextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
     }
@@ -357,11 +357,4 @@ private fun ModernNavItem(icon: ImageVector, label: String, selected: Boolean, o
         Icon(icon, null, tint = if (selected) PremiumEmerald else PremiumTextMuted, modifier = Modifier.size(20.dp))
         Text(label, color = if (selected) PremiumText else PremiumTextMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
     }
-}
-
-private fun daysWord(days: Int): String = when {
-    days % 100 in 11..14 -> "дней"
-    days % 10 == 1 -> "день"
-    days % 10 in 2..4 -> "дня"
-    else -> "дней"
 }
