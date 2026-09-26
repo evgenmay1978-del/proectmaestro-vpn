@@ -102,8 +102,6 @@ jobs:
                       print(abi, name, digest, note)
           PY
           sha256sum app/src/main/jniLibs/*/*.so
-          PY
-          sha256sum app/src/main/jniLibs/*/*.so
       - name: Reuse exact libbox artifact
         env:
           GH_TOKEN: ${{ github.token }}
