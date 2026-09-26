@@ -3,8 +3,8 @@ package com.maestrovpn.tv.whitelist
 import android.os.SystemClock
 import android.util.Log
 import com.maestrovpn.tv.Application
+import android.os.Build
 import java.io.File
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -73,17 +73,28 @@ internal object XhttpProcess {
                 payload = file
                 STATUS_OK
             } else {
-                runCatching { started.destroyForcibly() }
+                kill(started)
                 Log.e(TAG, "child did not report ready")
                 STATUS_START_FAILED
             }
         } catch (e: Exception) {
-            runCatching { started?.destroyForcibly() }
+            started?.let { kill(it) }
             Log.e(TAG, "start failed: " + e.message)
             STATUS_START_FAILED
         } finally {
             runCatching { file.delete() }
         }
+    }
+
+    // minSdk 23 — Process.isAlive()/waitFor(timeout)/destroyForcibly() are API 26+, so liveness is
+    // probed the portable way the other child-process managers in this app use: exitValue() throws
+    // while the child still runs.
+    private fun alive(running: Process): Boolean =
+        try { running.exitValue(); false } catch (_: IllegalThreadStateException) { true }
+
+    private fun kill(running: Process) {
+        runCatching { running.destroy() }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) runCatching { running.destroyForcibly() }
     }
 
     /** SIGTERM (the child stops the engine and exits); SIGKILL only if it overstays. */
@@ -96,7 +107,9 @@ internal object XhttpProcess {
         payload = null
         return try {
             running.destroy()
-            if (!running.waitFor(STOP_TIMEOUT_MS, TimeUnit.MILLISECONDS)) running.destroyForcibly()
+            val deadline = SystemClock.elapsedRealtime() + STOP_TIMEOUT_MS
+            while (alive(running) && SystemClock.elapsedRealtime() < deadline) Thread.sleep(READY_POLL_MS)
+            if (alive(running)) kill(running)
             STATUS_OK
         } catch (e: Exception) {
             Log.e(TAG, "stop failed: " + e.message)
@@ -119,7 +132,7 @@ internal object XhttpProcess {
         val deadline = SystemClock.elapsedRealtime() + READY_TIMEOUT_MS
         while (SystemClock.elapsedRealtime() < deadline) {
             if (seen.get()) return true
-            if (!running.isAlive) return false
+            if (!alive(running)) return false
             Thread.sleep(READY_POLL_MS)
         }
         return seen.get()
