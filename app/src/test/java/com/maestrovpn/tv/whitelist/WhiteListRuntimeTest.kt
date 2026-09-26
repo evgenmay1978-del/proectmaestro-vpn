@@ -9,7 +9,30 @@ import org.junit.Test
 
 class WhiteListRuntimeTest {
     private fun body(ttl: Int = 5): String = """{"schema_version":1,"issued_at_unix":100,"fresh_until_unix":${100 + ttl},"projection_version":7,"desired_generation":8,"profiles":[${profile()}]}"""
-    private fun profile(): String = """{"route_id":"${"a".repeat(64)}","label":"CDN Test","transport_profile_id":"transport-1","transport_release_id":"release-1","compatibility_preset_id":"preset-1","address":"cdn.example.com","port":443,"server_name":"cdn.example.com","host":"cdn.example.com","path":"/transport","client_id":"00000000-0000-4000-8000-000000000001","encryption":"mlkem768x25519plus.native.0rtt.${"A".repeat(1579)}"}"""
+    private fun profile(
+        routeId: String = "a".repeat(64),
+        path: String = "/transport",
+        label: String = "CDN Test",
+    ): String = """{"route_id":"$routeId","label":"$label","transport_profile_id":"transport-1","transport_release_id":"release-1","compatibility_preset_id":"preset-1","address":"cdn.example.com","port":443,"server_name":"cdn.example.com","host":"cdn.example.com","path":"$path","client_id":"00000000-0000-4000-8000-000000000001","encryption":"mlkem768x25519plus.native.0rtt.${"A".repeat(1579)}"}"""
+
+    @Test fun acceptsOneSharedCredentialAcrossDistinctFlatCdnRoutes() {
+        // The flat CDN issues ONE credential per customer and every edge of that customer
+        // reuses it (the origin meters and gates traffic by that credential), while each
+        // route stays distinct by route_id and label. Before this, the distinct-clientId
+        // rule made the app discard the whole document, so the CDN tab stayed empty for
+        // every paying customer even though the document was otherwise valid.
+        val shared = listOf(
+            profile(routeId = "1".repeat(64), path = "/es", label = "Испания"),
+            profile(routeId = "2".repeat(64), path = "/cz", label = "Чехия"),
+            profile(routeId = "3".repeat(64), path = "/nl", label = "Нидерланды"),
+            profile(routeId = "4".repeat(64), path = "/de", label = "Германия"),
+        ).joinToString(",")
+        val document = """{"schema_version":1,"issued_at_unix":100,"fresh_until_unix":105,"projection_version":1,"desired_generation":1,"profiles":[$shared]}"""
+        val runtime = requireNotNull(WhiteListRuntimeClient.parse(document, 1_000, 1_001))
+        assertEquals(4, runtime.profiles.size)
+        assertEquals(1, runtime.profiles.map { it.clientId }.distinct().size)
+        assertEquals(4, runtime.profiles.map { it.tag }.distinct().size)
+    }
 
     @Test fun leaseStartsBeforeRequestAndCannotBeExtendedByArrival() {
         val runtime = requireNotNull(WhiteListRuntimeClient.parse(body(), 1_000, 2_000))

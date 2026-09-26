@@ -160,7 +160,12 @@ internal object WhiteListRuntimeClient {
         }
         require(profiles.map { it.routeId }.distinct().size == profiles.size)
         require(profiles.map { it.label }.distinct().size == profiles.size)
-        require(profiles.map { it.clientId }.distinct().size == profiles.size)
+        // The credential is deliberately NOT required to be unique per route. The flat CDN
+        // issues ONE credential per customer and every edge of that customer reuses it (the
+        // origin meters and gates traffic by it), while the routes stay distinct by route_id
+        // and label. Demanding a distinct client_id per profile rejected the WHOLE document,
+        // so the CDN tab stayed empty for every paying customer (2026-09-26) even though the
+        // document was otherwise valid.
         WhiteListRuntime(projection, generation, expires, profiles)
     } catch (_: Exception) { null }
 
