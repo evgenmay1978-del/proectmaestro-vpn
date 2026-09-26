@@ -25,7 +25,7 @@ internal object WhiteListConfig {
     }
 
     /** Only an explicitly selected CDN session uses this ephemeral variant. */
-    fun inject(base: String, route: WhiteListRuntimeRoute, port: Int, user: String, pass: String): String {
+    fun inject(base: String, route: WhiteListRuntimeRoute, edge: String, port: Int, user: String, pass: String): String {
         require(port in 1024..65_535 && user.isNotBlank() && pass.isNotBlank() && user != pass)
         val root = Json.parseToJsonElement(base) as JsonObject
         val outbounds = root["outbounds"] as JsonArray
@@ -51,8 +51,30 @@ internal object WhiteListConfig {
             // UDP stays inside the same authenticated TCP SOCKS association; no UDP listener.
             put("udp_over_tcp", buildJsonObject { put("enabled", true); put("version", 2) })
         }
-        return JsonObject(root + ("outbounds" to JsonArray(updated + socks))).toString()
+        return JsonObject(
+            root + ("outbounds" to JsonArray(updated + socks)) + ("route" to edgeDirectRoute(root, edge)),
+        ).toString()
     }
+
+    /**
+     * The XHTTP client runs as a separate process (XhttpProcess) and therefore cannot call
+     * VpnService.protect(), so its own connection to the CDN edge would otherwise be captured by
+     * the tun and loop back into this same outbound. One DIRECT rule for the resolved edge
+     * address, placed above every other rule, keeps that connection outside the tunnel.
+     */
+    private fun edgeDirectRoute(root: JsonObject, edge: String): JsonObject {
+        require(IPV4.matches(edge)) { "CDN edge address must be a literal IPv4" }
+        val current = root["route"] as? JsonObject ?: JsonObject(emptyMap())
+        val rules = current["rules"] as? JsonArray ?: JsonArray(emptyList())
+        val rule = buildJsonObject {
+            put("ip_cidr", JsonArray(listOf(JsonPrimitive("$edge/32"))))
+            put("action", JsonPrimitive("route"))
+            put("outbound", JsonPrimitive("direct"))
+        }
+        return JsonObject(current + ("rules" to JsonArray(listOf(rule) + rules)))
+    }
+
+    private val IPV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
 
     fun selectOrdinary(base: String, tag: String): String {
         require(!tag.startsWith("cdn:"))

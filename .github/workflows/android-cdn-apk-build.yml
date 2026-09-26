@@ -58,63 +58,22 @@ jobs:
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cdn-apk-inputs"
-      - name: Reuse the native libraries from the published fleet release
-        # The pinned fleet-159 artifact this step originally copied from was removed by the canary
-        # cleanup on 2026-09-26, and a REBUILT libmaestro_xhttp.so aborted at CDN session start on
-        # the owner's phone (SIGABRT inside libmaestro_xhttp.so, 26.09.2026) — so the libraries are
-        # copied, never rebuilt. The reference is the published fleet release APK: the exact build
-        # the clients install, produced by this same pipeline from the same pinned artifact. The
-        # xhttp hash is asserted against the value that already ships in the clients' APK, so a
-        # silent drift fails the build instead of reaching devices.
-        if: ${{ inputs.emulator_only != true }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp
-          mkdir -p "$RUNNER_TEMP/fleet-reference"
-          gh release download --pattern '*.apk' --dir "$RUNNER_TEMP/fleet-reference" --clobber
-          reference=$(find "$RUNNER_TEMP/fleet-reference" -maxdepth 1 -type f -name '*.apk' | head -1)
-          [ -n "$reference" ] || { echo "::error::no published APK to reuse the native libraries from"; exit 1; }
-          python3 - <<'PY'
-          import hashlib, os, pathlib, zipfile
-          expected = {
-              'arm64-v8a/libmaestro_xhttp.so': 'f1ad336b67df4257469a969873af61dcbdcda6acff56bc98d962317af6ffd5ca',
-              'armeabi-v7a/libmaestro_xhttp.so': 'a4b05e592634d604414df95cd5202b89092687ae7d19d759a7c01e33083262a8',
-          }
-          root = pathlib.Path(os.environ['RUNNER_TEMP'], 'fleet-reference')
-          apks = sorted(p for p in root.glob('*.apk'))
-          if not apks: raise SystemExit('no_reference_apk')
-          with zipfile.ZipFile(apks[0]) as z:
-              for abi in ('arm64-v8a', 'armeabi-v7a'):
-                  target = pathlib.Path('app/src/main/jniLibs') / abi
-                  target.mkdir(parents=True, exist_ok=True)
-                  for name in ('libmaestro_xhttp.so', 'libolcrtc.so'):
-                      payload = z.read(f'lib/{abi}/{name}')
-                      (target / name).write_bytes(payload)
-                      digest = hashlib.sha256(payload).hexdigest()
-                      key = f'{abi}/{name}'
-                      note = ''
-                      if key in expected:
-                          if digest != expected[key]:
-                              raise SystemExit('native_library_mismatch ' + key)
-                          note = ' == shipped'
-                      print(abi, name, digest, note)
-          PY
-          sha256sum app/src/main/jniLibs/*/*.so
-      - name: Build the child-process XHTTP client and smoke-test it
-        # 26.09.2026: the in-process C-shared library crashes the app with SIGSEGV on the first
-        # CDN session start (two Go runtimes in one address space: libbox go1.25.11 + xhttp
-        # go1.26.7 — the coexistence android-xhttp/README.md called an unproven device gate).
-        # The owner chose the pattern the app already used for olcRTC/WDTT: same engine, shipped
-        # as a separate PIE executable. This step proves it works: a linux/amd64 build is started
-        # with a synthetic payload on the runner, the loopback SOCKS port must accept connections,
-        # and SIGTERM must stop it; then the Android PIE binaries are built for both ABIs.
+      - name: Build the XHTTP child-process binary from the guarded source
+        # 26.09.2026: the in-process C-shared library crashed the app with SIGSEGV on the first CDN
+        # session start — libbox.so (go1.25.11) and libmaestro_xhttp.so (go1.26.7) are two Go
+        # runtimes in one address space, the coexistence android-xhttp/README.md has always called
+        # an unproven device gate (reproduced with the shipped library and with a -Wl,-Bsymbolic
+        # rebuild on the owner phone). The owner decision: run XHTTP as a separate process, exactly
+        # the pattern olcRTC/WDTT used. So the engine is built here as a PIE executable for both
+        # ABIs and packed into jniLibs (useLegacyPackaging extracts it so the app can exec it); no
+        # native binary is copied from any released APK any more, and the guard below still proves
+        # android-xhttp matches the reviewed source.
         if: ${{ inputs.emulator_only != true }}
         env:
           CGO_ENABLED: '1'
         run: |
           set -euo pipefail
+          git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp
           mkdir -p "$RUNNER_TEMP/xhttp-cli"
           (cd android-xhttp && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags xhttpcli \
             -mod=readonly -trimpath -o "$RUNNER_TEMP/xhttp-cli/maestro-xhttp-linux" .)
@@ -151,12 +110,13 @@ jobs:
             else
               export GOOS=android GOARCH=arm GOARM=7 CC="$toolchain/armv7a-linux-androideabi23-clang"
             fi
-            mkdir -p "$RUNNER_TEMP/xhttp-cli/$abi"
+            mkdir -p "$RUNNER_TEMP/xhttp-cli/$abi" "app/src/main/jniLibs/$abi"
             (cd android-xhttp && go build -tags xhttpcli -buildmode=pie -trimpath \
               -ldflags='-s -w -checklinkname=0' -o "$RUNNER_TEMP/xhttp-cli/$abi/libmaestro_xhttp.so" .)
+            cp "$RUNNER_TEMP/xhttp-cli/$abi/libmaestro_xhttp.so" "app/src/main/jniLibs/$abi/libmaestro_xhttp.so"
           done
-          sha256sum "$RUNNER_TEMP/xhttp-cli"/*/libmaestro_xhttp.so
-          file "$RUNNER_TEMP/xhttp-cli"/*/libmaestro_xhttp.so
+          sha256sum app/src/main/jniLibs/*/libmaestro_xhttp.so
+          file app/src/main/jniLibs/*/libmaestro_xhttp.so
       - name: Reuse exact libbox artifact
         env:
           GH_TOKEN: ${{ github.token }}

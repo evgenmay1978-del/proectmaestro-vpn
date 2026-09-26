@@ -4,7 +4,6 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.bg.DefaultNetworkListener
@@ -30,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /** Only BoxService owns this capability; the foreground preview cannot renew a session. */
-internal class WhiteListSession(private val vpn: VPNService, private val onExpired: (WhiteListSelection.Request, String?) -> Unit) : SocketProtector {
+internal class WhiteListSession(private val vpn: VPNService, private val onExpired: (WhiteListSelection.Request, String?) -> Unit) {
     companion object {
         private val ids = AtomicInteger()
         private val expiryExecutor = Executors.newSingleThreadScheduledExecutor { Thread(it, "cdn-lease-expiry").apply { isDaemon = true } }
@@ -81,7 +80,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         // Native is a single engine. A replacement cannot race the old engine's stop.
         stopPending?.get(2, TimeUnit.SECONDS)
         if (DeviceFormFactor.isTelevision(vpn) || !request.tag.startsWith("cdn:") ||
-            !WhiteListSelection.matches(request) || SystemClock.elapsedRealtime() - request.requestedAt !in 0..60_000 || !XhttpNative.available()) return null
+            !WhiteListSelection.matches(request) || SystemClock.elapsedRealtime() - request.requestedAt !in 0..60_000 || !XhttpProcess.available()) return null
         val network = network() ?: return null
         val subscription = ProfileManager.get(request.profileId)?.typed?.remoteURL ?: return null
         val initialFetchStarted = SystemClock.elapsedRealtime()
@@ -101,7 +100,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
             android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
         val user = credential()
         val pass = credential()
-        val content = WhiteListConfig.inject(base, route, port, user, pass)
+        val content = WhiteListConfig.inject(base, route, address, port, user, pass)
         val live = Permit(id, request, network, route, runtime.desiredGeneration, runtime.deadlineMillis,
             WhiteListConfig.ordinaryTag(base))
         permit.set(live)
@@ -117,10 +116,10 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         }
         armExpiry(live)
         val payload = WhiteListConfig.payload(route, address, port, user, pass)
-        val result = try { XhttpNative.nativeStart(id, payload, this) } finally { payload.fill(0) }
+        val result = try { XhttpProcess.start(id, payload) } finally { payload.fill(0) }
         if (result != 0 || !valid(live)) {
             expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
-            stopPending = stopExecutor.submit { XhttpNative.nativeStop(id) }
+            stopPending = stopExecutor.submit { XhttpProcess.stop(id) }
             return null
         }
         renewal = scope.launch {
@@ -184,23 +183,6 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         if (callback != null) runCatching { Application.connectivity.unregisterNetworkCallback(callback) }
     }
 
-    override fun protectSocket(sessionId: Long, fd: Int): Boolean {
-        val live = permit.get() ?: return false
-        if (sessionId != live.id || fd < 0) return false
-        if (!valid(live)) {
-            expire(live, restoreOrdinary = network() != live.network)
-            return false
-        }
-        return try {
-            if (!vpn.protect(fd)) false else {
-                ParcelFileDescriptor.fromFd(fd).use { live.network.bindSocket(it.fileDescriptor) }
-                valid(live).also { valid ->
-                    if (!valid) expire(live, restoreOrdinary = network() != live.network)
-                }
-            }
-        } catch (_: Exception) { false }
-    }
-
     private fun armExpiry(live: Permit) {
         expiryExecutor.schedule({
             synchronized(live) {
@@ -212,7 +194,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         if (!permit.compareAndSet(live, null)) return
         renewal?.cancel()
         WhiteListSelection.removeInvalidation(invalidated)
-        stopPending = stopExecutor.submit { XhttpNative.nativeStop(live.id) }
+        stopPending = stopExecutor.submit { XhttpProcess.stop(live.id) }
         stopWatchingWifi(live)
         listenerKey.compareAndSet(live, null)
         stopExecutor.execute { runBlocking { DefaultNetworkListener.stop(live) } }
@@ -223,7 +205,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         renewal?.cancel()
         renewal = null
         if (live != null) {
-            stopPending = stopExecutor.submit { XhttpNative.nativeStop(live.id) }
+            stopPending = stopExecutor.submit { XhttpProcess.stop(live.id) }
             stopWatchingWifi(live)
         }
         WhiteListSelection.removeInvalidation(invalidated)

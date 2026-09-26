@@ -8,11 +8,12 @@ class WhiteListConfigTest {
     private val route = WhiteListRuntimeRoute("a".repeat(64), "CDN Test", "transport", "release", "preset",
         "cdn.example.com", 443, "cdn.example.com", "cdn.example.com", "/transport",
         "00000000-0000-4000-8000-000000000001", "mlkem768x25519plus.native.0rtt." + "A".repeat(1579))
+    private val EDGE = "188.72.111.7"
     private val base = """{"dns":{"strategy":"prefer_ipv4"},"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","ordinary"],"default":"auto"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}]}"""
 
     @Test fun onlyExplicitSelectorGetsCdnAndOrdinaryAutomaticSetIsUnchanged() {
         val before = Json.parseToJsonElement(base).jsonObject
-        val after = Json.parseToJsonElement(WhiteListConfig.inject(base, route, 12345, "user", "pass")).jsonObject
+        val after = Json.parseToJsonElement(WhiteListConfig.inject(base, route, EDGE, 12345, "user", "pass")).jsonObject
         assertEquals(before["dns"], after["dns"])
         val original = before["outbounds"]!!.jsonArray
         val outbounds = after["outbounds"]!!.jsonArray
@@ -30,13 +31,27 @@ class WhiteListConfigTest {
         assertEquals("auto", Json.parseToJsonElement(base).jsonObject["outbounds"]!!.jsonArray[0].jsonObject["default"]!!.jsonPrimitive.content)
     }
 
+    /**
+     * The XHTTP client is a separate process and cannot call VpnService.protect(), so the edge
+     * address of the selected CDN route must leave through "direct" before any other rule — that
+     * is what keeps the child's own connection out of the tun instead of looping into itself.
+     */
+    @Test fun cdnEdgeAddressIsRoutedDirectAboveEveryOtherRule() {
+        val after = Json.parseToJsonElement(WhiteListConfig.inject(base, route, EDGE, 12345, "user", "pass")).jsonObject
+        val rule = after["route"]!!.jsonObject["rules"]!!.jsonArray.first().jsonObject
+        assertEquals(listOf("$EDGE/32"), rule["ip_cidr"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("route", rule["action"]!!.jsonPrimitive.content)
+        assertEquals("direct", rule["outbound"]!!.jsonPrimitive.content)
+        assertTrue(runCatching { WhiteListConfig.inject(base, route, "not-an-ip", 12345, "user", "pass") }.isFailure)
+    }
+
     @Test fun explicitOrdinaryRestoreHasNoNativeOutbound() {
         val restored = Json.parseToJsonElement(WhiteListConfig.selectOrdinary(base, "ordinary")).jsonObject["outbounds"]!!.jsonArray
         assertEquals(3, restored.size)
         assertEquals("ordinary", restored[0].jsonObject["default"]!!.jsonPrimitive.content)
         assertTrue(runCatching { WhiteListConfig.selectOrdinary(base, route.tag) }.isFailure)
         assertTrue(runCatching { WhiteListConfig.selectOrdinary(base, "missing") }.isFailure)
-        assertTrue(runCatching { WhiteListConfig.inject(base.replace("\"select\"", "\"other\""), route, 12345, "user", "pass") }.isFailure)
+        assertTrue(runCatching { WhiteListConfig.inject(base.replace("\"select\"", "\"other\""), route, EDGE, 12345, "user", "pass") }.isFailure)
     }
 
     @Test fun nativePayloadUsesPublishedFieldsAndResolvedAddressOnly() {
