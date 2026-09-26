@@ -71,19 +71,15 @@ func TestFlatCDNNativeProfilesSatisfyTheClientRouteIDContract(t *testing.T) {
 		t.Fatal("a cosmetic relabel changed the route identity")
 	}
 
-	// A different transport path or credential is a different route.
-	for name, node := range map[string]subgen.WhiteListNode{
-		"path":     flatCDNTestNode(spain.Label, "/static/main/video/segment.ts/00000000/es"),
-		"uuid":     flatCDNTestNode(spain.Label, spain.Path),
-	} {
-		candidate := node
-		if name == "uuid" {
-			candidate.ClientID = "11111111-1111-4111-8111-111111111111"
-		}
-		changed, err := flatCDNNativeProfiles([]subgen.WhiteListNode{candidate}, uuid)
-		if err != nil || changed[0].RouteID == profiles[0].RouteID {
-			t.Fatalf("%s change reused the previous route identity", name)
-		}
+	// A different transport path is a different route.
+	changedPath, err := flatCDNNativeProfiles([]subgen.WhiteListNode{flatCDNTestNode(spain.Label, "/static/main/video/segment.ts/00000000/es")}, uuid)
+	if err != nil || changedPath[0].RouteID == profiles[0].RouteID {
+		t.Fatal("a changed transport path reused the previous route identity")
+	}
+	// Another customer's credential is a different route on the same node.
+	changedCustomer, err := flatCDNNativeProfiles([]subgen.WhiteListNode{spain}, "11111111-1111-4111-8111-111111111111")
+	if err != nil || changedCustomer[0].RouteID == profiles[0].RouteID {
+		t.Fatal("another credential reused the previous route identity")
 	}
 
 	// A node without a label still gets a client-valid label, not an empty one.
