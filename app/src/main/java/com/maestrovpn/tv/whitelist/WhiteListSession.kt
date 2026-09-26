@@ -122,7 +122,10 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         // it with the server's strict deadline, and a lease that is never renewed still ends the
         // session here — valid(live) stays the single decision point.
         val startupDeadline = SystemClock.elapsedRealtime() + firstRenewalGraceMs
-        if (live.deadline < startupDeadline) live.deadline = startupDeadline
+        val stretched = live.deadline < startupDeadline
+        if (stretched) live.deadline = startupDeadline
+        Log.d("WhiteListSession", "session id=" + id + " leaseInMs=" + (live.deadline - SystemClock.elapsedRealtime()) +
+            " stretched=" + stretched + " childAvailable=" + XhttpProcess.available())
         armExpiry(live)
         // The native client is a separate process now: bringing it up takes a second or two, while
         // the authorization lease stays only a few seconds long (fresh_until_unix - issued_at_unix is
@@ -208,13 +211,22 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
     }
 
     private fun armExpiry(live: Permit) {
+        val delayMs = (live.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+        Log.d("WhiteListSession", "armExpiry id=" + live.id + " in " + delayMs + "ms")
         expiryExecutor.schedule({
             synchronized(live) {
                 if (permit.get() === live && !valid(live)) expire(live, restoreOrdinary = network() != live.network)
             }
-        }, (live.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
+        }, delayMs, TimeUnit.MILLISECONDS)
     }
     private fun expire(live: Permit, restoreOrdinary: Boolean = false) {
+        // Which component actually ended the session: the lease itself, the selection or the network.
+        // Without this the only visible symptom is an unexplained disconnect (26.09.2026).
+        Log.d("WhiteListSession", "expire id=" + live.id +
+            " leaseInMs=" + (live.deadline - SystemClock.elapsedRealtime()) +
+            " selectionMatches=" + WhiteListSelection.matches(live.request) +
+            " sameNetwork=" + (network() == live.network) +
+            " restoreOrdinary=" + restoreOrdinary)
         if (!permit.compareAndSet(live, null)) return
         renewal?.cancel()
         WhiteListSelection.removeInvalidation(invalidated)

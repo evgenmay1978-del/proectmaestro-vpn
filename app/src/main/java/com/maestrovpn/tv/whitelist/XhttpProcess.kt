@@ -54,10 +54,19 @@ internal object XhttpProcess {
     @Synchronized
     fun start(id: Long, bytes: ByteArray): Int {
         if (id <= 0 || id > Int.MAX_VALUE || bytes.isEmpty() || bytes.size > MAX_PAYLOAD_BYTES) {
+            Log.e(TAG, "invalid input id=" + id + " bytes=" + bytes.size)
             return STATUS_INVALID_INPUT
         }
-        if (child != null) return STATUS_BUSY
-        val bin = binary() ?: return STATUS_SETUP_FAILED
+        if (child != null) {
+            Log.e(TAG, "busy id=" + id + " running=" + session)
+            return STATUS_BUSY
+        }
+        val bin = binary()
+        if (bin == null) {
+            Log.e(TAG, "child binary missing under " + Application.application.applicationInfo.nativeLibraryDir)
+            return STATUS_SETUP_FAILED
+        }
+        Log.d(TAG, "start id=" + id + " bytes=" + bytes.size + " bin=" + bin.absolutePath)
         val file = File(Application.application.filesDir, "xhttp-payload.json")
         var started: Process? = null
         return try {
@@ -71,6 +80,7 @@ internal object XhttpProcess {
                 child = started
                 session = id
                 payload = file
+                Log.d(TAG, "ready id=" + id + " pid=" + runCatching { started.pid() }.getOrNull())
                 STATUS_OK
             } else {
                 kill(started)
