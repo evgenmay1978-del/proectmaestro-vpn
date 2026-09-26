@@ -102,6 +102,61 @@ jobs:
                       print(abi, name, digest, note)
           PY
           sha256sum app/src/main/jniLibs/*/*.so
+      - name: Build the child-process XHTTP client and smoke-test it
+        # 26.09.2026: the in-process C-shared library crashes the app with SIGSEGV on the first
+        # CDN session start (two Go runtimes in one address space: libbox go1.25.11 + xhttp
+        # go1.26.7 — the coexistence android-xhttp/README.md called an unproven device gate).
+        # The owner chose the pattern the app already used for olcRTC/WDTT: same engine, shipped
+        # as a separate PIE executable. This step proves it works: a linux/amd64 build is started
+        # with a synthetic payload on the runner, the loopback SOCKS port must accept connections,
+        # and SIGTERM must stop it; then the Android PIE binaries are built for both ABIs.
+        if: ${{ inputs.emulator_only != true }}
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/xhttp-cli"
+          (cd android-xhttp && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags xhttpcli \
+            -mod=readonly -trimpath -o "$RUNNER_TEMP/xhttp-cli/maestro-xhttp-linux" .)
+          python3 - <<'PY'
+          import base64, json, os, pathlib
+          material = base64.urlsafe_b64encode(bytes(1184)).decode().rstrip('=')
+          cred = lambda ch: base64.urlsafe_b64encode(ch * 32).decode().rstrip('=')
+          payload = {
+              'schema': 1, 'address': '188.72.111.7', 'port': 443,
+              'server_name': 'cdn-test.wapmixx.ru', 'host': 'cdn-test.wapmixx.ru',
+              'path': '/static/main/video/segment.ts/2c988fd8/es',
+              'client_id': 'beb6297b-a9cf-4903-af8a-c45d60b585cc',
+              'encryption': 'mlkem768x25519plus.native.0rtt.' + material,
+              'socks_port': 18899, 'socks_user': cred(b'u'), 'socks_pass': cred(b'p'),
+          }
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'xhttp-cli', 'payload.json').write_text(json.dumps(payload))
+          PY
+          "$RUNNER_TEMP/xhttp-cli/maestro-xhttp-linux" \
+            -payload "$RUNNER_TEMP/xhttp-cli/payload.json" -session 7 \
+            > "$RUNNER_TEMP/xhttp-cli/child.log" 2>&1 &
+          child=$!
+          for _ in $(seq 1 40); do grep -q ready "$RUNNER_TEMP/xhttp-cli/child.log" && break; sleep 0.5; done
+          grep -q ready "$RUNNER_TEMP/xhttp-cli/child.log" || { cat "$RUNNER_TEMP/xhttp-cli/child.log"; exit 1; }
+          python3 - <<'PY'
+          import socket
+          with socket.create_connection(('127.0.0.1', 18899), timeout=5):
+              print('socks port 18899 accepts connections')
+          PY
+          kill -TERM "$child"; wait "$child" || true
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for abi in arm64-v8a armeabi-v7a; do
+            if [ "$abi" = arm64-v8a ]; then
+              export GOOS=android GOARCH=arm64 CC="$toolchain/aarch64-linux-android23-clang"; unset GOARM
+            else
+              export GOOS=android GOARCH=arm GOARM=7 CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            mkdir -p "$RUNNER_TEMP/xhttp-cli/$abi"
+            (cd android-xhttp && go build -tags xhttpcli -buildmode=pie -trimpath \
+              -ldflags='-s -w -checklinkname=0' -o "$RUNNER_TEMP/xhttp-cli/$abi/libmaestro_xhttp.so" .)
+          done
+          sha256sum "$RUNNER_TEMP/xhttp-cli"/*/libmaestro_xhttp.so
+          file "$RUNNER_TEMP/xhttp-cli"/*/libmaestro_xhttp.so
       - name: Reuse exact libbox artifact
         env:
           GH_TOKEN: ${{ github.token }}

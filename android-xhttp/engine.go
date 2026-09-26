@@ -82,8 +82,6 @@ func init() {
 	internet.UseAlternativeSystemDialer(&liveEngine.dialer)
 }
 
-func main() {}
-
 func startXray(ctx context.Context, raw []byte) (runningInstance, error) {
 	config, err := core.LoadConfig("json", bytes.NewReader(raw))
 	if err != nil {
