@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.compose.model.isProtocolSelectionAllowed
 import com.maestrovpn.tv.compose.model.isProtocolVisibleInUi
+import com.maestrovpn.tv.compose.model.visibleProtocolTags
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -147,7 +148,7 @@ fun SFANavHost(
                     connected = connected,
                     connecting = serviceStatus == Status.Starting,
                     // Each home filters before its fallback so a hidden-only profile stays empty.
-                    protocols = ((selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
+                    protocols = (visibleProtocolTags(selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
                     selected = groupsUi.cdnSelected ?: selectGroup?.selected?.takeUnless { it.startsWith("cdn:") && groupsUi.cdnActive != it },
                     activeProtocol = groupsUi.cdnActive ?: activeProtocol?.takeUnless { it.startsWith("cdn:") },
                     accountLogin = accountInfo.login,
