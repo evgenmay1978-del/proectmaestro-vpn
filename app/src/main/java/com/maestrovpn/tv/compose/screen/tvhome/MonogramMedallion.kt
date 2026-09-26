@@ -32,8 +32,8 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
     val transition = rememberInfiniteTransition(label = "monogram")
     // Soft breathing of the halo: slow, wide, low amplitude.
     val haloAlpha by transition.animateFloat(
-        initialValue = 0.40f,
-        targetValue = 0.78f,
+        initialValue = 0.32f,
+        targetValue = 0.58f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse,
@@ -56,13 +56,13 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
         animationSpec = infiniteRepeatable(
             animation = keyframes {
                 durationMillis = 1200
-                0.75f at 0
+                0.85f at 0
                 1f at 90
-                0.82f at 170
+                0.90f at 170
                 1f at 260
-                0.88f at 420
+                0.93f at 420
                 1f at 700
-                0.95f at 1200
+                0.97f at 1200
             },
             repeatMode = RepeatMode.Restart,
         ),
@@ -76,8 +76,8 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
                 contentDescription = null,
                 modifier = Modifier.matchParentSize().graphicsLayer {
                     alpha = haloAlpha
-                    scaleX = 1.70f * haloScale
-                    scaleY = 1.70f * haloScale
+                    scaleX = 1.25f * haloScale
+                    scaleY = 1.25f * haloScale
                 },
             )
             Image(
