@@ -23,6 +23,23 @@ type WhiteListNativeProfile struct {
 	Encryption            string `json:"encryption"`
 }
 
+// WhiteListNativeRouteID is the schema-1 route identity: SHA-256 over the
+// profile JSON with route_id and label left empty. The client validates every
+// route_id against ^[0-9a-f]{64}$ and rejects the WHOLE runtime document when
+// one profile disagrees, so every producer — the managed publication and the
+// flat CDN runtime — must derive the identifier here instead of inventing its
+// own. Label and route_id are excluded, so a cosmetic relabel keeps the
+// identity of the transport.
+func WhiteListNativeRouteID(profile WhiteListNativeProfile) (string, error) {
+	profile.RouteID, profile.Label = "", ""
+	encoded, err := json.Marshal(profile)
+	if err != nil {
+		return "", errInvalidWhiteListNode
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 // NativeWhiteListProfiles validates the entire already-authorized publication.
 // It is a renderer, not entitlement, admission, receipt, or freshness authority.
 func NativeWhiteListProfiles(nodes []WhiteListNode) ([]WhiteListNativeProfile, error) {
@@ -48,12 +65,11 @@ func NativeWhiteListProfiles(nodes []WhiteListNode) ([]WhiteListNativeProfile, e
 		}
 		// A cosmetic label change does not change transport identity. The hash
 		// includes every transport/provenance field but no account/token identity.
-		encoded, err := json.Marshal(profile)
+		routeID, err := WhiteListNativeRouteID(profile)
 		if err != nil {
-			return nil, errInvalidWhiteListNode
+			return nil, err
 		}
-		digest := sha256.Sum256(encoded)
-		profile.RouteID = hex.EncodeToString(digest[:])
+		profile.RouteID = routeID
 		profile.Label = node.Label
 		if routes[profile.RouteID] {
 			return nil, errInvalidWhiteListNode

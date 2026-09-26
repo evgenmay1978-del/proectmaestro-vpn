@@ -240,26 +240,9 @@ func (s *ControlPlaneServer) flatCDNNativeRuntime(ctx context.Context, token str
 	if uuid == "" {
 		return closed, errFlatCDNUnavailable
 	}
-	profiles := make([]subgen.WhiteListNativeProfile, 0, len(nodes))
-	for index, node := range nodes {
-		label := strings.TrimSpace(node.Label)
-		if label == "" {
-			label = fmt.Sprintf("CDN %d", index+1)
-		}
-		profiles = append(profiles, subgen.WhiteListNativeProfile{
-			RouteID:               fmt.Sprintf("flat-cdn-%d", index+1),
-			Label:                 label,
-			TransportProfileID:    "flat-cdn",
-			TransportReleaseID:    "flat-cdn-2026-09",
-			CompatibilityPresetID: "incy-flat-1",
-			Address:               node.Address,
-			Port:                  node.Port,
-			ServerName:            node.ServerName,
-			Host:                  node.Host,
-			Path:                  node.Path,
-			ClientID:              uuid,
-			Encryption:            node.Encryption,
-		})
+	profiles, err := flatCDNNativeProfiles(nodes, uuid)
+	if err != nil {
+		return closed, err
 	}
 	now := time.Now()
 	view := WhiteListNativeRuntimeView{
@@ -271,6 +254,44 @@ func (s *ControlPlaneServer) flatCDNNativeRuntime(ctx context.Context, token str
 		return closed, errFlatCDNUnavailable
 	}
 	return view, nil
+}
+
+// flatCDNNativeProfiles renders the schema-1 native profiles of the flat CDN
+// nodes. The route identity is the schema-1 DIGEST (subgen.WhiteListNativeRouteID),
+// never a positional name: the Android client validates every route_id against
+// ^[0-9a-f]{64}$ and drops the WHOLE document when one profile disagrees, so a
+// positional id ("flat-cdn-1") left the app's CDN tab empty for every installed
+// client (2026-09-26) while third-party clients — which read /cdn-sub/ instead —
+// were unaffected. A label change stays cosmetic: the digest covers transport
+// identity only.
+func flatCDNNativeProfiles(nodes []subgen.WhiteListNode, uuid string) ([]subgen.WhiteListNativeProfile, error) {
+	profiles := make([]subgen.WhiteListNativeProfile, 0, len(nodes))
+	for index, node := range nodes {
+		label := strings.TrimSpace(node.Label)
+		if label == "" {
+			label = fmt.Sprintf("CDN %d", index+1)
+		}
+		profile := subgen.WhiteListNativeProfile{
+			Label:                 label,
+			TransportProfileID:    "flat-cdn",
+			TransportReleaseID:    "flat-cdn-2026-09",
+			CompatibilityPresetID: "incy-flat-1",
+			Address:               node.Address,
+			Port:                  node.Port,
+			ServerName:            node.ServerName,
+			Host:                  node.Host,
+			Path:                  node.Path,
+			ClientID:              uuid,
+			Encryption:            node.Encryption,
+		}
+		routeID, err := subgen.WhiteListNativeRouteID(profile)
+		if err != nil {
+			return nil, err
+		}
+		profile.RouteID = routeID
+		profiles = append(profiles, profile)
+	}
+	return profiles, nil
 }
 
 // handleControlPlaneFlatCDNCharge charges already-metered bytes to the customer
