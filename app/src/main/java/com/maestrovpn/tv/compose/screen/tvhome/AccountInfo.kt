@@ -8,9 +8,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
-import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.bg.UpdateProfileWork
-import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.DeviceFormFactor
@@ -71,11 +69,10 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                     // keyless" (drives the Trial-CTA gating in TvHomeScreen).
                     val hasSubProfile = ProfileManager.list().any { it.typed.remoteURL.contains("/sub/") }
                     if (!isTelevision) lastPhoneHasSubProfile.value = hasSubProfile
-                    // Fetch /info from a TRUSTED origin only. This response is not just displayed —
-                    // it sets the olcRTC room/key and the WDTT peer/password below, and the request
-                    // carries this install's device id. Selecting the profile by "contains /sub/"
-                    // alone let any imported profile (a sing-box:// deep link only asks for a
-                    // confirmation) become the source of both. Same boundary as the silent updater.
+                    // Fetch /info from a TRUSTED origin only: the request carries this install's
+                    // device id, and picking the profile by "contains /sub/" alone let any imported
+                    // profile (a sing-box:// deep link only asks for a confirmation) become the
+                    // source. Same boundary as the silent updater.
                     // hasSubProfile stays permissive on purpose: it only gates the Trial CTA, and a
                     // payer must never look keyless because of it.
                     val profile = ProfileManager.list()
@@ -95,30 +92,6 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                             ProfileManager.get(profile.id)?.typed?.remoteURL != profile.typed.remoteURL
                         ) return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                     }
-                    // olcRTC WebRTC params (owner-gated server-side) ride in /info, not /sub. Push them
-                    // into the manager so the olcRTC selector item becomes startable; a response without
-                    // them clears any stale creds. Inert for the fleet (only the owner's /info has it).
-                    val olc = o.optJSONObject("olcrtc")
-                    OlcrtcManager.setCreds(
-                        provider = olc?.optString("provider"),
-                        room = olc?.optString("room"),
-                        key = olc?.optString("key"),
-                        transport = olc?.optString("transport"),
-                    )
-                    val wdtt = o.optJSONObject("vk_turn")
-                    WdttManager.setCreds(
-                        peer = wdtt?.optString("server"),
-                        vkHashes = wdtt?.optJSONArray("vk_hashes")?.let { a ->
-                            (0 until a.length()).map { a.optString(it) }
-                        },
-                        password = wdtt?.optString("password"),
-                        workers = wdtt?.takeIf { it.has("workers") }?.optInt("workers"),
-                        fingerprint = wdtt?.optString("fingerprint"),
-                        clientIds = wdtt?.optJSONArray("client_ids")?.let { a ->
-                            (0 until a.length()).map { a.optString(it) }
-                        },
-                        obfsMode = wdtt?.optString("obfs_mode"),
-                    )
                     val resolvedLogin = o.optString("login").ifBlank { null }
                     if (!isTelevision && resolvedLogin != null) lastPhoneLogin.value = resolvedLogin
                     AccountInfo(
