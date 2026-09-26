@@ -22,6 +22,8 @@ internal object WhiteListSelection {
     val view = mutableView.asStateFlow()
     private var epoch = 0L
     private var revision = 0L
+    /** Selected profile the current [revision] describes; a routine profile rewrite is not an account change. */
+    private var accountProfile = Settings.selectedProfile
     private var request: Request? = null
     private var previewDeadline = 0L
     private var previewNetwork: Network? = null
@@ -37,7 +39,10 @@ internal object WhiteListSelection {
                 if (key == SettingsKey.SELECTED_PROFILE) accountChanged()
             }
         })
-        ProfileManager.registerCallback { accountChanged() }
+        // UpdateProfileWork rewrites every profile row on each subscription refresh, so a rewrite must
+        // not count as an account change: on 26.09.2026 it tore down a live CDN session whose lease
+        // still had 19.9 s of grace (logcat: Worker result SUCCESS -> expire selectionMatches=false).
+        ProfileManager.registerCallback { if (Settings.selectedProfile != accountProfile) accountChanged() }
     }
 
     @Synchronized fun account(): Pair<Long, Long> = Settings.selectedProfile to revision
@@ -49,6 +54,7 @@ internal object WhiteListSelection {
     fun removeInvalidation(listener: () -> Unit) { invalidations.remove(listener) }
 
     private fun accountChanged() {
+        accountProfile = Settings.selectedProfile
         synchronized(this) { revision++; clearLocked() }
         invalidations.forEach { it() }
     }
