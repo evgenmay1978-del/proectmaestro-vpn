@@ -35,7 +35,9 @@ jobs:
           [ "${{ inputs.emulator_review }}" = true ]
           git diff --exit-code e0b737d864e86062e1e5c3fe2fdfb26e663130f8 HEAD -- app/src/main app/build.gradle.kts
       - name: Preserve ordinary VPN engine
-        run: git diff --exit-code 458fec7c885250f65d474204061dcdd60d71ee56 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
+        # version.properties перепинен на e768628a (26.09.2026): из него убраны пины olcRTC/WDTT
+        # вместе с их fetch-шагами, поэтому прежний базлайн для этого файла больше не подходит.
+        run: git diff --exit-code e768628a11f639db44de1d696775ef990ec66d70 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
