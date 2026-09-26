@@ -143,12 +143,21 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                 val fresh = WhiteListRuntimeClient.fetch(subscription, network)
                 lastFetchMs = (SystemClock.elapsedRealtime() - fetchStarted).coerceAtLeast(0L)
                 synchronized(live) {
-                    if (!valid(live) || fresh == null || !fresh.fresh(SystemClock.elapsedRealtime()) ||
-                        fresh.desiredGeneration != live.desiredGeneration || fresh.profiles.singleOrNull { it.tag == request.tag } != live.route) {
-                        expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
-                    } else {
-                        live.deadline = fresh.deadlineMillis
-                        armExpiry(live)
+                    // A dropped or late refresh must not tear down a lease that is still valid: the
+                    // loop retries while valid(live) keeps the session alive, and the armed expiry
+                    // still ends it when the lease actually lapses. Only a *different* authorization
+                    // — another generation or another route — means this session has to stop now.
+                    // Measured on the owner phone 26.09.2026: a single 3 s refresh timeout killed an
+                    // otherwise healthy CDN session 30 s in.
+                    val foreign = fresh != null && (fresh.desiredGeneration != live.desiredGeneration ||
+                        fresh.profiles.singleOrNull { it.tag == request.tag } != live.route)
+                    when {
+                        foreign -> expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+                        fresh == null || !fresh.fresh(SystemClock.elapsedRealtime()) || !valid(live) -> Unit
+                        else -> {
+                            live.deadline = fresh.deadlineMillis
+                            armExpiry(live)
+                        }
                     }
                 }
             }
