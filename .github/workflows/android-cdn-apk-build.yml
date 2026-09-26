@@ -58,49 +58,54 @@ jobs:
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cdn-apk-inputs"
-      - name: Reuse the native libraries from the published fleet release
-        # The pinned fleet-159 artifact this step originally copied from was removed by the canary
-        # cleanup on 2026-09-26, and a REBUILT libmaestro_xhttp.so aborted at CDN session start on
-        # the owner's phone (SIGABRT inside libmaestro_xhttp.so, 26.09.2026) — so the libraries are
-        # copied, never rebuilt. The reference is the published fleet release APK: the exact build
-        # the clients install, produced by this same pipeline from the same pinned artifact. The
-        # xhttp hash is asserted against the value that already ships in the clients' APK, so a
-        # silent drift fails the build instead of reaching devices.
+      - name: Coexistence experiment — rebuild libmaestro_xhttp with local symbol binding
+        # Диагноз 26.09.2026: libbox.so (go1.25.11, 459 _cgo_* exports) и libmaestro_xhttp.so
+        # (go1.26.7, 34 _cgo_*) экспортируют одни и те же символы Go-рантайма; процесс падает
+        # SIGSEGV в MaestroXhttpStart при первом старте CDN-сессии (goroutine dump в E/Go).
+        # Эксперимент: собрать xhttp из того же защищённого исходника с -Wl,-Bsymbolic, чтобы
+        # библиотека биндила свои символы локально и не перехватывала рантайм libbox.
+        # libolcrtc.so берётся шипнутый из APK релиза.
         if: ${{ inputs.emulator_only != true }}
         env:
           GH_TOKEN: ${{ github.token }}
+          CGO_ENABLED: '1'
+          GOOS: android
         run: |
           set -euo pipefail
           git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp
           mkdir -p "$RUNNER_TEMP/fleet-reference"
           gh release download --pattern '*.apk' --dir "$RUNNER_TEMP/fleet-reference" --clobber
           reference=$(find "$RUNNER_TEMP/fleet-reference" -maxdepth 1 -type f -name '*.apk' | head -1)
-          [ -n "$reference" ] || { echo "::error::no published APK to reuse the native libraries from"; exit 1; }
+          [ -n "$reference" ] || { echo "::error::no published APK"; exit 1; }
           python3 - <<'PY'
           import hashlib, os, pathlib, zipfile
-          expected = {
-              'arm64-v8a/libmaestro_xhttp.so': 'f1ad336b67df4257469a969873af61dcbdcda6acff56bc98d962317af6ffd5ca',
-              'armeabi-v7a/libmaestro_xhttp.so': 'a4b05e592634d604414df95cd5202b89092687ae7d19d759a7c01e33083262a8',
-          }
           root = pathlib.Path(os.environ['RUNNER_TEMP'], 'fleet-reference')
-          apks = sorted(p for p in root.glob('*.apk'))
-          if not apks: raise SystemExit('no_reference_apk')
-          with zipfile.ZipFile(apks[0]) as z:
+          apk = sorted(root.glob('*.apk'))[0]
+          with zipfile.ZipFile(apk) as z:
               for abi in ('arm64-v8a', 'armeabi-v7a'):
                   target = pathlib.Path('app/src/main/jniLibs') / abi
                   target.mkdir(parents=True, exist_ok=True)
-                  for name in ('libmaestro_xhttp.so', 'libolcrtc.so'):
-                      payload = z.read(f'lib/{abi}/{name}')
-                      (target / name).write_bytes(payload)
-                      digest = hashlib.sha256(payload).hexdigest()
-                      key = f'{abi}/{name}'
-                      note = ''
-                      if key in expected:
-                          if digest != expected[key]:
-                              raise SystemExit('native_library_mismatch ' + key)
-                          note = ' == shipped'
-                      print(abi, name, digest, note)
+                  payload = z.read(f'lib/{abi}/libolcrtc.so')
+                  (target / 'libolcrtc.so').write_bytes(payload)
+                  print('shipped libolcrtc.so', abi, hashlib.sha256(payload).hexdigest())
           PY
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          mkdir -p "$RUNNER_TEMP/xhttp-sym"
+          for abi in arm64-v8a armeabi-v7a; do
+            if [ "$abi" = arm64-v8a ]; then
+              export GOARCH=arm64
+              export CC="$toolchain/aarch64-linux-android23-clang"
+              unset GOARM
+            else
+              export GOARCH=arm GOARM=7
+              export CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            mkdir -p "$RUNNER_TEMP/xhttp-sym/$abi" "app/src/main/jniLibs/$abi"
+            (cd android-xhttp && go build -mod=readonly -trimpath -buildmode=c-shared \
+              -ldflags='-s -w -buildid= -checklinkname=0 -extldflags=-Wl,-Bsymbolic,-z,max-page-size=16384' \
+              -o "$RUNNER_TEMP/xhttp-sym/$abi/libmaestro_xhttp.so" .)
+            cp "$RUNNER_TEMP/xhttp-sym/$abi/libmaestro_xhttp.so" "app/src/main/jniLibs/$abi/libmaestro_xhttp.so"
+          done
           sha256sum app/src/main/jniLibs/*/*.so
       - name: Reuse exact libbox artifact
         env:
