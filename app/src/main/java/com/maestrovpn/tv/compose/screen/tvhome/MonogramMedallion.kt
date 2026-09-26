@@ -10,10 +10,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import com.maestrovpn.tv.R
@@ -27,6 +29,8 @@ import com.maestrovpn.tv.R
  * square box IS the medallion circle; both glow layers are scaled layers around that same circle
  * and therefore stay concentric with the disc by construction.
  */
+private const val GlowClipScale = 1.10f
+
 @Composable
 internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "monogram")
@@ -71,24 +75,31 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         if (connected) {
-            Image(
-                painter = painterResource(R.drawable.mobile_medallion_glow_halo),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize().graphicsLayer {
-                    alpha = haloAlpha
-                    scaleX = 1.18f * haloScale
-                    scaleY = 1.18f * haloScale
-                },
-            )
-            Image(
-                painter = painterResource(R.drawable.mobile_medallion_glow_ring),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize().graphicsLayer {
-                    alpha = ringAlpha
-                    scaleX = 1.08f
-                    scaleY = 1.08f
-                },
-            )
+            // The glow lives strictly inside the frame's opening: it is hard-clipped to a circle
+            // barely larger than the disc, so it can never bleed under the frame's ornament layer
+            // (owner, 26.09.2026: «мерцание должно быть там, где я нарисовал, а не за орнаментом»).
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { scaleX = GlowClipScale; scaleY = GlowClipScale }
+                    .clip(CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.mobile_medallion_glow_halo),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize().graphicsLayer {
+                        alpha = haloAlpha
+                        scaleX = haloScale
+                        scaleY = haloScale
+                    },
+                )
+                Image(
+                    painter = painterResource(R.drawable.mobile_medallion_glow_ring),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize().graphicsLayer { alpha = ringAlpha },
+                )
+            }
         }
         Image(
             painter = painterResource(
