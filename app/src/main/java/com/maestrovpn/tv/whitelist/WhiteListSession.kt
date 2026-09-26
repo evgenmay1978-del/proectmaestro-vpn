@@ -69,7 +69,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         var wifiCallback: ConnectivityManager.NetworkCallback? = null
     }
     /** Startup allowance for the child process; the steady state keeps the strict deadline. */
-    private const val FIRST_RENEWAL_GRACE_MS = 8_000L
+    private val firstRenewalGraceMs = 8_000L
     private val permit = AtomicReference<Permit?>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var renewal: Job? = null
@@ -121,7 +121,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         // first deadline is stretched to cover the startup. The first successful renewal replaces
         // it with the server's strict deadline, and a lease that is never renewed still ends the
         // session here — valid(live) stays the single decision point.
-        val startupDeadline = SystemClock.elapsedRealtime() + FIRST_RENEWAL_GRACE_MS
+        val startupDeadline = SystemClock.elapsedRealtime() + firstRenewalGraceMs
         if (live.deadline < startupDeadline) live.deadline = startupDeadline
         armExpiry(live)
         // The native client is a separate process now: bringing it up takes a second or two, while
