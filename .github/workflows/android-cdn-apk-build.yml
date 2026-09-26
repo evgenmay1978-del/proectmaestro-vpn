@@ -73,7 +73,23 @@ jobs:
           CGO_ENABLED: '1'
         run: |
           set -euo pipefail
-          git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp
+          # Everything in android-xhttp except the three files this change reviewed must still be
+          # byte-identical to the guard base; those three are pinned by content right below, so a
+          # silent edit cannot slip into the child-process binary.
+          git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp \
+            ':!android-xhttp/engine.go' ':!android-xhttp/main_cli.go' ':!android-xhttp/main_cshared.go'
+          python3 - <<'PY'
+          import hashlib, pathlib
+          expected = {
+              'android-xhttp/engine.go': '5a351650dfb97ba11f39b66c1de798db32be750f3b389d97e4ee50a9da4b34a6',
+              'android-xhttp/main_cli.go': '047d8a8d32db97d5a96ea9c7a8cca4a5564ef9794e2d23f859e815511ca332e6',
+              'android-xhttp/main_cshared.go': '9304d1fdd0d2820c5fd0760b9d1ca64a7601d1ce8de2ba583920f744cecec68e',
+          }
+          for name, want in expected.items():
+              got = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()
+              if got != want: raise SystemExit('reviewed_source_mismatch ' + name)
+              print('reviewed', name, got)
+          PY
           mkdir -p "$RUNNER_TEMP/xhttp-cli"
           (cd android-xhttp && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags xhttpcli \
             -mod=readonly -trimpath -o "$RUNNER_TEMP/xhttp-cli/maestro-xhttp-linux" .)
