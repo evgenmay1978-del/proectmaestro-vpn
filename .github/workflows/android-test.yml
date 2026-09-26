@@ -63,7 +63,7 @@ jobs:
       contents: write
       actions: read
     concurrency:
-      group: mobile-release-161
+      group: mobile-release-162
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
@@ -75,12 +75,14 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, os, pathlib, shutil, subprocess, zipfile
 
-          # 1.0.161 — исправление CDN в приложении на базе сборки владельца 1016002
-          # (снято требование уникального client_id; route_id на сервере уже по контракту).
-          source = 'c641a2f1616dc1c5bb519fb2e54bba50044ba8d2'
-          run_id, artifact_id = 36245162154, 10907422001
-          archive_sha = 'ba6df2999acff28349dbbb8c27f168e10670fc334b036c5dfebc689ec6a0e2bd'
-          tag, apk_name = 'tv-v1.0.161', 'MaestroVPN-TV-1.0.161-debug.apk'
+          # 1.0.162 — сборка, проверенная владельцем на телефоне 27.09.2026: медальон «M» с
+          # изумрудной кромкой (кольцо рвётся на четырёх камнях рамы, белого свечения нет) +
+          # стабильная CDN-сессия (грейс аренды 20 с, смена аккаунта только по смене профиля) +
+          # удаление неиспользуемого olcRTC/WDTT.
+          source = 'd23da32b67d15cceab7f2a6e0a68f39b39267bfd'
+          run_id, artifact_id = 36276667138, 10916978414
+          archive_sha = 'ce93aa090f56996234580e85325e190f3b2ea4b8a688da5d61bf2bc3db0297ee'
+          tag, apk_name = 'tv-v1.0.162', 'MaestroVPN-TV-1.0.162-debug.apk'
           repo = os.environ['GH_REPO']
 
           def api(path, method='GET', payload=None, missing_ok=False):
@@ -106,7 +108,7 @@ jobs:
           assert run['status'] == 'completed' and run['conclusion'] == 'success'
           assert run['head_sha'] == source
           artifact = api(f'/actions/artifacts/{artifact_id}')
-          assert artifact['name'] == 'maestrovpn-mobile-161-' + source and not artifact['expired']
+          assert artifact['name'] == 'maestrovpn-mobile-162-' + source and not artifact['expired']
           assert artifact['workflow_run']['id'] == run_id and artifact['workflow_run']['head_sha'] == source
           assert artifact['digest'] == 'sha256:' + archive_sha
           archive = pathlib.Path('build.zip')
@@ -124,7 +126,7 @@ jobs:
                   shutil.copyfileobj(input_file, output)
           assert digest(apk) == expected_sha
           metadata = pathlib.Path('version-metadata.json')
-          metadata.write_text(json.dumps(dict(version_code=1016006, version_name='1.0.161')), encoding='utf-8')
+          metadata.write_text(json.dumps(dict(version_code=1016007, version_name='1.0.162')), encoding='utf-8')
           files = (apk, metadata)
 
           ref = api('/git/ref/tags/' + tag, missing_ok=True)
@@ -136,11 +138,16 @@ jobs:
           release = api('/releases/tags/' + tag, missing_ok=True)
           if release is None:
               release = api('/releases', 'POST', dict(tag_name=tag, target_commitish=source,
-                  name='MaestroVPN 1.0.161', draft=True, prerelease=False,
-                  body='Исправлена работа CDN в приложении: вкладка «Серверы → CDN» снова показывает '
-                       'четыре локации (Испания, Чехия, Нидерланды, Германия), а «Подключить CDN» '
-                       'работает в мобильной сети. Вид и поведение приложения не менялись. '
-                       'Обычный VPN, оплата и сторонние клиенты (Happ, INCY, Karing, v2rayN) не затронуты.'))
+                  name='MaestroVPN 1.0.162', draft=True, prerelease=False,
+                  body='Обновление приложения 1.0.162.\n'
+                       '• Главный экран: медальон «M» с изумрудной кромкой — кромка мерцает, белого свечения '
+                       'нет и она разорвана на четырёх камнях рамы.\n'
+                       '• CDN-подписка: устранены причины обрывов сессии — продление аренды идёт с запасом 20 с, '
+                       'а плановое обновление подписки больше не сбрасывает выбранную локацию (проверено живой '
+                       'сессией 19 минут, в том числе с погашенным экраном).\n'
+                       '• Убран неиспользуемый движок olcRTC/WDTT: меньше размер сборки и лишних сетевых потоков.\n'
+                       'Обычный VPN, оплата и сторонние клиенты (Happ, INCY, Karing, v2rayN) не затронуты; '
+                       'подпись та же — обновление ставится поверх, переустанавливать вручную не нужно.'))
           assert release['target_commitish'] == source, 'Existing release has a different source'
           for file in files:
               existing = [a for a in release['assets'] if a['name'] == file.name]
