@@ -147,6 +147,12 @@ internal fun PhoneDashboard(
                                         .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
                                         .size(heroWidth * CARVED_MEDALLION_DIAMETER))
                                 ApprovedMobileEyeFrame(Modifier.matchParentSize())
+                                // Live glow goes ON TOP of the frame: under it the ornament band hides
+                                // everything outside the opening (owner's screen, 26.09.2026).
+                                MonogramGlow(connected = connected && !connecting,
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                        .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
+                                        .size(heroWidth * CARVED_MEDALLION_DIAMETER))
                             Column(modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 5.dp, vertical = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
