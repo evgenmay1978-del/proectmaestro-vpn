@@ -102,6 +102,13 @@ internal const val CARVED_EYE_LEFT = 148f / 712f
 internal const val CARVED_EYE_TOP = 81f / 720f
 internal const val CARVED_EYE_DIAMETER = 418f / 712f
 
+// Monogram medallion (26.09.2026): the owner-approved "M" disc replaces the living eye. The disc
+// fills the frame's inner opening (measured from the owner's mockup: ~0.80 of the frame box) and
+// stays concentric with the eye's centre, so the approved frame art still lines up exactly.
+internal const val CARVED_MEDALLION_DIAMETER = 570f / 712f
+internal const val CARVED_MEDALLION_LEFT = 72f / 712f
+internal const val CARVED_MEDALLION_TOP = 5f / 720f
+
 @Composable
 fun ApprovedMobileEyeFrame(modifier: Modifier = Modifier) {
     val atlas = ImageBitmap.imageResource(R.drawable.mobile_carved_medallion_reference)
