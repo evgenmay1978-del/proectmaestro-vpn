@@ -142,24 +142,10 @@ internal fun PhoneDashboard(
                             }.clickable(role = Role.Button, onClick = onToggleConnect)
                                 .semantics { contentDescription = if (connected && !connecting) "Отключить VPN" else "Подключить VPN" },
                                 contentAlignment = Alignment.Center) {
-                                LivingEyeMedallion(connected = connected && !connecting,
-                                    opennessOverride = if (connecting) 0.5f else if (!connected) 0f else null,
+                                MonogramMedallion(connected = connected && !connecting,
                                     modifier = Modifier.align(Alignment.TopStart)
-                                        .offset(x = heroWidth * CARVED_EYE_LEFT, y = heroHeight * CARVED_EYE_TOP)
-                                        .size(heroWidth * CARVED_EYE_DIAMETER).clip(CircleShape)
-                                        .drawWithCache {
-                                            val paint = Paint().apply { colorFilter = ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                                                0.924f, 0.087f, 0.009f, 0f, 0f,
-                                                0.024f, 0.899f, 0.008f, 0f, 0f,
-                                                0.023f, 0.078f, 0.809f, 0f, 0f,
-                                                0f, 0f, 0f, 1f, 0f))) }
-                                            onDrawWithContent {
-                                                val canvas = drawContext.canvas
-                                                canvas.saveLayer(Rect(Offset.Zero, size), paint)
-                                                drawContent()
-                                                canvas.restore()
-                                            }
-                                        })
+                                        .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
+                                        .size(heroWidth * CARVED_MEDALLION_DIAMETER))
                                 ApprovedMobileEyeFrame(Modifier.matchParentSize())
                             Column(modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 5.dp, vertical = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
