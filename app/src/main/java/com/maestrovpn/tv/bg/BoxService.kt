@@ -36,7 +36,6 @@ import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
-import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.vendor.Vendor
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
@@ -161,24 +160,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         OverrideOptions().apply {
             autoRedirect = Settings.autoRedirect
             val appPackage = Application.application.packageName
-            val wdttOwnPackageBypass =
-                !cdn && service is VPNService &&
-                    !DeviceFormFactor.isTelevision(Application.application) &&
-                    WdttVpnPolicy.hasWdttOutbound(content)
             val perAppEnabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
-            val appList = if (perAppEnabled) Settings.getEffectivePerAppProxyList() else emptySet()
-            val packageOverrides = WdttVpnPolicy.resolvePackageOverrides(
-                perAppEnabled = perAppEnabled,
-                includeMode = Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE,
-                appList = appList,
-                appPackage = appPackage,
-                wdttOwnPackageBypass = wdttOwnPackageBypass,
-            )
-            packageOverrides.include?.let {
-                includePackage = PlatformInterfaceWrapper.StringArray(it.iterator())
-            }
-            packageOverrides.exclude?.let {
-                excludePackage = PlatformInterfaceWrapper.StringArray(it.iterator())
+            if (perAppEnabled) {
+                // The app's own uid is never excluded: include mode always adds it, exclude mode
+                // always keeps it out of the exclude list.
+                val appList = Settings.getEffectivePerAppProxyList()
+                if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
+                    includePackage = PlatformInterfaceWrapper.StringArray((appList + appPackage).iterator())
+                } else {
+                    excludePackage = PlatformInterfaceWrapper.StringArray((appList - appPackage).iterator())
+                }
             }
         }
 
@@ -351,10 +342,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // Never reload a tunnel the user is stopping / has stopped (e.g. a periodic UpdateTask
         // reload landing mid-teardown would briefly reconnect what the user just switched off).
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
-        // A reload rebuilds the box → the selector reverts to "auto" (no store_selected), so an
-        // olcRTC child would be orphaned (idle, no traffic). Reap it; the user re-selects olcRTC
-        // to respawn. No-op when olcRTC wasn't running.
-        OlcrtcManager.stop()
         val sourceAccount = WhiteListSelection.account()
         val selectedProfileId = sourceAccount.first
         if (selectedProfileId == -1L) {
@@ -467,12 +454,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // user explicitly switched off.
         Settings.startedByUser = false
         GlobalScope.launch(Dispatchers.IO) {
-            // Tear down the olcRTC child (if it was running) the moment the tunnel stops, so a
-            // disguise video-call process never outlives the VPN. No-op when olcRTC wasn't used.
-            // Runs HERE (off the main thread): stopLocked can block up to ~2s reaping the child,
-            // which froze the UI when it ran synchronously on the stop path.
-            OlcrtcManager.stop()
-            WdttManager.stop()
             val pfd = fileDescriptor
             if (pfd != null) {
                 runCatching { pfd.close() }
