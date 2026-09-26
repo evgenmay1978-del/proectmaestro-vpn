@@ -101,7 +101,7 @@ jobs:
               'schema': 1, 'address': '188.72.111.7', 'port': 443,
               'server_name': 'cdn-test.wapmixx.ru', 'host': 'cdn-test.wapmixx.ru',
               'path': '/static/main/video/segment.ts/2c988fd8/es',
-              'client_id': 'beb6297b-a9cf-4903-af8a-c45d60b585cc',
+              'client_id': '00000000-0000-4000-8000-000000000001',
               'encryption': 'mlkem768x25519plus.native.0rtt.' + material,
               'socks_port': 18899, 'socks_user': cred(b'u'), 'socks_pass': cred(b'p'),
           }
