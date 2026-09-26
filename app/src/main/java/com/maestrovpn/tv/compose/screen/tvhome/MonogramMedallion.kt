@@ -90,14 +90,18 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
                     contentDescription = null,
                     modifier = Modifier.matchParentSize().graphicsLayer {
                         alpha = haloAlpha
-                        scaleX = haloScale
-                        scaleY = haloScale
+                        scaleX = 1.18f * haloScale
+                        scaleY = 1.18f * haloScale
                     },
                 )
                 Image(
                     painter = painterResource(R.drawable.mobile_medallion_glow_ring),
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize().graphicsLayer { alpha = ringAlpha },
+                    modifier = Modifier.matchParentSize().graphicsLayer {
+                        alpha = ringAlpha
+                        scaleX = 1.08f
+                        scaleY = 1.08f
+                    },
                 )
             }
         }
