@@ -80,7 +80,7 @@ internal object XhttpProcess {
                 child = started
                 session = id
                 payload = file
-                Log.d(TAG, "ready id=" + id + " pid=" + runCatching { started.pid() }.getOrNull())
+                Log.d(TAG, "ready id=" + id)
                 STATUS_OK
             } else {
                 kill(started)

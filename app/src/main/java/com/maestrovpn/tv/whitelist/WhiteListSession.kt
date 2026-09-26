@@ -5,6 +5,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.SystemClock
+import android.util.Log
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.bg.DefaultNetworkListener
 import com.maestrovpn.tv.bg.DefaultNetworkMonitor
