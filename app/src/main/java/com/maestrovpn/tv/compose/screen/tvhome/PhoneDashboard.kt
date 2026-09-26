@@ -152,7 +152,7 @@ internal fun PhoneDashboard(
                                 Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
                                     color = if (connecting) PremiumGold else if (connected) PremiumEmerald else PremiumRuby,
                                     fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
-                                Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите на глаз, чтобы отключить" else "Нажмите на глаз для подключения",
+                                Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите на медальон, чтобы отключить" else "Нажмите на медальон для подключения",
                                     color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
                             }
                             }
