@@ -71,6 +71,16 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
     }
     /** Startup allowance for the child process; the steady state keeps the strict deadline. */
     private val firstRenewalGraceMs = 8_000L
+    /**
+     * How long a live tunnel may outlive the last accepted authorization while refreshes fail.
+     * The panel anchors fresh_until-issued_at (<= 5 s) to the request start, so on the owner's
+     * phone (26.09.2026) one refresh had a 2091 ms budget while the round trip to the panel took
+     * ~1.9 s: a single slow refresh killed a healthy CDN session
+     * (logcat: "expire id=1 leaseInMs=-1 selectionMatches=true sameNetwork=true").
+     * This is a renewal budget, not a longer lease: a revoked or closed publication still ends
+     * the session here, just after the retries stop succeeding.
+     */
+    private val leaseGraceMs = 20_000L
     private val permit = AtomicReference<Permit?>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var renewal: Job? = null
@@ -126,6 +136,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val stretched = live.deadline < startupDeadline
         if (stretched) live.deadline = startupDeadline
         Log.d("WhiteListSession", "session id=" + id + " leaseInMs=" + (live.deadline - SystemClock.elapsedRealtime()) +
+            " graceInMs=" + (live.deadline + leaseGraceMs - SystemClock.elapsedRealtime()) +
             " stretched=" + stretched + " childAvailable=" + XhttpProcess.available())
         armExpiry(live)
         // The native client is a separate process now: bringing it up takes a second or two, while
@@ -177,7 +188,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
     }
 
     fun ready(request: WhiteListSelection.Request): Boolean = permit.get()?.let { it.request == request && valid(it) } == true
-    private fun valid(live: Permit): Boolean = permit.get() === live && SystemClock.elapsedRealtime() < live.deadline &&
+    private fun valid(live: Permit): Boolean = permit.get() === live && SystemClock.elapsedRealtime() < live.deadline + leaseGraceMs &&
         WhiteListSelection.matches(live.request) && network() == live.network
 
     private fun watchWifi(live: Permit): Boolean = synchronized(live.wifiGuard) {
@@ -212,8 +223,9 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
     }
 
     private fun armExpiry(live: Permit) {
-        val delayMs = (live.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0)
-        Log.d("WhiteListSession", "armExpiry id=" + live.id + " in " + delayMs + "ms")
+        val delayMs = (live.deadline + leaseGraceMs - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+        Log.d("WhiteListSession", "armExpiry id=" + live.id + " in " + delayMs + "ms leaseInMs=" +
+            (live.deadline - SystemClock.elapsedRealtime()))
         expiryExecutor.schedule({
             synchronized(live) {
                 if (permit.get() === live && !valid(live)) expire(live, restoreOrdinary = network() != live.network)
@@ -225,6 +237,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         // Without this the only visible symptom is an unexplained disconnect (26.09.2026).
         Log.d("WhiteListSession", "expire id=" + live.id +
             " leaseInMs=" + (live.deadline - SystemClock.elapsedRealtime()) +
+            " graceInMs=" + (live.deadline + leaseGraceMs - SystemClock.elapsedRealtime()) +
             " selectionMatches=" + WhiteListSelection.matches(live.request) +
             " sameNetwork=" + (network() == live.network) +
             " restoreOrdinary=" + restoreOrdinary)
