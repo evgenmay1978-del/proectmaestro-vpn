@@ -8,7 +8,7 @@
 # бы вообще. Симптом обманчив: сборка при этом зелёная, падает только выгрузка.
 #
 # ⛔ ЛОВУШКИ (не удалять руками, использовать этот скрипт):
-#  1. НИКОГДА не удалять libbox-aar / libbox-*-aar / wdtt-bin / olcrtc-bin / olcrtc-aar —
+#  1. НИКОГДА не удалять libbox-aar / libbox-*-aar —
 #     их СКАЧИВАЮТ последующие сборки (`gh run download -n libbox-aar`). Удалишь свежий
 #     libbox-aar → android.yml и android-test.yml перестанут собираться совсем.
 #     Скрипт трогает только имена из PRUNE_NAMES, всё остальное игнорируется по умолчанию.
@@ -36,7 +36,7 @@ REPO=evgenmay1978-del/proectmaestro-vpn
 # а сборочные артефакты — лишь снимки прогонов.
 KEEP="${KEEP:-3}"
 # Только сборочные APK. Всё, чего нет в этом списке, скрипт не трогает.
-PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-olcrtc-canary maestrovpn-tv-awg-canary-apk maestrovpn-tv-stopfix-apk unit-test-report"
+PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-awg-canary-apk maestrovpn-tv-stopfix-apk unit-test-report"
 
 # ─── режим --deps (добавлен 2026-07-29) ────────────────────────────────────────
 # Зачем: чистка ОДНИХ APK не спасает. 2026-07-29 после полного прогона скрипта
@@ -55,16 +55,14 @@ PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-olcrtc
 #     самый новый артефакт может принадлежать неуспешному прогону.
 #  2. KEEP_DEPS=2 — источник плюс один запас на откат. Меньше ставить нельзя:
 #     останешься без пути назад, если новый libbox окажется битым.
-#  3. libbox-mieru-aar / libbox-awg-aar / olcrtc-aar — экспериментальные ветки
-#     движка, их прогоны-источники ищутся так же, по своим workflow.
-DEPS_NAMES="libbox-aar libbox-mieru-aar libbox-awg-aar wdtt-bin olcrtc-bin olcrtc-aar"
+#  3. libbox-mieru-aar / libbox-awg-aar — экспериментальные ветки движка,
+#     их прогоны-источники ищутся так же, по своим workflow.
+DEPS_NAMES="libbox-aar libbox-mieru-aar libbox-awg-aar"
 KEEP_DEPS="${KEEP_DEPS:-2}"
 # имя артефакта -> workflow, чей последний успешный прогон является источником
 dep_workflow() {
   case "$1" in
     libbox-aar|libbox-mieru-aar|libbox-awg-aar) echo libbox.yml ;;
-    wdtt-bin) echo wdtt-bin.yml ;;
-    olcrtc-bin|olcrtc-aar) echo olcrtc-bin.yml ;;
     *) echo '' ;;
   esac
 }
@@ -140,7 +138,7 @@ if [ "$DRY" != "1" ]; then
   # с задержкой (6–12 ч по их доке), но число живых артефактов видно сразу.
   left=$(gh api "repos/$REPO/actions/artifacts" --paginate -q '.artifacts[] | select(.expired==false) | .size_in_bytes' | awk '{s+=$1; n++} END {printf "%d|%.2f", n, s/1073741824}')
   echo "  осталось живых: ${left%|*} шт, ${left#*|} ГБ"
-  echo "  ⚠️ libbox-aar/wdtt-bin/olcrtc-* сохранены:"
+  echo "  ⚠️ libbox-aar сохранены:"
   gh api "repos/$REPO/actions/artifacts" --paginate \
-    -q '.artifacts[] | select(.expired==false) | select(.name|test("libbox|wdtt|olcrtc")) | "     \(.name) \(.created_at[:10])"' | sort -u | head -8
+    -q '.artifacts[] | select(.expired==false) | select(.name|test("libbox")) | "     \(.name) \(.created_at[:10])"' | sort -u | head -8
 fi
