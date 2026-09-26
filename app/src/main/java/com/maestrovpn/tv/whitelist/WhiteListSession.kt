@@ -115,13 +115,12 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
             return null
         }
         armExpiry(live)
-        val payload = WhiteListConfig.payload(route, address, port, user, pass)
-        val result = try { XhttpProcess.start(id, payload) } finally { payload.fill(0) }
-        if (result != 0 || !valid(live)) {
-            expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
-            stopPending = stopExecutor.submit { XhttpProcess.stop(id) }
-            return null
-        }
+        // The native client is a separate process now: bringing it up takes a second or two, while
+        // the authorization lease stays only a few seconds long (fresh_until_unix - issued_at_unix is
+        // bounded to 1..5 s on both sides). The renewal loop therefore has to run BEFORE the child
+        // starts, otherwise armExpiry tears the session down while the child is still coming up —
+        // measured on the owner phone 26.09.2026: prepare() reached watchWifi, expire() fired 1.4 s
+        // later, and the child was killed before it could serve anything.
         renewal = scope.launch {
             while (valid(live)) {
                 val remaining = live.deadline - SystemClock.elapsedRealtime()
@@ -144,6 +143,13 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                     }
                 }
             }
+        }
+        val payload = WhiteListConfig.payload(route, address, port, user, pass)
+        val result = try { XhttpProcess.start(id, payload) } finally { payload.fill(0) }
+        if (result != 0 || !valid(live)) {
+            expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+            stopPending = stopExecutor.submit { XhttpProcess.stop(id) }
+            return null
         }
         return content
     }
