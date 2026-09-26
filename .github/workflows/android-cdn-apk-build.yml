@@ -58,61 +58,50 @@ jobs:
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cdn-apk-inputs"
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: android-xhttp/go.mod
-          cache-dependency-path: android-xhttp/go.sum
-      - name: Rebuild the guarded native libraries from the pinned source
-        # The signed fleet-159 APK this step used to copy the two native libraries from was
-        # removed by the canary artifact cleanup on 2026-09-26 and GitHub has no undelete, so
-        # the libraries are rebuilt instead of copied: the guard below still proves android-xhttp
-        # is byte-identical to the source behind that build, the toolchain/NDK/API/flags are the
-        # ones the xhttp-native job pins, and every produced hash is printed next to the hash of
-        # the library that already ships inside the clients' APK, so a silent drift cannot pass.
+      - name: Reuse the native libraries from the published fleet release
+        # The pinned fleet-159 artifact this step originally copied from was removed by the canary
+        # cleanup on 2026-09-26, and a REBUILT libmaestro_xhttp.so aborted at CDN session start on
+        # the owner's phone (SIGABRT inside libmaestro_xhttp.so, 26.09.2026) — so the libraries are
+        # copied, never rebuilt. The reference is the published fleet release APK: the exact build
+        # the clients install, produced by this same pipeline from the same pinned artifact. The
+        # xhttp hash is asserted against the value that already ships in the clients' APK, so a
+        # silent drift fails the build instead of reaching devices.
         if: ${{ inputs.emulator_only != true }}
         env:
           GH_TOKEN: ${{ github.token }}
-          CGO_ENABLED: '1'
-          GOOS: android
         run: |
           set -euo pipefail
           git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp
-          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          mkdir -p "$RUNNER_TEMP/xhttp-native"
-          for abi in arm64-v8a armeabi-v7a; do
-            if [ "$abi" = arm64-v8a ]; then
-              export GOARCH=arm64
-              export CC="$toolchain/aarch64-linux-android23-clang"
-              unset GOARM
-            else
-              export GOARCH=arm GOARM=7
-              export CC="$toolchain/armv7a-linux-androideabi23-clang"
-            fi
-            mkdir -p "$RUNNER_TEMP/xhttp-native/$abi" "app/src/main/jniLibs/$abi"
-            (cd android-xhttp && go build -mod=readonly -trimpath -buildmode=c-shared \
-              -ldflags='-s -w -buildid= -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384' \
-              -o "$RUNNER_TEMP/xhttp-native/$abi/libmaestro_xhttp.so" .)
-            cp "$RUNNER_TEMP/xhttp-native/$abi/libmaestro_xhttp.so" "app/src/main/jniLibs/$abi/libmaestro_xhttp.so"
-          done
-          RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -b main -L1 --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ] || { echo "::error::no successful olcrtc-bin.yml run on main"; exit 1; }
-          gh run download "$RUN_ID" -n olcrtc-bin -D olcrtc-bin
-          for abi in arm64-v8a armeabi-v7a; do
-            test -s "olcrtc-bin/libolcrtc-${abi}.so"
-            cp "olcrtc-bin/libolcrtc-${abi}.so" "app/src/main/jniLibs/$abi/libolcrtc.so"
-          done
+          mkdir -p "$RUNNER_TEMP/fleet-reference"
+          gh release download --pattern '*.apk' --dir "$RUNNER_TEMP/fleet-reference" --clobber
+          reference=$(find "$RUNNER_TEMP/fleet-reference" -maxdepth 1 -type f -name '*.apk' | head -1)
+          [ -n "$reference" ] || { echo "::error::no published APK to reuse the native libraries from"; exit 1; }
           python3 - <<'PY'
-          import hashlib, pathlib
-          shipped = {'arm64-v8a': 'f1ad336b67df4257469a969873af61dcbdcda6acff56bc98d962317af6ffd5ca',
-                     'armeabi-v7a': 'a4b05e592634d604414df95cd5202b89092687ae7d19d759a7c01e33083262a8'}
-          for abi in ('arm64-v8a', 'armeabi-v7a'):
-              for name in ('libmaestro_xhttp.so', 'libolcrtc.so'):
-                  path = pathlib.Path('app/src/main/jniLibs') / abi / name
-                  got = hashlib.sha256(path.read_bytes()).hexdigest()
-                  note = ''
-                  if name == 'libmaestro_xhttp.so':
-                      note = ' == shipped APK' if got == shipped[abi] else f' != shipped APK {shipped[abi]}'
-                  print(f'{abi} {name} {got}{note}')
+          import hashlib, os, pathlib, zipfile
+          expected = {
+              'arm64-v8a/libmaestro_xhttp.so': 'f1ad336b67df4257469a969873af61dcbdcda6acff56bc98d962317af6ffd5ca',
+              'armeabi-v7a/libmaestro_xhttp.so': 'a4b05e592634d604414df95cd5202b89092687ae7d19d759a7c01e33083262a8',
+          }
+          root = pathlib.Path(os.environ['RUNNER_TEMP'], 'fleet-reference')
+          apks = sorted(p for p in root.glob('*.apk'))
+          if not apks: raise SystemExit('no_reference_apk')
+          with zipfile.ZipFile(apks[0]) as z:
+              for abi in ('arm64-v8a', 'armeabi-v7a'):
+                  target = pathlib.Path('app/src/main/jniLibs') / abi
+                  target.mkdir(parents=True, exist_ok=True)
+                  for name in ('libmaestro_xhttp.so', 'libolcrtc.so'):
+                      payload = z.read(f'lib/{abi}/{name}')
+                      (target / name).write_bytes(payload)
+                      digest = hashlib.sha256(payload).hexdigest()
+                      key = f'{abi}/{name}'
+                      note = ''
+                      if key in expected:
+                          if digest != expected[key]:
+                              raise SystemExit('native_library_mismatch ' + key)
+                          note = ' == shipped'
+                      print(abi, name, digest, note)
+          PY
+          sha256sum app/src/main/jniLibs/*/*.so
           PY
           sha256sum app/src/main/jniLibs/*/*.so
       - name: Reuse exact libbox artifact
@@ -159,7 +148,7 @@ jobs:
           ./gradlew :app:testOtherDebugUnitTest \
             --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest' \
             -PmaestroCdnApk=true --stacktrace --no-daemon
-      - name: Build signed APK 1.0.161 without test tasks
+      - name: Build signed APK 1.0.162 without test tasks
         if: ${{ inputs.emulator_only != true }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
@@ -177,8 +166,8 @@ jobs:
           [ "${#apks[@]}" -eq 1 ]
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
-          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.161' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1016006' ]
+          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.162' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016007' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
@@ -197,7 +186,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ inputs.emulator_only != true }}
         with:
-          name: maestrovpn-mobile-161-${{ github.sha }}
+          name: maestrovpn-mobile-162-${{ github.sha }}
           path: |
             ${{ steps.apk.outputs.path }}
             ${{ runner.temp }}/cdn-apk-inputs/
