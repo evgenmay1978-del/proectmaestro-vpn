@@ -1,7 +1,7 @@
 package com.maestrovpn.tv.whitelist
 
+import com.maestrovpn.tv.utils.CdnPinnedClient
 import com.maestrovpn.tv.utils.MaestroSub
-import com.maestrovpn.tv.utils.pinServerName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -66,8 +66,16 @@ object WhiteListBalanceClient {
         for (endpoint in endpoints) {
             var connection: HttpsURLConnection? = null
             try {
+                if (endpoint.pinnedAddress != null) {
+                    val parsed = URI(endpoint.url)
+                    val path = parsed.rawPath + (parsed.rawQuery?.let { "?$it" } ?: "")
+                    val response = CdnPinnedClient.get(parsed.host, endpoint.pinnedAddress, path, token,
+                        TIMEOUT_MS, MAX_RESPONSE_BYTES) ?: continue
+                    if (response.status in 500..599) continue
+                    if (response.status != HttpsURLConnection.HTTP_OK) return null
+                    return parse(response.body)
+                }
                 val request = openConnection(URL(endpoint.url))
-                endpoint.pinnedName?.let(request::pinServerName)
                 connection = request
                 request.requestMethod = "GET"
                 request.instanceFollowRedirects = false
