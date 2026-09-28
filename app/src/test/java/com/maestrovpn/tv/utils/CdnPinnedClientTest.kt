@@ -18,7 +18,7 @@ class CdnPinnedClientTest {
 
     @Test
     fun parsesChunkedBody() {
-        val raw = bytes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\n{\"a\":\r\n3\r\n1}\n\r\n0\r\n\r\n")
+        val raw = bytes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n{\"a\":\r\n3\r\n1}\n\r\n0\r\n\r\n")
         val response = CdnPinnedClient.parse(raw, 4096)
 
         assertEquals(200, response?.status)
