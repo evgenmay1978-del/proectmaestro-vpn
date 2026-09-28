@@ -45,6 +45,33 @@ object MaestroSub {
     } catch (_: Exception) { null }
 
     /**
+     * A control endpoint for the CDN origin. [pinnedName] is non-null when [url] dials a literal
+     * edge address that must still present the origin's name as SNI/Host (see pinServerName).
+     */
+    internal data class CdnEndpoint(val url: String, val pinnedName: String? = null)
+
+    /**
+     * Literal CDN edge addresses that survive the federal mobile whitelist. `188.72.103.0/24` is
+     * the only Yandex-CDN range published in it, so it is dialled by address instead of trusting
+     * the CDN's GSLB: an operator's whitelist may carry the CIDR while its DNS/GSLB hands out an
+     * edge outside it. Extend only with addresses a live whitelist test has confirmed.
+     */
+    internal val CDN_EDGE_ADDRESSES = listOf("188.72.103.4")
+
+    /** Control endpoints in try order: canonical origin first, then the pinned edges. */
+    internal fun cdnEndpoints(subUrl: String, accountPath: String? = null): List<CdnEndpoint> {
+        val origin = cdnFallbackUrl(subUrl, accountPath) ?: return emptyList()
+        val parsed = runCatching { URI(origin) }.getOrNull() ?: return listOf(CdnEndpoint(origin))
+        val query = parsed.rawQuery?.let { "?$it" } ?: ""
+        return buildList {
+            add(CdnEndpoint(origin))
+            CDN_EDGE_ADDRESSES.forEach { address ->
+                add(CdnEndpoint("https://$address${parsed.rawPath}$query", parsed.host))
+            }
+        }
+    }
+
+    /**
      * Stable per-DEVICE id. Persisted once; on FIRST generation it is derived from ANDROID_ID so a
      * reinstall (which clears prefs) re-derives the SAME id → the backend does not count it as a new
      * device. Existing installs keep whatever id they already stored (no disruption / no re-count on
