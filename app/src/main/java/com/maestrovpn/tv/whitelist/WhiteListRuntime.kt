@@ -4,6 +4,7 @@ import android.net.Network
 import android.os.SystemClock
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.utils.MaestroSub
+import com.maestrovpn.tv.utils.pinServerName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -65,15 +66,17 @@ internal object WhiteListRuntimeClient {
         ) return null
         val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
         if (token == "." || token == "..") return null
-        val endpoints = listOf(URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL()) +
-            listOfNotNull(MaestroSub.cdnFallbackUrl(subscriptionUrl, "/cabinet/api/runtime")?.let(::URL))
+        val endpoints = listOf(MaestroSub.CdnEndpoint(
+            URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL().toString(),
+        )) + MaestroSub.cdnEndpoints(subscriptionUrl, "/cabinet/api/runtime")
         for (endpoint in endpoints) {
             var connection: HttpsURLConnection? = null
             var deadline: java.util.concurrent.ScheduledFuture<*>? = null
             // A retry has its own response freshness window, never the previous lease's.
             val started = clock()
             try {
-                val request = open(endpoint)
+                val request = open(URL(endpoint.url))
+                endpoint.pinnedName?.let(request::pinServerName)
                 connection = request
                 request.requestMethod = "GET"
                 request.instanceFollowRedirects = false
