@@ -3,8 +3,8 @@ package com.maestrovpn.tv.whitelist
 import android.net.Network
 import android.os.SystemClock
 import com.maestrovpn.tv.bg.UpdateProfileWork
+import com.maestrovpn.tv.utils.CdnPinnedClient
 import com.maestrovpn.tv.utils.MaestroSub
-import com.maestrovpn.tv.utils.pinServerName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,8 +75,17 @@ internal object WhiteListRuntimeClient {
             // A retry has its own response freshness window, never the previous lease's.
             val started = clock()
             try {
+                if (endpoint.pinnedAddress != null) {
+                    val parsed = URI(endpoint.url)
+                    val path = parsed.rawPath + (parsed.rawQuery?.let { "?$it" } ?: "")
+                    val response = CdnPinnedClient.get(parsed.host, endpoint.pinnedAddress, path, token,
+                        REQUEST_LIMIT_MS.toInt(), LIMIT) ?: continue
+                    if (response.status in 500..599) continue
+                    if (response.status != 200) return null
+                    if (clock() - started !in 0..REQUEST_LIMIT_MS) continue
+                    return parse(response.body, started, clock())
+                }
                 val request = open(URL(endpoint.url))
-                endpoint.pinnedName?.let(request::pinServerName)
                 connection = request
                 request.requestMethod = "GET"
                 request.instanceFollowRedirects = false
