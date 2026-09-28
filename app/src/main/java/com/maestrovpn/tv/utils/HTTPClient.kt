@@ -31,6 +31,9 @@ class HTTPClient : Closeable {
             userAgent += ")"
             userAgent
         }
+
+        /** Control-plane documents are a few KB; anything bigger is not ours. */
+        const val SUBSCRIPTION_LIMIT = 512 * 1024
     }
 
     private val client = Libbox.newHTTPClient()
@@ -42,9 +45,8 @@ class HTTPClient : Closeable {
     }
 
     fun getString(url: String, timeoutMs: Long = 15_000): String {
-        MaestroSub.cdnFallbackUrl(url)?.let { fallback ->
-            return getSubscriptionString(url, fallback, timeoutMs)
-        }
+        val cdn = MaestroSub.cdnEndpoints(url)
+        if (cdn.isNotEmpty()) return getSubscriptionString(listOf(MaestroSub.CdnEndpoint(url)) + cdn, timeoutMs)
         val request = client.newRequest()
         request.setUserAgent(userAgent)
         request.setURL(url)
@@ -52,13 +54,24 @@ class HTTPClient : Closeable {
         return response.content.unwrap
     }
 
-    private fun getSubscriptionString(url: String, fallback: String, timeoutMs: Long): String {
-        for (endpoint in listOf(url, fallback)) {
+    private fun getSubscriptionString(endpoints: List<MaestroSub.CdnEndpoint>, timeoutMs: Long): String {
+        var failure: IOException? = null
+        for (endpoint in endpoints) {
             if (closed.get()) throw IOException("subscription request closed")
             var request: HttpsURLConnection? = null
             var status = 0
             try {
-                val connection = URL(endpoint).openConnection() as HttpsURLConnection
+                if (endpoint.pinnedAddress != null) {
+                    val parsed = URL(endpoint.url)
+                    val path = parsed.path + (parsed.query?.let { "?$it" } ?: "")
+                    val response = CdnPinnedClient.get(parsed.host, endpoint.pinnedAddress, path, null,
+                        timeoutMs.coerceIn(1, Int.MAX_VALUE.toLong()).toInt(), SUBSCRIPTION_LIMIT)
+                        ?: throw IOException("subscription edge unreachable")
+                    status = response.status
+                    if (status != 200) throw IOException("subscription HTTP $status")
+                    return response.body
+                }
+                val connection = URL(endpoint.url).openConnection() as HttpsURLConnection
                 request = connection
                 subscriptionConnection.set(connection)
                 if (closed.get()) throw IOException("subscription request closed")
@@ -74,7 +87,8 @@ class HTTPClient : Closeable {
                 if (status != 200) throw IOException("subscription HTTP $status")
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } catch (error: IOException) {
-                if (endpoint == fallback || closed.get() ||
+                failure = error
+                if (endpoint === endpoints.last() || closed.get() ||
                     (status != 0 && status != -1 && status != 200 && status !in 500..599)
                 ) throw error
             } finally {
@@ -82,7 +96,7 @@ class HTTPClient : Closeable {
                 request?.disconnect()
             }
         }
-        throw IOException("subscription unavailable")
+        throw failure ?: IOException("subscription unavailable")
     }
 
     override fun close() {

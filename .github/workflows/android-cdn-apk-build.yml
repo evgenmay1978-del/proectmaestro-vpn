@@ -178,8 +178,11 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:testOtherDebugUnitTest \
             --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest' \
+            --tests 'com.maestrovpn.tv.whitelist.WhiteListBalanceTest' \
+            --tests 'com.maestrovpn.tv.utils.MaestroSubTest' \
+            --tests 'com.maestrovpn.tv.utils.CdnPinnedClientTest' \
             -PmaestroCdnApk=true --stacktrace --no-daemon
-      - name: Build signed APK 1.0.162 without test tasks
+      - name: Build signed APK 1.0.163 without test tasks
         if: ${{ inputs.emulator_only != true }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
@@ -197,8 +200,8 @@ jobs:
           [ "${#apks[@]}" -eq 1 ]
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
-          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.162' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1016007' ]
+          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.163' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016008' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"

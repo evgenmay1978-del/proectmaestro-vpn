@@ -3,6 +3,7 @@ package com.maestrovpn.tv.whitelist
 import android.net.Network
 import android.os.SystemClock
 import com.maestrovpn.tv.bg.UpdateProfileWork
+import com.maestrovpn.tv.utils.CdnPinnedClient
 import com.maestrovpn.tv.utils.MaestroSub
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -65,15 +66,26 @@ internal object WhiteListRuntimeClient {
         ) return null
         val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
         if (token == "." || token == "..") return null
-        val endpoints = listOf(URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL()) +
-            listOfNotNull(MaestroSub.cdnFallbackUrl(subscriptionUrl, "/cabinet/api/runtime")?.let(::URL))
+        val endpoints = listOf(MaestroSub.CdnEndpoint(
+            URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL().toString(),
+        )) + MaestroSub.cdnEndpoints(subscriptionUrl, "/cabinet/api/runtime")
         for (endpoint in endpoints) {
             var connection: HttpsURLConnection? = null
             var deadline: java.util.concurrent.ScheduledFuture<*>? = null
             // A retry has its own response freshness window, never the previous lease's.
             val started = clock()
             try {
-                val request = open(endpoint)
+                if (endpoint.pinnedAddress != null) {
+                    val parsed = URI(endpoint.url)
+                    val path = parsed.rawPath + (parsed.rawQuery?.let { "?$it" } ?: "")
+                    val response = CdnPinnedClient.get(parsed.host, endpoint.pinnedAddress, path, token,
+                        REQUEST_LIMIT_MS.toInt(), LIMIT) ?: continue
+                    if (response.status in 500..599) continue
+                    if (response.status != 200) return null
+                    if (clock() - started !in 0..REQUEST_LIMIT_MS) continue
+                    return parse(response.body, started, clock())
+                }
+                val request = open(URL(endpoint.url))
                 connection = request
                 request.requestMethod = "GET"
                 request.instanceFollowRedirects = false

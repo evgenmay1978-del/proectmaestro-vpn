@@ -45,6 +45,34 @@ object MaestroSub {
     } catch (_: Exception) { null }
 
     /**
+     * A control endpoint for the CDN origin. [pinnedAddress] is non-null when the request must be
+     * dialled to that literal edge address while the URL keeps the origin's name (see
+     * CdnPinnedClient).
+     */
+    internal data class CdnEndpoint(val url: String, val pinnedAddress: String? = null)
+
+    /**
+     * CDN edge addresses worth dialling by literal address, in try order. `188.72.103.0/24` is the
+     * only Yandex-CDN range published in the federal mobile whitelist, and the four production
+     * edges are the ones the tunnel itself uses — if the tunnel can run on an operator, so can the
+     * control plane on the same address. GSLB alone is not enough: it may hand out an edge the
+     * operator's whitelist does not carry.
+     */
+    internal val CDN_EDGE_ADDRESSES = listOf(
+        "188.72.103.4",
+        "188.72.111.7",
+        "188.72.111.19",
+        "188.72.111.35",
+        "188.72.110.4",
+    )
+
+    /** Control endpoints in try order: canonical origin first, then the pinned edges. */
+    internal fun cdnEndpoints(subUrl: String, accountPath: String? = null): List<CdnEndpoint> {
+        val origin = cdnFallbackUrl(subUrl, accountPath) ?: return emptyList()
+        return listOf(CdnEndpoint(origin)) + CDN_EDGE_ADDRESSES.map { CdnEndpoint(origin, it) }
+    }
+
+    /**
      * Stable per-DEVICE id. Persisted once; on FIRST generation it is derived from ANDROID_ID so a
      * reinstall (which clears prefs) re-derives the SAME id → the backend does not count it as a new
      * device. Existing installs keep whatever id they already stored (no disruption / no re-count on
