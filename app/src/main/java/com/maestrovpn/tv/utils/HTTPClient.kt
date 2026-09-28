@@ -31,6 +31,9 @@ class HTTPClient : Closeable {
             userAgent += ")"
             userAgent
         }
+
+        /** Control-plane documents are a few KB; anything bigger is not ours. */
+        const val SUBSCRIPTION_LIMIT = 512 * 1024
     }
 
     private val client = Libbox.newHTTPClient()
@@ -58,11 +61,20 @@ class HTTPClient : Closeable {
             var request: HttpsURLConnection? = null
             var status = 0
             try {
+                if (endpoint.pinnedAddress != null) {
+                    val parsed = URL(endpoint.url)
+                    val path = parsed.path + (parsed.query?.let { "?$it" } ?: "")
+                    val response = CdnPinnedClient.get(parsed.host, endpoint.pinnedAddress, path, null,
+                        timeoutMs.coerceIn(1, Int.MAX_VALUE.toLong()).toInt(), SUBSCRIPTION_LIMIT)
+                        ?: throw IOException("subscription edge unreachable")
+                    status = response.status
+                    if (status != 200) throw IOException("subscription HTTP $status")
+                    return response.body
+                }
                 val connection = URL(endpoint.url).openConnection() as HttpsURLConnection
                 request = connection
                 subscriptionConnection.set(connection)
                 if (closed.get()) throw IOException("subscription request closed")
-                endpoint.pinnedName?.let(connection::pinServerName)
                 connection.requestMethod = "GET"
                 connection.instanceFollowRedirects = false
                 connection.useCaches = false
