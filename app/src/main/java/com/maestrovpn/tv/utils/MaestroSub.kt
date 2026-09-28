@@ -45,30 +45,31 @@ object MaestroSub {
     } catch (_: Exception) { null }
 
     /**
-     * A control endpoint for the CDN origin. [pinnedName] is non-null when [url] dials a literal
-     * edge address that must still present the origin's name as SNI/Host (see pinServerName).
+     * A control endpoint for the CDN origin. [pinnedAddress] is non-null when the request must be
+     * dialled to that literal edge address while the URL keeps the origin's name (see
+     * CdnPinnedClient).
      */
-    internal data class CdnEndpoint(val url: String, val pinnedName: String? = null)
+    internal data class CdnEndpoint(val url: String, val pinnedAddress: String? = null)
 
     /**
-     * Literal CDN edge addresses that survive the federal mobile whitelist. `188.72.103.0/24` is
-     * the only Yandex-CDN range published in it, so it is dialled by address instead of trusting
-     * the CDN's GSLB: an operator's whitelist may carry the CIDR while its DNS/GSLB hands out an
-     * edge outside it. Extend only with addresses a live whitelist test has confirmed.
+     * CDN edge addresses worth dialling by literal address, in try order. `188.72.103.0/24` is the
+     * only Yandex-CDN range published in the federal mobile whitelist, and the four production
+     * edges are the ones the tunnel itself uses — if the tunnel can run on an operator, so can the
+     * control plane on the same address. GSLB alone is not enough: it may hand out an edge the
+     * operator's whitelist does not carry.
      */
-    internal val CDN_EDGE_ADDRESSES = listOf("188.72.103.4")
+    internal val CDN_EDGE_ADDRESSES = listOf(
+        "188.72.103.4",
+        "188.72.111.7",
+        "188.72.111.19",
+        "188.72.111.35",
+        "188.72.110.4",
+    )
 
     /** Control endpoints in try order: canonical origin first, then the pinned edges. */
     internal fun cdnEndpoints(subUrl: String, accountPath: String? = null): List<CdnEndpoint> {
         val origin = cdnFallbackUrl(subUrl, accountPath) ?: return emptyList()
-        val parsed = runCatching { URI(origin) }.getOrNull() ?: return listOf(CdnEndpoint(origin))
-        val query = parsed.rawQuery?.let { "?$it" } ?: ""
-        return buildList {
-            add(CdnEndpoint(origin))
-            CDN_EDGE_ADDRESSES.forEach { address ->
-                add(CdnEndpoint("https://$address${parsed.rawPath}$query", parsed.host))
-            }
-        }
+        return listOf(CdnEndpoint(origin)) + CDN_EDGE_ADDRESSES.map { CdnEndpoint(origin, it) }
     }
 
     /**
