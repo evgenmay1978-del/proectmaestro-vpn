@@ -50,10 +50,11 @@ class MaestroSubTest {
         val endpoints = MaestroSub.cdnEndpoints("$panel/sub/token?device=d-123", "/cabinet/api/runtime")
 
         assertEquals("https://cdn-test.wapmixx.ru/cabinet/api/runtime", endpoints.first().url)
-        assertNull(endpoints.first().pinnedName)
-        assertEquals("https://188.72.103.4/cabinet/api/runtime", endpoints[1].url)
-        assertEquals("cdn-test.wapmixx.ru", endpoints[1].pinnedName)
+        assertNull(endpoints.first().pinnedAddress)
+        assertEquals("https://cdn-test.wapmixx.ru/cabinet/api/runtime", endpoints[1].url)
+        assertEquals("188.72.103.4", endpoints[1].pinnedAddress)
         assertEquals(1 + MaestroSub.CDN_EDGE_ADDRESSES.size, endpoints.size)
+        assertEquals(MaestroSub.CDN_EDGE_ADDRESSES.sorted(), endpoints.drop(1).mapNotNull { it.pinnedAddress }.sorted())
     }
 
     @Test
