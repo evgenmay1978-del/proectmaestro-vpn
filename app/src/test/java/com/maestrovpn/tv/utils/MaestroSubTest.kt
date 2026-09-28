@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.utils
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MaestroSubTest {
@@ -36,6 +38,27 @@ class MaestroSubTest {
                 "mobile",
             ),
         )
+    }
+
+    /**
+     * The whitelist fallback keeps the CDN origin first, then dials the pinned whitelist edge by
+     * literal address while still carrying the origin's name for SNI/Host.
+     */
+    @Test
+    fun cdnEndpointsKeepOriginThenPinnedWhitelistEdge() {
+        val panel = com.maestrovpn.tv.BuildConfig.BACKEND_URL.trimEnd('/')
+        val endpoints = MaestroSub.cdnEndpoints("$panel/sub/token?device=d-123", "/cabinet/api/runtime")
+
+        assertEquals("https://cdn-test.wapmixx.ru/cabinet/api/runtime", endpoints.first().url)
+        assertNull(endpoints.first().pinnedName)
+        assertEquals("https://188.72.103.4/cabinet/api/runtime", endpoints[1].url)
+        assertEquals("cdn-test.wapmixx.ru", endpoints[1].pinnedName)
+        assertEquals(1 + MaestroSub.CDN_EDGE_ADDRESSES.size, endpoints.size)
+    }
+
+    @Test
+    fun cdnEndpointsAreEmptyForForeignSubscriptions() {
+        assertTrue(MaestroSub.cdnEndpoints("https://other.example/sub/token").isEmpty())
     }
 
     @Test
