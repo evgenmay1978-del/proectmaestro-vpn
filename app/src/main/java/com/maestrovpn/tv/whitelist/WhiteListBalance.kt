@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.whitelist
 
 import com.maestrovpn.tv.utils.MaestroSub
+import com.maestrovpn.tv.utils.pinServerName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -59,12 +60,14 @@ object WhiteListBalanceClient {
         if (!source.rawPath.orEmpty().startsWith("/sub/")) return null
         val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
         if (token == "." || token == "..") return null
-        val endpoints = listOf(URI("https", null, source.host, source.port, "/account/whitelist-balance", null, null).toURL()) +
-            listOfNotNull(MaestroSub.cdnFallbackUrl(subscriptionUrl, "/cabinet/api/balance")?.let(::URL))
+        val endpoints = listOf(MaestroSub.CdnEndpoint(
+            URI("https", null, source.host, source.port, "/account/whitelist-balance", null, null).toURL().toString(),
+        )) + MaestroSub.cdnEndpoints(subscriptionUrl, "/cabinet/api/balance")
         for (endpoint in endpoints) {
             var connection: HttpsURLConnection? = null
             try {
-                val request = openConnection(endpoint)
+                val request = openConnection(URL(endpoint.url))
+                endpoint.pinnedName?.let(request::pinServerName)
                 connection = request
                 request.requestMethod = "GET"
                 request.instanceFollowRedirects = false
