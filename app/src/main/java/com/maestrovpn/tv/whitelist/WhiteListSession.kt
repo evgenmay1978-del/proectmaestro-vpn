@@ -51,12 +51,25 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                 }
         } catch (_: Exception) { false }
 
+        /** Соты ПОД туннелем: при включённом VPN сеть по умолчанию — это VPN-сеть, и проверка «сотовая»
+         *  по ней всегда ложна (нет TRANSPORT_CELLULAR, есть TRANSPORT_VPN), из-за чего вкладка CDN считала
+         *  себя вне мобильной сети и не показывала список, хотя аренда приходила. */
+        private fun underlyingCellular(): Network? = try {
+            Application.connectivity.allNetworks.firstOrNull { candidate ->
+                val caps = Application.connectivity.getNetworkCapabilities(candidate)
+                caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            }
+        } catch (_: Exception) { null }
+
         fun network(): Network? {
             return try {
                 val active = Application.connectivity.activeNetwork
                 val activeCaps = active?.let { Application.connectivity.getNetworkCapabilities(it) }
                 val candidate = if (activeCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) active
-                    else DefaultNetworkMonitor.defaultNetwork
+                    else underlyingCellular() ?: DefaultNetworkMonitor.defaultNetwork
                 if (candidate == null) return null
                 candidate.takeIf { isCellular(it) }
             } catch (_: Exception) { null }
