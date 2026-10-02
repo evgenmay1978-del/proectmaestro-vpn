@@ -194,6 +194,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+          # ('Failed to find package tools', sdkmanager exit 1) — тот же фикс, что в android-cdn-apk-build.yml.
+          packages: platform-tools
 
       - name: Read NDK pin
         id: ndk
@@ -398,6 +402,10 @@ jobs:
           go test -mod=readonly -count=1 -race ./...
           go vet -mod=readonly ./...
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3 (pinned: @v3 тянет удалённый пакет tools)
+        with:
+          # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+          # ('Failed to find package tools', sdkmanager exit 1) — тот же фикс, что в android-cdn-apk-build.yml.
+          packages: platform-tools
       - name: Install pinned Android NDK
         run: |
           set -euo pipefail
@@ -558,6 +566,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3 (pinned: @v3 тянет удалённый пакет tools)
+        with:
+          # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+          # ('Failed to find package tools', sdkmanager exit 1) — тот же фикс, что в android-cdn-apk-build.yml.
+          packages: platform-tools
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
