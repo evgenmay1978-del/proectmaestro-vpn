@@ -25,7 +25,6 @@ internal object WhiteListSelection {
     /** Selected profile the current [revision] describes; a routine profile rewrite is not an account change. */
     private var accountProfile = Settings.selectedProfile
     private var request: Request? = null
-    private var previewDeadline = 0L
     private var previewNetwork: Network? = null
     private var previewAccount: Pair<Long, Long>? = null
     private val invalidations = CopyOnWriteArrayList<() -> Unit>()
@@ -64,7 +63,6 @@ internal object WhiteListSelection {
         val allowed = WhiteListSession.isCellular(network)
         previewAccount = account
         previewNetwork = network.takeIf { allowed }
-        previewDeadline = runtime?.deadlineMillis?.takeIf { allowed } ?: 0L
         val active = mutableView.value.active
         val labels = runtime?.takeIf { allowed }?.profiles?.associate { it.tag to it.label }.orEmpty().toMutableMap()
         if (allowed && active != null) mutableView.value.labels[active]?.let { labels[active] = it }
@@ -73,8 +71,12 @@ internal object WhiteListSelection {
 
     @Synchronized fun select(tag: String, network: Network?): Boolean {
         if (tag.startsWith("cdn:")) {
+            // The pick is accepted on the preview's network/account even after the short server lease
+            // has lapsed: the lease itself is re-checked with a fresh fetch in WhiteListSession.prepare(),
+            // so a stale tap can never start a session the panel would refuse (owner report 02.10.2026:
+            // a 4 s lease minus a ~2.7 s round trip left ~1.3 s to tap, so the CDN list was unusable).
             if (!WhiteListSession.isCellular(network) || network != previewNetwork || previewAccount != account() ||
-                SystemClock.elapsedRealtime() >= previewDeadline || tag !in mutableView.value.labels) return false
+                tag !in mutableView.value.labels) return false
         } else if (request == null && mutableView.value.active == null) return false
         val account = account()
         if (!preferences.edit().putBoolean("requires-explicit-choice", tag.startsWith("cdn:")).commit()) return false
@@ -91,7 +93,6 @@ internal object WhiteListSelection {
         if (!preferences.edit().putBoolean("requires-explicit-choice", false).commit()) return null
         val restored = Request(++epoch, value.profileId, value.revision, tag, SystemClock.elapsedRealtime())
         request = restored
-        previewDeadline = 0
         previewNetwork = null
         previewAccount = null
         mutableView.value = View()
@@ -116,7 +117,6 @@ internal object WhiteListSelection {
     private fun clearLocked() {
         epoch++
         request = null
-        previewDeadline = 0
         previewNetwork = null
         previewAccount = null
         mutableView.value = View()
