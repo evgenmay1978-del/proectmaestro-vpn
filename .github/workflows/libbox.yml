@@ -1,4 +1,4 @@
-          "$SDKM" "ndk;$@@{ steps.pin.outputs.ndk_version }}" "platform-tools" >/dev/null
+          "$SDKM" "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools" >/dev/null
 name: Build libbox.aar
 
 # Produces io.nekohasekai.libbox (libbox.aar) from SagerNet/sing-box, pinned to
