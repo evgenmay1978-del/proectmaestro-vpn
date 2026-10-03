@@ -88,8 +88,10 @@ jobs:
       - name: Install pinned NDK + SDK platform
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          SDKM="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls -d "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort | tail -1)"
+          yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
 
       - name: Fetch libbox.aar, gated on the SAME-COMMIT libbox build
