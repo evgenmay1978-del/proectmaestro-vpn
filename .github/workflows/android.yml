@@ -60,7 +60,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # Раннер уже содержит полный Android SDK. android-actions/setup-android@v3 убран:
+      # его внутренний sdkmanager ставит удалённый legacy-пакет 'tools' и валит job до компиляции
+      # (прогоны 37144736899, попытки 1 и 2, 03.10.2026).
+      - name: Android SDK (preinstalled on the runner)
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          if [ -z "${SDK}" ] || [ ! -d "${SDK}" ]; then echo "::error::no preinstalled Android SDK"; exit 1; fi
+          echo "ANDROID_SDK_ROOT=${SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${SDK}" >> "$GITHUB_ENV"
+          ls "${SDK}/cmdline-tools" || true
 
       # Cache resolved dependencies so a jitpack/CDN outage (compose-markdown and
       # libsu live ONLY on jitpack, which periodically 403s behind Cloudflare)
