@@ -244,7 +244,7 @@ jobs:
             --title "MaestroVPN TV ${VN} (canary, release-variant)" \
             --notes "Канареечный release-вариант (R8/minify, assembleOtherRelease) из ветки codex/cdn-select-and-diag-20261002 (commit ${{ github.sha }}). PRERELEASE: флот на треке STABLE канарейку не берёт. Панель и Яндекс-зеркало не обновлялись." \
             --prerelease
-          gh release view "$TAG" --json tagName,isPrerelease,isLatest,assets -q '"tag=" + .tagName + " prerelease=" + (.isPrerelease|tostring) + " latest=" + (.isLatest|tostring) + " assets=" + ([.assets[] | .name + "(" + (.size|tostring) + ")"] | join(", "))'
+          gh release view "$TAG" --json tagName,isPrerelease,assets -q '"tag=" + .tagName + " prerelease=" + (.isPrerelease|tostring) + " assets=" + ([.assets[] | .name + "(" + (.size|tostring) + ")"] | join(", "))'
 
       - name: Upload APK (backup copy — never gates the release)
         if: ${{ always() }}
