@@ -65,7 +65,7 @@ jobs:
           VN="${{ inputs.version_name }}"; [ -n "$VN" ] || VN="1.0.167"
           VC="${{ inputs.version_code }}"; [ -n "$VC" ] || VC="1016012"
           LB="${{ inputs.libbox_run_id }}"; [ -n "$LB" ] || LB="37152501943"
-          TAG="${{ inputs.release_tag }}"; [ -n "$TAG" ] || TAG="tv-${VN}"
+          TAG="${{ inputs.release_tag }}"; [ -n "$TAG" ] || TAG="tv-v${VN}"
           PUB="${{ inputs.publish_release }}"; [ -n "$PUB" ] || PUB="true"
           {
             echo "version_name=$VN"
