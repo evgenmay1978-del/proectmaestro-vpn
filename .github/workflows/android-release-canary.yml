@@ -14,10 +14,19 @@ name: Build release-variant APK (canary)
 # main с теми же пинами GO/SINGBOX_REF/NDK и тем же libbox-awg/, + XHTTP-бинарь в jniLibs +
 # стабильный релизный keystore), но релизным build type и с версией ВЫШЕ флотской.
 # Релиз публикуется PRERELEASE: флот идёт по треку STABLE (UpdateTrack.fromString -> STABLE,
-# UpdateWorker: panel first, GitHub — фолбэк), пререлизы он не берёт. Панель, /var/lib/maestro/update
-# и бакет maestro-apk не трогаются — это канареечный канал для ручной проверки.
+# UpdateWorker: сначала панель, GitHub — фолбэк), пререлизы он не берёт. Панель,
+# /var/lib/maestro/update и бакет maestro-apk не трогаются — это канареечный канал.
+#
+# Запуск: push в ветку ci/release-canary-1.0.167 (значения по умолчанию ниже).
+# workflow_dispatch здесь для будущих запусков; пока файла нет на ветке по умолчанию
+# (app/mobile), GitHub его по имени не находит — поэтому основной триггер push.
 
 on:
+  push:
+    branches:
+      - ci/release-canary-1.0.167
+    paths:
+      - '.github/workflows/android-release-canary.yml'
   workflow_dispatch:
     inputs:
       version_name:
@@ -49,11 +58,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve build parameters (defaults work for the push trigger too)
+        id: p
+        run: |
+          set -euo pipefail
+          VN="${{ inputs.version_name }}"; [ -n "$VN" ] || VN="1.0.167"
+          VC="${{ inputs.version_code }}"; [ -n "$VC" ] || VC="1016012"
+          LB="${{ inputs.libbox_run_id }}"; [ -n "$LB" ] || LB="37152501943"
+          TAG="${{ inputs.release_tag }}"; [ -n "$TAG" ] || TAG="tv-${VN}"
+          PUB="${{ inputs.publish_release }}"; [ -n "$PUB" ] || PUB="true"
+          {
+            echo "version_name=$VN"
+            echo "version_code=$VC"
+            echo "libbox_run_id=$LB"
+            echo "release_tag=$TAG"
+            echo "publish_release=$PUB"
+          } >> "$GITHUB_OUTPUT"
+          echo "versionName=$VN versionCode=$VC libbox_run=$LB tag=$TAG publish=$PUB"
+          test "$VC" -gt 1016011 || { echo "::error::versionCode $VC не выше флотского 1016011"; exit 1; }
+
       - name: Set release version (version.properties -> BuildConfig)
         run: |
           set -euo pipefail
-          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${{ inputs.version_code }}/" version.properties
-          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${{ inputs.version_name }}/" version.properties
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${{ steps.p.outputs.version_code }}/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${{ steps.p.outputs.version_name }}/" version.properties
           grep -E '^VERSION_(CODE|NAME)=' version.properties
 
       - uses: actions/setup-java@v4
@@ -96,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p app/libs
-          RUN_ID="${{ inputs.libbox_run_id }}"
+          RUN_ID="${{ steps.p.outputs.libbox_run_id }}"
           echo "libbox run: $RUN_ID"
           gh run view "$RUN_ID" --json databaseId,headSha,status,conclusion,workflowName -q '"libbox run " + (.databaseId|tostring) + " sha=" + .headSha[0:10] + " " + .status + "/" + (.conclusion//"-") + " (" + .workflowName + ")"'
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
@@ -146,7 +174,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${SIGNING_KEYSTORE_B64:-}" ]; then
-            echo "::error::SIGNING_KEYSTORE_B64 отсутствует — релизный APK не собрать (debug-подпись недопустима)"; exit 1
+            echo "::error::SIGNING_KEYSTORE_B64 отсутствует — релизный APK не собрать"; exit 1
           fi
           if [ -z "${LOCAL_PROPERTIES:-}" ]; then
             echo "::error::LOCAL_PROPERTIES отсутствует — R8-сборка не подпишется стабильным ключом"; exit 1
@@ -167,7 +195,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VN="${{ inputs.version_name }}"; VC="${{ inputs.version_code }}"
+          VN="${{ steps.p.outputs.version_name }}"; VC="${{ steps.p.outputs.version_code }}"
           mapfile -t apks < <(find app/build/outputs/apk/other/release -maxdepth 1 -type f -name '*.apk')
           [ "${#apks[@]}" -eq 1 ] || { echo "::error::expected exactly one release apk, got ${#apks[@]}"; ls -l app/build/outputs/apk/other/release; exit 1; }
           apk="${apks[0]}"
@@ -202,19 +230,19 @@ jobs:
           ls -l canary-out/
 
       - name: Publish canary GitHub release (prerelease)
-        if: ${{ inputs.publish_release == 'true' }}
+        if: ${{ steps.p.outputs.publish_release == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VN="${{ inputs.version_name }}"; TAG="${{ inputs.release_tag }}"
+          VN="${{ steps.p.outputs.version_name }}"; TAG="${{ steps.p.outputs.release_tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::release $TAG уже существует — канарейку не перезаписываем"; exit 1
           fi
           gh release create "$TAG" \
             "canary-out/MaestroVPN-TV-${VN}.apk" canary-out/version-metadata.json \
             --title "MaestroVPN TV ${VN} (canary, release-variant)" \
-            --notes "Канареечный release-вариант (R8/minify, `assembleOtherRelease`) из ветки `codex/cdn-select-and-diag-20261002` (commit ${{ github.sha }}). Публикуется как PRERELEASE: флот на треке STABLE канарейку не берёт. Панель и Яндекс-зеркало не обновлялись." \
+            --notes "Канареечный release-вариант (R8/minify, assembleOtherRelease) из ветки codex/cdn-select-and-diag-20261002 (commit ${{ github.sha }}). PRERELEASE: флот на треке STABLE канарейку не берёт. Панель и Яндекс-зеркало не обновлялись." \
             --prerelease
           gh release view "$TAG" --json tagName,isPrerelease,isLatest,assets -q '"tag=" + .tagName + " prerelease=" + (.isPrerelease|tostring) + " latest=" + (.isLatest|tostring) + " assets=" + ([.assets[] | .name + "(" + (.size|tostring) + ")"] | join(", "))'
 
