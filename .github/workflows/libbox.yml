@@ -1,4 +1,3 @@
-          "$SDKM" "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools" >/dev/null
 name: Build libbox.aar
 
 # Produces io.nekohasekai.libbox (libbox.aar) from SagerNet/sing-box, pinned to
@@ -47,7 +46,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
       # его внутренний sdkmanager ставит удалённый legacy-пакет 'tools' и валит job до компиляции
       # (прогоны 37144736899, попытки 1 и 2, 03.10.2026).
       - name: Android SDK (preinstalled on the runner)
@@ -71,6 +69,7 @@ jobs:
           SDKM="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SDKM" ] || SDKM="$(ls -d "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort | tail -1)"
           yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools" >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
 
       - name: Clone sing-box at ${{ steps.pin.outputs.singbox_ref }}
