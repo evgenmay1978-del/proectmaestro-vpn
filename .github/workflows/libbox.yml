@@ -1,3 +1,4 @@
+          "$SDKM" "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools" >/dev/null
 name: Build libbox.aar
 
 # Produces io.nekohasekai.libbox (libbox.aar) from SagerNet/sing-box, pinned to
@@ -47,15 +48,29 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # его внутренний sdkmanager ставит удалённый legacy-пакет 'tools' и валит job до компиляции
+      # (прогоны 37144736899, попытки 1 и 2, 03.10.2026).
+      - name: Android SDK (preinstalled on the runner)
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          if [ -z "${SDK}" ] || [ ! -d "${SDK}" ]; then echo "::error::no preinstalled Android SDK"; exit 1; fi
+          echo "ANDROID_SDK_ROOT=${SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${SDK}" >> "$GITHUB_ENV"
+          ls "${SDK}/cmdline-tools" || true
+
+      # Cache resolved dependencies so a jitpack/CDN outage (compose-markdown and
+      # libsu live ONLY on jitpack, which periodically 403s behind Cloudflare)
+      # can't block a build once these have been fetched successfully once.
 
       # build_shared.findNDK() looks for $ANDROID_SDK_ROOT/ndk/<NDK_VERSION>;
       # install that exact revision and the cmdline-tools licenses it expects.
       - name: Install pinned Android NDK ${{ steps.pin.outputs.ndk_version }}
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools"
+          SDKM="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls -d "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort | tail -1)"
+          yes | "$SDKM" --licenses >/dev/null || true
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
 
       - name: Clone sing-box at ${{ steps.pin.outputs.singbox_ref }}
