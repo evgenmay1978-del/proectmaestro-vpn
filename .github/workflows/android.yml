@@ -61,6 +61,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
 
       # Cache resolved dependencies so a jitpack/CDN outage (compose-markdown and
       # libsu live ONLY on jitpack, which periodically 403s behind Cloudflare)
