@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
 import android.content.res.Resources
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
