@@ -548,8 +548,8 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          VC="$(( 90000 + ${{ github.run_number }} ))"
-          VN="1.0.92-test"
+          VC="$(( 1016012 + ${{ github.run_number }} ))"
+          VN="1.0.167-test-medallion"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
 
