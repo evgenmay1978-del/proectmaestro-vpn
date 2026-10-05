@@ -21,19 +21,22 @@ import androidx.compose.ui.res.painterResource
 import com.maestrovpn.tv.R
 
 /**
- * Статичный медальон «M». Ни ореола, ни другого белого света: владелец убрал его из дизайна
- * (26–27.09.2026) — кожа остаётся тёмной, живёт только изумрудная кромка ([MonogramGlow]).
+ * Медальон «M» из двух слоёв (05.10.2026): диск без буквы + объёмная буква «M» ([MonogramSpin]).
+ * Буква вынесена из ассета диска: в покое статична, при подключении вращается. Ни ореола, ни
+ * другого белого света: владелец убрал его из дизайна (26–27.09.2026) — кожа остаётся тёмной,
+ * живёт только изумрудная кромка ([MonogramGlow]).
  */
 @Composable
 internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(
-                if (connected) R.drawable.mobile_medallion_m_on else R.drawable.mobile_medallion_m_off,
+                if (connected) R.drawable.mobile_medallion_disc_on else R.drawable.mobile_medallion_disc_off,
             ),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )
+        MonogramSpin(connected = connected, modifier = Modifier.fillMaxSize())
     }
 }
 
