@@ -38,6 +38,8 @@ jobs:
 
       - name: Set build version (monotonic — the in-app updater always sees newer)
         id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Номер запуска не гарантирует уникальность тега (релиз 1.0.167 уже существует),
