@@ -194,6 +194,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
 
       - name: Read NDK pin
         id: ndk
@@ -398,6 +402,10 @@ jobs:
           go test -mod=readonly -count=1 -race ./...
           go vet -mod=readonly ./...
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3 (pinned: @v3 тянет удалённый пакет tools)
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
       - name: Install pinned Android NDK
         run: |
           set -euo pipefail
@@ -540,8 +548,8 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          VC="$(( 90000 + ${{ github.run_number }} ))"
-          VN="1.0.92-test"
+          VC="$(( 1016012 + ${{ github.run_number }} ))"
+          VN="1.0.167-test-medallion"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
 
@@ -558,6 +566,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3 (pinned: @v3 тянет удалённый пакет tools)
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4

@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           VN="1.0.${{ github.run_number }}"
-          VC="${{ github.run_number }}"
+          VC="$(( 1016567 + ${{ github.run_number }} ))"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
           echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
