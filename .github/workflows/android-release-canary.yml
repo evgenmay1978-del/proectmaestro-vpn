@@ -1,0 +1,257 @@
+name: Build release-variant APK (canary)
+
+# Канареечный выпуск НАСТОЯЩЕГО release-варианта (:app:assembleOtherRelease, R8/minify)
+# из ветки флота codex/cdn-select-and-diag-20261002.
+#
+# Почему отдельный workflow, а не существующие:
+#   * android.yml на этой ветке собирает :app:assembleOtherDebug, а шаг публикации релиза
+#     защищён if: github.ref == refs/heads/main — из ветки релиз не выпускается;
+#   * android-cdn-apk-build.yml собирает debug-вариант с -PmaestroCdnApk=true (версия
+#     1.0.166/1016011 захардкожена в app/build.gradle.kts) и переиспользует артефакт libbox
+#     9203846250, удалённый при чистке 03.10.2026 (GET -> 404), поэтому как есть не запускается.
+#
+# Здесь тот же состав, что уходит флоту (app-код ветки + libbox.aar из прогона libbox.yml на
+# main с теми же пинами GO/SINGBOX_REF/NDK и тем же libbox-awg/, + XHTTP-бинарь в jniLibs +
+# стабильный релизный keystore), но релизным build type и с версией ВЫШЕ флотской.
+# Релиз публикуется PRERELEASE: флот идёт по треку STABLE (UpdateTrack.fromString -> STABLE,
+# UpdateWorker: сначала панель, GitHub — фолбэк), пререлизы он не берёт. Панель,
+# /var/lib/maestro/update и бакет maestro-apk не трогаются — это канареечный канал.
+#
+# Запуск: push в ветку ci/release-canary-1.0.167 (значения по умолчанию ниже).
+# workflow_dispatch здесь для будущих запусков; пока файла нет на ветке по умолчанию
+# (app/mobile), GitHub его по имени не находит — поэтому основной триггер push.
+
+on:
+  push:
+    branches:
+      - ci/release-canary-1.0.167
+    paths:
+      - '.github/workflows/android-release-canary.yml'
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'versionName (должен быть выше флотской 1.0.166)'
+        default: '1.0.167'
+      version_code:
+        description: 'versionCode (должен быть выше флотского 1016011)'
+        default: '1016012'
+      libbox_run_id:
+        description: 'id прогона libbox.yml (артефакт libbox-aar)'
+        default: '37152501943'
+      release_tag:
+        description: 'тег GitHub-релиза'
+        default: 'tv-v1.0.167'
+      publish_release:
+        description: 'публиковать prerelease на GitHub (true/false)'
+        default: 'true'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve build parameters (defaults work for the push trigger too)
+        id: p
+        run: |
+          set -euo pipefail
+          VN="${{ inputs.version_name }}"; [ -n "$VN" ] || VN="1.0.167"
+          VC="${{ inputs.version_code }}"; [ -n "$VC" ] || VC="1016012"
+          LB="${{ inputs.libbox_run_id }}"; [ -n "$LB" ] || LB="37152501943"
+          TAG="${{ inputs.release_tag }}"; [ -n "$TAG" ] || TAG="tv-v${VN}"
+          PUB="${{ inputs.publish_release }}"; [ -n "$PUB" ] || PUB="true"
+          {
+            echo "version_name=$VN"
+            echo "version_code=$VC"
+            echo "libbox_run_id=$LB"
+            echo "release_tag=$TAG"
+            echo "publish_release=$PUB"
+          } >> "$GITHUB_OUTPUT"
+          echo "versionName=$VN versionCode=$VC libbox_run=$LB tag=$TAG publish=$PUB"
+          test "$VC" -gt 1016011 || { echo "::error::versionCode $VC не выше флотского 1016011"; exit 1; }
+
+      - name: Set release version (version.properties -> BuildConfig)
+        run: |
+          set -euo pipefail
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${{ steps.p.outputs.version_code }}/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${{ steps.p.outputs.version_name }}/" version.properties
+          grep -E '^VERSION_(CODE|NAME)=' version.properties
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK (preinstalled on the runner)
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          if [ -z "${SDK}" ] || [ ! -d "${SDK}" ]; then echo "::error::no preinstalled Android SDK"; exit 1; fi
+          echo "ANDROID_SDK_ROOT=${SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${SDK}" >> "$GITHUB_ENV"
+          ls "${SDK}/cmdline-tools" || true
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'settings.gradle.kts', 'version.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install pinned NDK + SDK platform
+        run: |
+          set -euo pipefail
+          SDKM="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls -d "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort | tail -1)"
+          yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" "ndk;28.0.13004108" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+          go version
+
+      - name: Fetch libbox.aar from the pinned libbox.yml run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          RUN_ID="${{ steps.p.outputs.libbox_run_id }}"
+          echo "libbox run: $RUN_ID"
+          gh run view "$RUN_ID" --json databaseId,headSha,status,conclusion,workflowName -q '"libbox run " + (.databaseId|tostring) + " sha=" + .headSha[0:10] + " " + .status + "/" + (.conclusion//"-") + " (" + .workflowName + ")"'
+          gh run download "$RUN_ID" -n libbox-aar -D app/libs
+          ls -lh app/libs/
+          sha256sum app/libs/libbox.aar
+
+      - name: Build the XHTTP child-process binary from the guarded source
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          set -euo pipefail
+          git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp \
+            ':!android-xhttp/engine.go' ':!android-xhttp/main_cli.go' ':!android-xhttp/main_cshared.go' \
+            ':!android-xhttp/config.go' ':!android-xhttp/config_test.go'
+          python3 - <<'PY'
+          import hashlib, pathlib
+          expected = {
+              'android-xhttp/engine.go': '5a351650dfb97ba11f39b66c1de798db32be750f3b389d97e4ee50a9da4b34a6',
+              'android-xhttp/main_cli.go': '047d8a8d32db97d5a96ea9c7a8cca4a5564ef9794e2d23f859e815511ca332e6',
+              'android-xhttp/main_cshared.go': '9304d1fdd0d2820c5fd0760b9d1ca64a7601d1ce8de2ba583920f744cecec68e',
+              'android-xhttp/config.go': '4880a4000705e922df5b8d85ae24cd8e5efc6a577c043b3b479c51a79ae750d2',
+              'android-xhttp/config_test.go': '25e77ef14f401ca46dbf6803ab6811af526609754b7c82db25717e424ae4eb82',
+          }
+          for name, want in expected.items():
+              got = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()
+              if got != want: raise SystemExit('reviewed_source_mismatch ' + name)
+              print('reviewed', name, got)
+          PY
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for abi in arm64-v8a armeabi-v7a; do
+            if [ "$abi" = arm64-v8a ]; then
+              export GOOS=android GOARCH=arm64 CC="$toolchain/aarch64-linux-android23-clang"; unset GOARM
+            else
+              export GOOS=android GOARCH=arm GOARM=7 CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            mkdir -p "app/src/main/jniLibs/$abi"
+            (cd android-xhttp && go build -tags xhttpcli -buildmode=pie -trimpath \
+              -ldflags='-s -w -checklinkname=0' -o "../app/src/main/jniLibs/$abi/libmaestro_xhttp.so" .)
+          done
+          sha256sum app/src/main/jniLibs/*/libmaestro_xhttp.so
+          file app/src/main/jniLibs/*/libmaestro_xhttp.so
+
+      - name: Materialize the stable signing keystore from secret
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_KEYSTORE_B64:-}" ]; then
+            echo "::error::SIGNING_KEYSTORE_B64 отсутствует — релизный APK не собрать"; exit 1
+          fi
+          if [ -z "${LOCAL_PROPERTIES:-}" ]; then
+            echo "::error::LOCAL_PROPERTIES отсутствует — R8-сборка не подпишется стабильным ключом"; exit 1
+          fi
+          echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/release.keystore
+          echo "wrote app/release.keystore ($(stat -c%s app/release.keystore) bytes)"
+
+      - name: Build :app:assembleOtherRelease
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:assembleOtherRelease --stacktrace --no-daemon
+
+      - name: Verify APK identity, signer and BuildConfig
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VN="${{ steps.p.outputs.version_name }}"; VC="${{ steps.p.outputs.version_code }}"
+          mapfile -t apks < <(find app/build/outputs/apk/other/release -maxdepth 1 -type f -name '*.apk')
+          [ "${#apks[@]}" -eq 1 ] || { echo "::error::expected exactly one release apk, got ${#apks[@]}"; ls -l app/build/outputs/apk/other/release; exit 1; }
+          apk="${apks[0]}"
+          echo "apk=$apk size=$(stat -c%s "$apk")"
+          echo "sha256=$(sha256sum "$apk" | cut -d' ' -f1)"
+          AA="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/apkanalyzer"
+          [ -x "$AA" ] || AA="$(ls -d "${ANDROID_SDK_ROOT}"/cmdline-tools/*/bin/apkanalyzer 2>/dev/null | sort | tail -1)"
+          echo "application-id: $("$AA" manifest application-id "$apk")"
+          echo "version-name:   $("$AA" manifest version-name "$apk")"
+          echo "version-code:   $("$AA" manifest version-code "$apk")"
+          echo "debuggable:     $("$AA" manifest debuggable "$apk")"
+          [ "$("$AA" manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
+          [ "$("$AA" manifest version-name "$apk")" = "$VN" ]
+          [ "$("$AA" manifest version-code "$apk")" = "$VC" ]
+          [ "$("$AA" manifest debuggable "$apk")" = 'false' ]
+          bc="$(find app/build/generated/source/buildConfig -path '*other/release*' -name BuildConfig.java | head -1)"
+          echo "--- BuildConfig.java: $bc ---"
+          grep -E 'VERSION_CODE|VERSION_NAME|DEBUG|BUILD_TYPE' "$bc"
+          signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
+          "$signer" verify --verbose --print-certs "$apk" | grep -E 'Verified using v[12] scheme|Number of signers|certificate SHA-256 digest' | head -20
+          mkdir -p "${{ runner.temp }}/fleet-reference"
+          gh release download tv-v1.0.166 --pattern '*.apk' --dir "${{ runner.temp }}/fleet-reference" --clobber
+          ref="$(find "${{ runner.temp }}/fleet-reference" -maxdepth 1 -type f -name '*.apk' | head -1)"
+          echo "fleet reference: $ref"
+          diff -u <("${signer}" verify --print-certs "$ref" | grep 'certificate SHA-256 digest:') \
+                  <("${signer}" verify --print-certs "$apk" | grep 'certificate SHA-256 digest:') \
+            && echo "SIGNATURE-MATCH: канареечный APK подписан тем же ключом, что флотский 1.0.166"
+          mkdir -p canary-out
+          cp "$apk" "canary-out/MaestroVPN-TV-${VN}.apk"
+          printf '{"version_code": %s, "version_name": "%s"}\n' "$VC" "$VN" > canary-out/version-metadata.json
+          cat canary-out/version-metadata.json
+          ls -l canary-out/
+
+      - name: Publish canary GitHub release (prerelease)
+        if: ${{ steps.p.outputs.publish_release == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VN="${{ steps.p.outputs.version_name }}"; TAG="${{ steps.p.outputs.release_tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::release $TAG уже существует — канарейку не перезаписываем"; exit 1
+          fi
+          gh release create "$TAG" \
+            "canary-out/MaestroVPN-TV-${VN}.apk" canary-out/version-metadata.json \
+            --title "MaestroVPN TV ${VN} (canary, release-variant)" \
+            --notes "Канареечный release-вариант (R8/minify, assembleOtherRelease) из ветки codex/cdn-select-and-diag-20261002 (commit ${{ github.sha }}). PRERELEASE: флот на треке STABLE канарейку не берёт. Панель и Яндекс-зеркало не обновлялись." \
+            --prerelease
+          gh release view "$TAG" --json tagName,isPrerelease,assets -q '"tag=" + .tagName + " prerelease=" + (.isPrerelease|tostring) + " assets=" + ([.assets[] | .name + "(" + (.size|tostring) + ")"] | join(", "))'
+
+      - name: Upload APK (backup copy — never gates the release)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestrovpn-tv-release-canary-${{ github.run_id }}
+          path: canary-out/
+          if-no-files-found: warn
+          retention-days: 14
