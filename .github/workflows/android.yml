@@ -27,9 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
-    permissions:
-      contents: write
       # Declaring a permissions block sets every UNLISTED scope to none, and the repo default is
       # only "read" anyway — so without actions:read the libbox fetch below dies on
       # `gh run list --workflow=libbox.yml` with "HTTP 403: Resource not accessible by
