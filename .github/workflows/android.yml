@@ -40,8 +40,13 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          VN="1.0.${{ github.run_number }}"
-          VC="$(( 1016567 + ${{ github.run_number }} ))"
+          # Номер запуска не гарантирует уникальность тега (релиз 1.0.167 уже существует),
+          # поэтому патч версии берём от последнего опубликованного релиза, а versionCode держим
+          # выше тестовой сборки 1016567 — иначе встроенный апдейтер не увидит обновление.
+          LAST=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null | sed -n 's/^tv-v1\.0\.\([0-9]*\)$/\1/p')
+          PATCH=$(( ${LAST:-167} + 1 ))
+          VN="1.0.${PATCH}"
+          VC="$(( 1016567 + PATCH ))"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
           echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
