@@ -116,13 +116,11 @@ func rqliteSubscriptionTopologyFromEnvironment() subgen.Customer {
 	topology := subgen.Customer{
 		VLESS: runtimeVLESSTopology("", env("VLESS_SERVER", "wapmixx.ru")),
 	}
+	// hy2 (hysteria2) retired 2026-10: S2 is a VLESS node and the hysteria
+	// endpoint on S1 was decommissioned (hysteria-server disabled), so the
+	// subscription no longer advertises hy2. S2 is served as VLESS below.
 	if server := os.Getenv("S2_VLESS_SERVER"); server != "" {
 		topology.VLESS2 = runtimeVLESSTopology("S2_", server)
-	} else {
-		topology.Hy2 = &subgen.Hy2Creds{
-			Server: env("HY2_SERVER", "wapmix.duckdns.org"), Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
-			SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
-		}
 	}
 	if server := os.Getenv("NAIVE_SERVER"); server != "" {
 		topology.Naive = &subgen.NaiveCreds{
