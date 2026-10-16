@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
-	"github.com/amnezia-vpn/amneziawg-go/device"
+	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/device"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing/common/exceptions"
@@ -24,6 +24,11 @@ type DeviceOpts struct {
 	AllowedIps       []netip.Prefix
 	ExcludedIps      []netip.Prefix
 	MTU              uint32
+	// IsConnect selects a connected UDP socket to ConnectAddr, which is possible when the
+	// config has exactly one peer with a literal address. That is the dial path every other
+	// protocol in this app uses, so it is the best-tested one on Android.
+	IsConnect   bool
+	ConnectAddr netip.AddrPort
 }
 
 type Device struct {
@@ -63,7 +68,7 @@ func NewDevice(ctx context.Context, logger logger.ContextLogger, dial network.Di
 
 	return &Device{
 		tun:       tun,
-		bind:      newBind(dial),
+		bind:      newBind(ctx, logger, dial, opts.IsConnect, opts.ConnectAddr),
 		logger:    awgLogger,
 		ipcConfig: ipcConfig,
 	}, nil

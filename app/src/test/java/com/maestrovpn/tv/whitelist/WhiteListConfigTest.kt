@@ -66,4 +66,50 @@ class WhiteListConfigTest {
         assertNull(payload["subscription"])
         assertNull(payload["route_id"])
     }
+
+    /**
+     * AWG from the ordinary subscription sits in the top-level "endpoints" array (type "awg"),
+     * not in "outbounds". Managed-mode reconciliation must accept such a pick — otherwise it is
+     * silently dropped back to "auto" and the core keeps running a VLESS outbound while the user
+     * believes AWG is selected (owner incident, 16.10.2026).
+     */
+    @Test fun ordinaryTagKeepsAwgEndpointChoice() {
+        val withAwg = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        assertEquals("awg", WhiteListConfig.ordinaryTag(withAwg))
+    }
+
+    @Test fun ordinaryTagFallsBackToAutoWhenTheEndpointIsGone() {
+        val withoutEndpoint = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}]}"""
+        assertEquals("auto", WhiteListConfig.ordinaryTag(withoutEndpoint))
+    }
+
+    @Test fun ordinaryTagIgnoresAnEndpointThatWasNotChosen() {
+        val autoChosen = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"auto"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        assertEquals("auto", WhiteListConfig.ordinaryTag(autoChosen))
+    }
+
+    @Test fun ordinaryTagStillRefusesAnInjectedCdnSession() {
+        val withCdn = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","cdn:x"],"default":"cdn:x"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"socks","tag":"cdn:x"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        assertNull(WhiteListConfig.ordinaryTag(withCdn))
+    }
+
+    @Test fun stripAwgDecoysRemovesOnlyI1ToI5FromAwgEndpoints() {
+        val config = """{"outbounds":[{"type":"direct","tag":"direct","i1":"keep"}],"endpoints":[{"type":"awg","tag":"awg","jc":4,"s1":10,"i1":"<b 0xc2>","i2":"x","i5":"y"},{"type":"wireguard","tag":"wg","i1":"keep"}]}"""
+        val root = Json.parseToJsonElement(WhiteListConfig.stripAwgDecoys(config)).jsonObject
+        val endpoints = root["endpoints"]!!.jsonArray.map { it.jsonObject }
+        val awg = endpoints.single { it["tag"]!!.jsonPrimitive.content == "awg" }
+        assertNull(awg["i1"]); assertNull(awg["i2"]); assertNull(awg["i5"])
+        assertEquals("4", awg["jc"]!!.jsonPrimitive.content)
+        assertEquals("10", awg["s1"]!!.jsonPrimitive.content)
+        assertEquals("keep", endpoints.single { it["tag"]!!.jsonPrimitive.content == "wg" }["i1"]!!.jsonPrimitive.content)
+        assertEquals("keep", root["outbounds"]!!.jsonArray[0].jsonObject["i1"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun stripAwgDecoysLeavesConfigsWithoutDecoysByteForByte() {
+        val noAwg = """{"outbounds":[{"type":"direct","tag":"direct"}]}"""
+        val awgClean = """{"endpoints":[{"type":"awg","tag":"awg","jc":4}]}"""
+        assertEquals(noAwg, WhiteListConfig.stripAwgDecoys(noAwg))
+        assertEquals(awgClean, WhiteListConfig.stripAwgDecoys(awgClean))
+        assertEquals("not json", WhiteListConfig.stripAwgDecoys("not json"))
+    }
 }

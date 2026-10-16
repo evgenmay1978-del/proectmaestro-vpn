@@ -186,11 +186,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             whiteListSession?.close()
             val cdn = request?.tag?.startsWith("cdn:") == true
             try {
-                val effective = when {
+                val effective = WhiteListConfig.stripAwgDecoys(when {
                     cdn -> requireNotNull(whiteListSession?.prepare(content, requireNotNull(request))) { "CDN unavailable" }
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
-                }
+                })
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
                 commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
