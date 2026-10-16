@@ -66,4 +66,30 @@ class WhiteListConfigTest {
         assertNull(payload["subscription"])
         assertNull(payload["route_id"])
     }
+
+    /**
+     * AWG from the ordinary subscription sits in the top-level "endpoints" array (type "awg"),
+     * not in "outbounds". Managed-mode reconciliation must accept such a pick — otherwise it is
+     * silently dropped back to "auto" and the core keeps running a VLESS outbound while the user
+     * believes AWG is selected (owner incident, 16.10.2026).
+     */
+    @Test fun ordinaryTagKeepsAwgEndpointChoice() {
+        val withAwg = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        assertEquals("awg", WhiteListConfig.ordinaryTag(withAwg))
+    }
+
+    @Test fun ordinaryTagFallsBackToAutoWhenTheEndpointIsGone() {
+        val withoutEndpoint = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}]}"""
+        assertEquals("auto", WhiteListConfig.ordinaryTag(withoutEndpoint))
+    }
+
+    @Test fun ordinaryTagIgnoresAnEndpointThatWasNotChosen() {
+        val autoChosen = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"auto"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        assertEquals("auto", WhiteListConfig.ordinaryTag(autoChosen))
+    }
+
+    @Test fun ordinaryTagStillRefusesAnInjectedCdnSession() {
+        val withCdn = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","cdn:x"],"default":"cdn:x"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"socks","tag":"cdn:x"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        assertNull(WhiteListConfig.ordinaryTag(withCdn))
+    }
 }
