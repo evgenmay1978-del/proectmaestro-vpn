@@ -124,8 +124,8 @@ if (cdnApkBuild) {
     require(1016008 > productionVersionCode) { "CDN APK version must exceed the source version" }
 }
 
-val effectiveVersionName = if (cdnApkBuild) "1.0.163" else "1.0.168-canary-awg"
-val effectiveVersionCode = if (cdnApkBuild) 1016008 else 1016800  // canary 16.10.2026: > installed 1.0.168 (1016735), < next fleet 1.0.169 (1016900)
+val effectiveVersionName = if (cdnApkBuild) "1.0.163" else "1.0.168-canary-awg-diag"
+val effectiveVersionCode = if (cdnApkBuild) 1016008 else 1016801  // canary 16.10.2026: > installed 1.0.168 (1016735), < next fleet 1.0.169 (1016900)
 android {
     namespace = "com.maestrovpn.tv"
     compileSdk = 36
