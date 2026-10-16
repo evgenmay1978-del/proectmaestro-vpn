@@ -76,8 +76,23 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
 		return nil, err
 	}
 
+	// One peer with a literal address (every subscription we emit) lets the bind use a
+	// connected UDP socket instead of an unbound listener.
+	var (
+		isConnect   bool
+		connectAddr netip.AddrPort
+	)
+	if len(options.Peers) == 1 && options.Peers[0].Port != 0 {
+		if peerAddr, addrErr := netip.ParseAddr(options.Peers[0].Address); addrErr == nil {
+			isConnect = true
+			connectAddr = netip.AddrPortFrom(peerAddr, options.Peers[0].Port)
+		}
+	}
+
 	dev, err := awg.NewDevice(ctx, logger, dial, ipc, awg.DeviceOpts{
 		UseIntegratedTun: options.UseIntegratedTun,
+		IsConnect:        isConnect,
+		ConnectAddr:      connectAddr,
 		Address:          options.Address,
 		AllowedIps:       allowedIps.Prefixes(),
 		ExcludedIps:      excludedIps.Prefixes(),
