@@ -94,11 +94,14 @@ jobs:
               internal/applyagent/status_test.go \
               internal/controlplane/customers_test.go \
               internal/controlplane/desired_payload.go \
-              internal/controlplane/outbox.go \
-              internal/controlplane/outbox_test.go \
               internal/controlplane/restore_epoch.go \
               internal/controlplane/restore_epoch_integration_test.go \
-              internal/controlplane/restore_epoch_test.go)
+              internal/controlplane/restore_epoch_test.go \
+              internal/controlplane/service.go \
+              internal/controlplane/subscription_snapshot.go \
+              internal/controlplane/whitelist_delivery_publication.go \
+              internal/controlplane/whitelist_metering_observation.go \
+              internal/controlplane/whitelist_publication_evaluator_test.go)
           gofmt -w "${guarded_go_files[@]}"
           go test ./internal/applyagent ./internal/controlplane
 
