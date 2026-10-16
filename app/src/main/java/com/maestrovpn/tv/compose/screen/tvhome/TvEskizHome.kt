@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -665,6 +666,7 @@ private fun tvProtocolIcon(protocol: String) = when (protocol) {
     "naive" -> Icons.Filled.Public
     "anytls" -> Icons.Filled.Lock
     "olcrtc" -> Icons.Filled.Videocam
+    "awg" -> Icons.Filled.VpnLock
     else -> Icons.Filled.Wifi
 }
 
@@ -675,6 +677,7 @@ private fun tvProtocolLabel(protocol: String) = when (protocol.lowercase()) {
     "naive" -> "Naive"
     "anytls" -> "AnyTLS"
     "olcrtc" -> "OLC RTC"
+    "awg" -> "AmneziaWG"
     else -> protocol
 }
 
@@ -684,6 +687,7 @@ private fun tvProtocolBadge(protocol: String) = when (protocol.lowercase()) {
     "vless" -> "универсальный"
     "naive" -> "маскировка"
     "anytls" -> "стабильный"
+    "awg" -> "маскировка"
     else -> "доступен"
 }
 

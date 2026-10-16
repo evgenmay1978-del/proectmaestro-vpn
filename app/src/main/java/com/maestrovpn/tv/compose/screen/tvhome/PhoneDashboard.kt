@@ -347,10 +347,25 @@ private fun PhoneModes(cdn: Boolean, onOrdinary: () -> Unit, onCdn: () -> Unit) 
     }
 }
 
-private data class PhoneServer(val flag: String, val name: String, val detail: String)
+private data class PhoneServer(val flag: String, val name: String, val detail: String, val icon: ImageVector = Icons.Default.Public)
+
+/**
+ * AmneziaWG приходит в подписке endpoint-ом с тегом "awg" — без флага, страны и названия, поэтому
+ * без отдельной подписи строка выглядела как сырое «awg / Обычный VPN». Страна сознательно не
+ * указывается: подписка её для AWG не передаёт, а сервер может переехать.
+ */
+internal const val AWG_SERVER_NAME = "MaestroVPN AmneziaWG"
+internal const val AWG_SERVER_DETAIL = "AmneziaWG · маскировка трафика"
+
+/** Name and subtitle of a server row, for tests. */
+internal fun phoneServerTitle(tag: String?, runtimeLabel: String?): Pair<String, String> =
+    phoneServer(tag, runtimeLabel).let { it.name to it.detail }
 
 /** Service roles match backend/internal/api/legacy_subscription_labels.go; unknown tags stay literal. */
 private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
+    if (runtimeLabel == null && tag?.trim()?.lowercase() == "awg") {
+        return PhoneServer("", AWG_SERVER_NAME, AWG_SERVER_DETAIL, Icons.Default.VpnLock)
+    }
     val text = runtimeLabel ?: when (tag?.lowercase()) {
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
         "vless" -> "🇪🇸 Испания · VLESS"
@@ -371,7 +386,7 @@ private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boo
         .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         if (server.flag.isNotEmpty()) Box(Modifier.size(32.dp).border(1.dp, PremiumGold, CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
             Text(server.flag, fontSize = 29.sp)
-        } else Icon(Icons.Default.Public, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
+        } else Icon(server.icon, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
