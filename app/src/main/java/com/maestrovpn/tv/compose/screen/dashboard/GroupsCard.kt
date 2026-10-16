@@ -70,6 +70,7 @@ import com.maestrovpn.tv.compat.LazyColumnCompat
 import com.maestrovpn.tv.compat.rememberOverscrollEffectCompat
 import com.maestrovpn.tv.compose.model.Group
 import com.maestrovpn.tv.compose.model.GroupItem
+import com.maestrovpn.tv.compose.model.visibleProtocolGroups
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
@@ -98,14 +99,15 @@ fun GroupsCard(
     )
     val snackbarHostState = remember { SnackbarHostState() }
     val uiState by actualViewModel.uiState.collectAsState()
+    val visibleGroups = remember(uiState.groups) { visibleProtocolGroups(uiState.groups) }
 
     if (showTopBar) {
-        val allCollapsed = uiState.expandedGroups.isEmpty()
+        val allCollapsed = visibleGroups.none { it.tag in uiState.expandedGroups }
         OverrideTopBar {
             TopAppBar(
                 title = { Text(stringResource(R.string.title_groups)) },
                 actions = {
-                    if (uiState.groups.isNotEmpty()) {
+                    if (visibleGroups.isNotEmpty()) {
                         IconButton(onClick = { actualViewModel.toggleAllGroups() }) {
                             Icon(
                                 imageVector =
@@ -170,7 +172,7 @@ fun GroupsCard(
     }
 
     GroupsCardContent(
-        uiState = uiState,
+        uiState = uiState.copy(groups = visibleGroups),
         onToggleExpanded = onToggleExpanded,
         onItemSelected = onItemSelected,
         onUrlTest = onUrlTest,

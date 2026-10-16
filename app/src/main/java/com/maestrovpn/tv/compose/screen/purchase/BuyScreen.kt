@@ -26,6 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -162,7 +165,7 @@ fun BuyScreen(
                     is BuyState.Error -> {
                         PhonePaymentResultContent(
                             state = phoneState,
-                            onRetry = { viewModel.loadTariffs() },
+                            onRetry = { viewModel.retry() },
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
@@ -438,7 +441,7 @@ fun BuyScreen(
                     } else {
                         PhonePaymentResultContent(
                             state = s,
-                            onRetry = { viewModel.loadTariffs() },
+                            onRetry = { viewModel.retry() },
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
@@ -450,7 +453,7 @@ fun BuyScreen(
                     } else {
                         PhonePaymentResultContent(
                             state = s,
-                            onRetry = { viewModel.loadTariffs() },
+                            onRetry = { viewModel.retry() },
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
@@ -462,7 +465,7 @@ fun BuyScreen(
                     } else {
                         PhonePaymentResultContent(
                             state = s,
-                            onRetry = { viewModel.loadTariffs() },
+                            onRetry = { viewModel.retry() },
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
@@ -472,11 +475,11 @@ fun BuyScreen(
                     if (isTv) {
                         Text("Ошибка: ${s.message}", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                         Spacer(Modifier.height(20.dp))
-                        GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen, wood = true)
+                        GlossyButton(label = "Повторить", onClick = { viewModel.retry() }, accent = NeonGreen, wood = true)
                     } else {
                         PhonePaymentResultContent(
                             state = s,
-                            onRetry = { viewModel.loadTariffs() },
+                            onRetry = { viewModel.retry() },
                             modifier = Modifier.widthIn(max = 560.dp),
                         )
                     }
@@ -541,9 +544,9 @@ internal fun PhonePaymentContent(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (state.payUrl.isNotBlank()) {
-                        "Отсканируйте телефоном — откроется оплата (СБП или картой, из любого банка)"
+                        "Откройте страницу оплаты ниже. QR можно отсканировать другим устройством."
                     } else {
-                        "Отсканируйте телефоном — номер вводить не нужно"
+                        "QR для перевода можно отсканировать другим устройством."
                     },
                     color = PremiumText,
                     style = MaterialTheme.typography.bodyMedium,
@@ -650,15 +653,19 @@ internal fun PhoneTariffSelection(
     onBuy: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    MobilePremiumPanel(modifier = modifier.testTag("premium-tariffs")) {
+    var chosen by rememberSaveable(items.map { it.key }) { mutableStateOf(items.firstOrNull()?.key) }
+    Column(modifier = modifier.testTag("premium-tariffs"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.forEach { tariff ->
-            TariffCard(
-                item = tariff,
-                isTv = false,
-                onClick = { onBuy(tariff.key) },
-                modifier = Modifier.padding(vertical = 6.dp),
+            FantasyListRow(
+                title = tariff.name,
+                subtitle = "${tariff.rub} ₽",
+                icon = Icons.Filled.Star,
+                onClick = { chosen = tariff.key },
+                iconTint = if (chosen == tariff.key) PremiumEmerald else PremiumGold,
+                trailing = { Text(if (chosen == tariff.key) "●" else "○", color = PremiumEmerald, fontSize = 22.sp) },
             )
         }
+        MobilePremiumButton("Перейти к оплате", { chosen?.let(onBuy) }, Modifier.fillMaxWidth(), enabled = chosen != null)
     }
 }
 

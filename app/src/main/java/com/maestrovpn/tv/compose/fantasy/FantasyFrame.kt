@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlin.math.roundToInt
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 
 /**
  * Dark-Fantasy frame primitive — the heart of the redesign's "one hand-crafted UI kit".
@@ -40,6 +41,9 @@ fun Modifier.fantasyFrame(
     @DrawableRes frameRes: Int,
     selected: Boolean = false,
 ): Modifier = composed {
+    if (!com.maestrovpn.tv.compose.rememberIsTv()) {
+        return@composed this.approvedMobilePanel(selected = selected)
+    }
     val ctx = LocalContext.current
     // The NinePatchDrawable is immutable art; remember it per (res, selected) so the warm
     // ColorFilter for the selected state is applied once, not every frame.

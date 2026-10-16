@@ -6,6 +6,8 @@ name: Build app APK (test / compile-check)
 #
 # ⛔ SAFETY: NO GitHub Release → the OTA mirror never sees it. APK = artifact only
 # (maestrovpn-tv-test-apk). HIGH versionCode so it won't self-update mid-test.
+# Exception: the explicit mobile-release-only task publishes the pinned, reviewed
+# stable APK artifact through GITHUB_TOKEN, without rebuilding or running tests.
 # (ci trigger: fantasy crisp-fill-eye v12 2026-07-07)
 # (ci trigger: target-1to1 — mockup medallions + status colors 2026-07-07)
 # (ci trigger: target-1to1 v2 — full medallion ring + live under-glow 2026-07-07)
@@ -31,8 +33,16 @@ on:
         type: choice
         options:
           - android
-          - mobile-eye-ring-assets
-          - mobile-eye-runtime-assets
+          - cdn-apk-build-only
+
+          - mobile-release-only
+          - reserve-measure
+          - xhttp-native
+          - cdn-runtime-test-apk
+
+
+
+
   pull_request:
     paths:
       - 'app/**'
@@ -40,259 +50,492 @@ on:
       - 'ops/test_olcrtc_ops.py'
       - '.github/workflows/android-test.yml'
   push:
+    branches: [app/mobile, main]
     paths:
       - ops/olcrtc-*.sh
       - ops/test_olcrtc_ops.py
       - .github/workflows/android-test.yml
 
 jobs:
-  mobile-eye-ring-assets:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-ring-assets' }}
+  mobile-release-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-release-only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: mobile-release-162
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish the reviewed APK without rebuilding
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil, subprocess, zipfile
+
+          # 1.0.162 — сборка, проверенная владельцем на телефоне 27.09.2026: медальон «M» с
+          # изумрудной кромкой (кольцо рвётся на четырёх камнях рамы, белого свечения нет) +
+          # стабильная CDN-сессия (грейс аренды 20 с, смена аккаунта только по смене профиля) +
+          # удаление неиспользуемого olcRTC/WDTT.
+          source = 'd23da32b67d15cceab7f2a6e0a68f39b39267bfd'
+          run_id, artifact_id = 36276667138, 10916978414
+          archive_sha = 'ce93aa090f56996234580e85325e190f3b2ea4b8a688da5d61bf2bc3db0297ee'
+          tag, apk_name = 'tv-v1.0.162', 'MaestroVPN-TV-1.0.162-debug.apk'
+          repo = os.environ['GH_REPO']
+
+          def api(path, method='GET', payload=None, missing_ok=False):
+              command = ['gh', 'api', f'repos/{repo}{path}', '--method', method]
+              if payload is not None:
+                  command += ['--input', '-']
+              result = subprocess.run(command, input=None if payload is None else json.dumps(payload),
+                                      text=True, capture_output=True)
+              if result.returncode:
+                  if missing_ok and 'HTTP 404' in result.stderr:
+                      return None
+                  raise RuntimeError(result.stderr)
+              return json.loads(result.stdout)
+
+          def digest(path):
+              h = hashlib.sha256()
+              with path.open('rb') as f:
+                  while chunk := f.read(1048576):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          run = api(f'/actions/runs/{run_id}')
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['head_sha'] == source
+          artifact = api(f'/actions/artifacts/{artifact_id}')
+          assert artifact['name'] == 'maestrovpn-mobile-162-' + source and not artifact['expired']
+          assert artifact['workflow_run']['id'] == run_id and artifact['workflow_run']['head_sha'] == source
+          assert artifact['digest'] == 'sha256:' + archive_sha
+          archive = pathlib.Path('build.zip')
+          with archive.open('wb') as output:
+              subprocess.run(['gh', 'api', f'repos/{repo}/actions/artifacts/{artifact_id}/zip'],
+                             stdout=output, check=True)
+          assert digest(archive) == archive_sha
+          apk = pathlib.Path(apk_name)
+          with zipfile.ZipFile(archive) as z:
+              apk_entry, = [n for n in z.namelist() if n.endswith('.apk')]
+              sha_entry, = [n for n in z.namelist() if pathlib.PurePosixPath(n).name == 'apk.sha256']
+              assert pathlib.PurePosixPath(apk_entry).name == apk_name
+              expected_sha = z.read(sha_entry).decode().split()[0]
+              with z.open(apk_entry) as input_file, apk.open('wb') as output:
+                  shutil.copyfileobj(input_file, output)
+          assert digest(apk) == expected_sha
+          metadata = pathlib.Path('version-metadata.json')
+          metadata.write_text(json.dumps(dict(version_code=1016007, version_name='1.0.162')), encoding='utf-8')
+          files = (apk, metadata)
+
+          ref = api('/git/ref/tags/' + tag, missing_ok=True)
+          if ref is not None:
+              target = ref['object']
+              while target['type'] == 'tag':
+                  target = api('/git/tags/' + target['sha'])['object']
+              assert target['type'] == 'commit' and target['sha'] == source, 'Existing tag has a different source'
+          release = api('/releases/tags/' + tag, missing_ok=True)
+          if release is None:
+              release = api('/releases', 'POST', dict(tag_name=tag, target_commitish=source,
+                  name='MaestroVPN 1.0.162', draft=True, prerelease=False,
+                  body='Обновление приложения 1.0.162.\n'
+                       '• Главный экран: медальон «M» с изумрудной кромкой — кромка мерцает, белого свечения '
+                       'нет и она разорвана на четырёх камнях рамы.\n'
+                       '• CDN-подписка: устранены причины обрывов сессии — продление аренды идёт с запасом 20 с, '
+                       'а плановое обновление подписки больше не сбрасывает выбранную локацию (проверено живой '
+                       'сессией 19 минут, в том числе с погашенным экраном).\n'
+                       '• Убран неиспользуемый движок olcRTC/WDTT: меньше размер сборки и лишних сетевых потоков.\n'
+                       'Обычный VPN, оплата и сторонние клиенты (Happ, INCY, Karing, v2rayN) не затронуты; '
+                       'подпись та же — обновление ставится поверх, переустанавливать вручную не нужно.'))
+          assert release['target_commitish'] == source, 'Existing release has a different source'
+          for file in files:
+              existing = [a for a in release['assets'] if a['name'] == file.name]
+              if existing:
+                  assert len(existing) == 1
+                  assert existing[0]['size'] == file.stat().st_size
+                  assert existing[0].get('digest') == 'sha256:' + digest(file), 'Existing asset differs'
+              else:
+                  subprocess.run(['gh', 'release', 'upload', tag, str(file)], check=True)
+          uploaded = api('/releases/' + str(release['id']))
+          assert uploaded['target_commitish'] == source
+          for file in files:
+              asset, = [a for a in uploaded['assets'] if a['name'] == file.name]
+              assert asset['size'] == file.stat().st_size and asset.get('digest') == 'sha256:' + digest(file)
+          subprocess.run(['gh', 'release', 'edit', tag, '--draft=false', '--prerelease=false', '--latest'], check=True)
+          published = api('/releases/' + str(release['id']))
+          assert not published['draft'] and not published['prerelease']
+          print(json.dumps(dict(release=published['html_url'], source=source, run=run_id,
+                                artifact=artifact_id, size=apk.stat().st_size, sha256=expected_sha)))
+          PY
+
+  cdn-apk-build-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'cdn-apk-build-only' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    secrets: inherit
+
+  cdn-runtime-test-apk:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'cdn-runtime-test-apk' }}
+    needs: xhttp-native
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
+
+      - name: Read NDK pin
+        id: ndk
+        run: |
+          set -euo pipefail
+          source <(grep -E '^NDK_VERSION=' version.properties)
+          test -n "${NDK_VERSION:-}"
+          echo "version=${NDK_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Android toolchain
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "ndk;${{ steps.ndk.outputs.version }}" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.ndk.outputs.version }}" >> "$GITHUB_ENV"
+
+      - name: Fetch and verify exact libbox artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          readonly LIBBOX_RUN_ID='31758418005'
+          readonly LIBBOX_ARTIFACT_ID='9203846250'
+          readonly LIBBOX_ZIP_SHA256='baf1ae39b845601ef5291c92c9638261f4a9dfd7725d04ffd856431d48d42b37'
+          readonly LIBBOX_AAR_SHA256='c70ce917b331fd333d52b8e3c01eba2c2a343497f896fdf62c30436490a88f05'
+          metadata_path="${RUNNER_TEMP}/libbox-artifact.json"
+          zip_path="${RUNNER_TEMP}/libbox-artifact.zip"
+          extract_dir="${RUNNER_TEMP}/libbox-artifact"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LIBBOX_ARTIFACT_ID}" > "$metadata_path"
+          python - "$metadata_path" "$LIBBOX_RUN_ID" "$LIBBOX_ARTIFACT_ID" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if artifact.get("id") != int(sys.argv[3]):
+              raise SystemExit("libbox_artifact_id_mismatch")
+          workflow_run = artifact.get("workflow_run") or {}
+          if workflow_run.get("id") != int(sys.argv[2]):
+              raise SystemExit("libbox_workflow_run_mismatch")
+          if artifact.get("expired") is not False:
+              raise SystemExit("libbox_artifact_expired")
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LIBBOX_ARTIFACT_ID}/zip" > "$zip_path"
+          printf '%s  %s\n' "$LIBBOX_ZIP_SHA256" "$zip_path" | sha256sum -c -
+          mkdir -p "$extract_dir" app/libs
+          unzip -q "$zip_path" -d "$extract_dir"
+          mapfile -t aar_files < <(find "$extract_dir" -type f -name 'libbox.aar' -print)
+          if [ "${#aar_files[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one libbox.aar in pinned artifact." >&2
+            exit 1
+          fi
+          printf '%s  %s\n' "$LIBBOX_AAR_SHA256" "${aar_files[0]}" | sha256sum -c -
+          cp "${aar_files[0]}" app/libs/libbox.aar
+
+      - name: Fetch and verify native libraries from this exact run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          native_root="$RUNNER_TEMP/native-input"
+          mkdir "$native_root"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$native_root/artifacts.json"
+          python3 - "$native_root" <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(__import__('sys').argv[1])
+          artifacts = json.loads((root / 'artifacts.json').read_text())['artifacts']
+          matches = [a for a in artifacts if a['name'] == 'maestro-xhttp-native-' + os.environ['GITHUB_SHA']]
+          assert len(matches) == 1 and matches[0]['expired'] is False
+          a = matches[0]
+          assert a['workflow_run']['id'] == int(os.environ['GITHUB_RUN_ID'])
+          assert a['workflow_run']['head_sha'] == os.environ['GITHUB_SHA']
+          assert a['digest'].startswith('sha256:') and len(a['digest']) == 71
+          (root / 'artifact-id').write_text(str(a['id']))
+          (root / 'expected-sha256').write_text(a['digest'][7:])
+          PY
+          artifact_id="$(cat "$native_root/artifact-id")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$native_root/native.zip"
+          python3 - "$native_root" <<'PY'
+          import hashlib, json, os, pathlib, struct, sys, zipfile
+          root = pathlib.Path(sys.argv[1])
+          archive = root / 'native.zip'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == (root / 'expected-sha256').read_text()
+          with zipfile.ZipFile(archive) as z:
+              assert len(z.namelist()) == len(set(z.namelist()))
+              info = z.getinfo('manifest.json')
+              assert info.file_size <= 16384
+              manifest = json.loads(z.read(info))
+              assert manifest['schema_version'] == 1 and manifest['source_commit'] == os.environ['GITHUB_SHA']
+              assert manifest['xray_commit'] == '5ca6f4b7d4dc20a881d4330e498892697627ec0c'
+              assert manifest['ndk'] == '28.0.13004108' and manifest['android_api'] == 23
+              libraries = manifest['libraries']
+              assert len(libraries) == 2 and {x['abi'] for x in libraries} == {'arm64-v8a', 'armeabi-v7a'}
+              for lib in libraries:
+                  abi = lib['abi']
+                  name = abi + '/libmaestro_xhttp.so'
+                  assert lib['path'] == name and 0 < lib['bytes'] <= 64 * 1024 * 1024
+                  assert z.getinfo(name).file_size == lib['bytes']
+                  data = z.read(name)
+                  assert hashlib.sha256(data).hexdigest() == lib['sha256']
+                  assert data[:4] == b'\x7fELF' and data[5] == 1
+                  assert data[4] == (2 if abi == 'arm64-v8a' else 1)
+                  assert struct.unpack_from('<H', data, 18)[0] == (183 if abi == 'arm64-v8a' else 40)
+                  destination = pathlib.Path('app/src/main/jniLibs') / abi / 'libmaestro_xhttp.so'
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  with destination.open('xb') as output:
+                      output.write(data)
+          (root / 'verified-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+
+      - name: Test actual CDN app integration contracts
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:testOtherDebugUnitTest \
+            --tests '*WhiteListRuntimeTest' \
+            --tests '*WhiteListConfigTest' \
+            --tests '*WhiteListAndroidBoundaryTest' \
+            --tests '*WhiteListBalanceTest' \
+            --tests '*ProtocolVisibilityTest' \
+            --tests '*PhoneHomeProtocolOrderTest' \
+            --tests '*PhoneHomeControlDeckContractTest' \
+            -PmaestroTask7TestVersionName=1.0.158-task7-test \
+            -PmaestroTask7TestVersionCode=1015800 \
+            --stacktrace --no-daemon
+
+      - name: Build separately versioned Task 7 APK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew \
+            :app:assembleOtherDebug \
+            -PmaestroTask7TestVersionName=1.0.158-task7-test \
+            -PmaestroTask7TestVersionCode=1015800 \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify Task 7 APK metadata and signer
+        id: apk
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find app/build/outputs/apk/other/debug -maxdepth 1 -type f -name '*.apk' -print)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Task 7 APK." >&2
+            exit 1
+          fi
+          apk="${apks[0]}"
+          test "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv'
+          test "$(apkanalyzer manifest version-name "$apk")" = '1.0.158-task7-test'
+          test "$(apkanalyzer manifest version-code "$apk")" = '1015800'
+          test "$(apkanalyzer manifest debuggable "$apk")" = 'false'
+          apksigner="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          signer_report="${RUNNER_TEMP}/task7-apk-signer.txt"
+          "$apksigner" verify --verbose --print-certs "$apk" | tee "$signer_report"
+          python - "$signer_report" <<'PY'
+          import pathlib
+          import sys
+
+          report = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+          if "CN=Android Debug" not in report:
+              raise SystemExit("task7_apk_not_debug_signed")
+          PY
+          sha256sum "$apk" | tee "${RUNNER_TEMP}/task7-apk.sha256"
+          echo "apk_path=${apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Task 7 APK artifact only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maestrovpn-cdn-runtime-test-${{ github.sha }}
+          path: |
+            ${{ steps.apk.outputs.apk_path }}
+            ${{ runner.temp }}/task7-apk.sha256
+            ${{ runner.temp }}/native-input/verified-manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
+  xhttp-native:
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.task == 'xhttp-native' || inputs.task == 'cdn-runtime-test-apk') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          python-version: '3.11'
-
-      - name: Install pinned Pillow
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: android-xhttp/go.mod
+          cache-dependency-path: android-xhttp/go.sum
+      - name: Test native lifecycle and protected socket boundary
+        working-directory: android-xhttp
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check 'Pillow==11.3.0'
-          python - <<'PY'
-          import PIL
-          print(f'Pillow {PIL.__version__}')
-          PY
-
-      - name: Run synthetic eye-surround contracts
+          test -z "$(gofmt -l *.go)"
+          go test -mod=readonly -count=1 ./...
+          go test -mod=readonly -count=1 -race ./...
+          go vet -mod=readonly ./...
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3 (pinned: @v3 тянет удалённый пакет tools)
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
+      - name: Install pinned Android NDK
         run: |
           set -euo pipefail
-          python -m unittest \
-            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_mask_has_a_full_core_and_local_feather \
-            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_preserves_alpha_and_pixels_outside_circle \
-            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_lights_share_alpha_support_but_left_and_right_rgb_differ \
-            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_is_idempotent_with_feather
-
-
-      - name: Verify owner-selected closed-eye inputs and preview contracts
+          sdkmanager "ndk;28.0.13004108" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+      - name: Build both Android ABIs and verify JNI exports
+        working-directory: android-xhttp
+        env:
+          CGO_ENABLED: '1'
+          GOOS: android
         run: |
           set -euo pipefail
-          python ops/mobile-eye-surround-assets.py --material-only --check
-          python -m unittest ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsIntegrationTest.test_archived_owner_reference_rebuilds_the_tracked_master ops.test_mobile_eye_state_preview
-      - name: Render and verify full-size ring outputs
-        run: |
-          set -euo pipefail
-          python ops/mobile-eye-surround-assets.py
-          python ops/mobile-eye-surround-assets.py --check
-          python -m unittest ops.test_mobile_eye_surround_assets
-          python ops/mobile-4d-art-check.py --selftest
-          python ops/mobile-4d-art-check.py --group ring
-          git diff --check
-
-      - name: Record decoded RGBA and alpha digests
-        run: |
-          set -euo pipefail
-          mkdir -p build/mobile-eye-ring-assets
-          python - <<'PY'
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for abi in arm64-v8a armeabi-v7a; do
+            mkdir -p "../dist/xhttp-native/$abi"
+            if [ "$abi" = arm64-v8a ]; then
+              export GOARCH=arm64
+              export CC="$toolchain/aarch64-linux-android23-clang"
+              unset GOARM
+            else
+              export GOARCH=arm GOARM=7
+              export CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            library="../dist/xhttp-native/$abi/libmaestro_xhttp.so"
+            go build -mod=readonly -trimpath -buildmode=c-shared \
+              -ldflags='-s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384' -o "$library" .
+            "$toolchain/llvm-nm" --defined-only -D "$library" > "../dist/xhttp-native/$abi/exports.txt"
+            for symbol in JNI_OnLoad Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStart Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStop; do
+              grep -q " $symbol$" "../dist/xhttp-native/$abi/exports.txt"
+            done
+            "$toolchain/llvm-readelf" -h -l "$library" > "../dist/xhttp-native/$abi/elf.txt"
+          done
+          python3 - <<'PY'
           import hashlib
+          import json
+          import os
           from pathlib import Path
-          from PIL import Image
-
-          root = Path('.')
-          report = []
-          for directory in ('kit', 'source'):
-              for light in ('l', 'c', 'r'):
-                  path = root / 'design/mobile-asset-redraw' / directory / f'home_ring_{light}.png'
-                  with Image.open(path) as source:
-                      rgba = source.convert('RGBA')
-                  report.append(
-                      f'{path.as_posix()} '
-                      f'rgba={hashlib.sha256(rgba.tobytes()).hexdigest()} '
-                      f'alpha={hashlib.sha256(rgba.getchannel("A").tobytes()).hexdigest()} '
-                      f'size={rgba.width}x{rgba.height}'
-                  )
-          output = '\n'.join(report) + '\n'
-          Path('build/mobile-eye-ring-assets/decoded-rgba-sha256.txt').write_text(
-              output,
-              encoding='utf-8',
-          )
-          print(output, end='')
+          root = Path('../dist/xhttp-native')
+          libraries = []
+          for abi in ('arm64-v8a', 'armeabi-v7a'):
+              p = root / abi / 'libmaestro_xhttp.so'
+              libraries.append({'abi': abi, 'path': p.relative_to(root).as_posix(),
+                                'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()})
+          manifest = {'schema_version': 1, 'source_commit': os.environ['GITHUB_SHA'],
+                      'xray_commit': '5ca6f4b7d4dc20a881d4330e498892697627ec0c',
+                      'ndk': '28.0.13004108', 'android_api': 23, 'libraries': libraries,
+                      'device_runtime_proven': False, 'apk_created': False}
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
           PY
-
-      - name: Upload generated ring assets (artifact only)
-        uses: actions/upload-artifact@v4
+      - name: Upload exact-source native libraries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mobile-eye-ring-assets-${{ github.sha }}
-          path: |
-            design/mobile-asset-redraw/kit/home_ring_l.png
-            design/mobile-asset-redraw/kit/home_ring_c.png
-            design/mobile-asset-redraw/kit/home_ring_r.png
-            design/mobile-asset-redraw/source/home_ring_l.png
-            design/mobile-asset-redraw/source/home_ring_c.png
-            design/mobile-asset-redraw/source/home_ring_r.png
-            build/mobile-eye-ring-assets/decoded-rgba-sha256.txt
+          name: maestro-xhttp-native-${{ github.sha }}
+          path: dist/xhttp-native/
           if-no-files-found: error
+          retention-days: 14
 
-  mobile-eye-runtime-assets:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-runtime-assets' }}
-    runs-on: ubuntu-latest
+  reserve-measure:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'reserve-measure' }}
     permissions:
       contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          python-version: '3.11'
+          persist-credentials: false
 
-      - name: Install pinned Pillow
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: android-xhttp/go.mod
+          cache-dependency-path: android-xhttp/go.sum
+
+      - name: Test measurement command and authenticated client boundary
+        working-directory: backend
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check 'Pillow==11.3.0'
-          python - <<'PY'
-          import PIL
-          print(f'Pillow {PIL.__version__}')
-          PY
+          test -z "$(gofmt -l cmd/maestro-reserve-measure/*.go)"
+          go test -count=1 ./cmd/maestro-reserve-measure ./internal/sidecaragentclient
+          go test -count=1 -race ./cmd/maestro-reserve-measure ./internal/sidecaragentclient
+          go vet ./cmd/maestro-reserve-measure ./internal/sidecaragentclient
 
-      - name: RED gate - require owner-approved runtime eye geometry
-        run: python ops/phone-screen-sim.py --eye-phases-only
-
-      - name: Verify source and atlas-generator contracts
+      - name: Build standalone read-only measurement binary
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
         run: |
           set -euo pipefail
-          python -m unittest ops.test_mobile_4d_assets
-          python ops/mobile-eye-surround-assets.py --check
-
-      - name: Record pre-generation manifest digest
-        run: |
-          set -euo pipefail
-          mkdir -p build/mobile-eye-runtime-assets
-          sha256sum \
-            app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DGeneratedAssets.kt \
-            > build/mobile-eye-runtime-assets/manifest-before.sha256
-
-      - name: Regenerate and verify deterministic runtime atlases
-        run: |
-          set -euo pipefail
-          python ops/mobile-4d-assets.py
-          python ops/mobile-4d-assets.py --check
-
-      - name: Verify ring art contracts
-        run: |
-          set -euo pipefail
-          python ops/mobile-4d-art-check.py --selftest
-          python ops/mobile-4d-art-check.py --group ring
-
-      - name: Render full phone simulator
-        run: python ops/phone-screen-sim.py
-
-      - name: Require only six atlas changes and write SHA-256 report
-        run: |
-          set -euo pipefail
-          python - <<'PY'
+          mkdir -p ../dist/reserve-measure
+          go build -trimpath -ldflags='-s -w -buildid=' -o ../dist/reserve-measure/maestro-reserve-measure ./cmd/maestro-reserve-measure
+          python3 - <<'PY'
           import hashlib
-          import subprocess
+          import json
+          import os
           from pathlib import Path
-
-          manifest = Path(
-              'app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/'
-              'Mobile4DGeneratedAssets.kt'
-          )
-          expected_atlases = {
-              Path(f'app/src/main/assets/mobile_4d/atlas_{light}_{page:02d}.webp')
-              for light in ('l', 'c', 'r')
-              for page in (7, 8)
+          root = Path('../dist/reserve-measure')
+          binary = root / 'maestro-reserve-measure'
+          digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+          manifest = {
+              'schema_version': 1,
+              'source_commit': os.environ['GITHUB_SHA'],
+              'purpose': 'isolated-read-only-reserve-measurement',
+              'os': 'linux',
+              'arch': 'amd64',
+              'binary': binary.name,
+              'bytes': binary.stat().st_size,
+              'sha256': digest,
           }
-          changed = {
-              Path(line)
-              for line in subprocess.check_output(
-                  [
-                      'git', 'diff', '--name-only', '--',
-                      'app/src/main/assets/mobile_4d', str(manifest),
-                  ],
-                  text=True,
-              ).splitlines()
-              if line
-          }
-          if changed and changed != expected_atlases:
-              missing = sorted(str(path) for path in expected_atlases - changed)
-              unexpected = sorted(str(path) for path in changed - expected_atlases)
-              raise SystemExit(
-                  'runtime atlas scope drift: expected exactly six changed pages or '
-                  f'a clean verification run; missing={missing or "none"}; '
-                  f'unexpected={unexpected or "none"}'
-              )
-          atlas_status = 'generated' if changed else 'verified'
-
-          before_line = Path(
-              'build/mobile-eye-runtime-assets/manifest-before.sha256'
-          ).read_text(encoding='utf-8').strip()
-          before_sha = before_line.split()[0]
-          after_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
-          if before_sha != after_sha:
-              raise SystemExit(
-                  'generated manifest changed despite stable alpha/placement: '
-                  f'before={before_sha}; after={after_sha}'
-              )
-
-          qa_outputs = (
-              Path('build/phone-screen-sim/owner-eye-blink-phases.png'),
-              Path('build/phone-screen-sim/owner-eye-blink-phases-qa.jpg'),
-              Path('build/phone-screen-sim/owner-home-comparison.png'),
-              Path('build/phone-screen-sim/owner-home-comparison-qa.jpg'),
-              Path('build/phone-screen-sim/phone-screens.png'),
-              Path('build/phone-screen-sim/phone-screens-qa.jpg'),
-          )
-          expected_outputs = tuple(sorted(expected_atlases)) + qa_outputs
-          missing_outputs = [str(path) for path in expected_outputs if not path.is_file()]
-          if missing_outputs:
-              raise SystemExit(f'missing runtime QA outputs: {missing_outputs}')
-
-          report_lines = [
-              f'status={atlas_status}',
-              f'manifest_sha256={after_sha}',
-              'changed_files:',
-              *(f'  {path.as_posix()}' for path in sorted(changed)),
-              'artifact_sha256:',
-          ]
-          for path in expected_outputs:
-              report_lines.append(
-                  f'  {hashlib.sha256(path.read_bytes()).hexdigest()}  '
-                  f'{path.as_posix()}  bytes={path.stat().st_size}'
-              )
-          report = '\n'.join(report_lines) + '\n'
-          Path(
-              'build/mobile-eye-runtime-assets/runtime-assets-report.txt'
-          ).write_text(report, encoding='utf-8')
-          print(report, end='')
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          (root / 'SHA256SUMS').write_text(digest + '  ' + binary.name + '\n', encoding='ascii')
           PY
-          git diff --check
 
-      - name: Upload runtime eye atlases and visual QA (artifact only)
-        uses: actions/upload-artifact@v4
+      - name: Upload exact-source measurement artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mobile-eye-runtime-assets-${{ github.sha }}
-          path: |
-            app/src/main/assets/mobile_4d/atlas_l_07.webp
-            app/src/main/assets/mobile_4d/atlas_l_08.webp
-            app/src/main/assets/mobile_4d/atlas_c_07.webp
-            app/src/main/assets/mobile_4d/atlas_c_08.webp
-            app/src/main/assets/mobile_4d/atlas_r_07.webp
-            app/src/main/assets/mobile_4d/atlas_r_08.webp
-            build/phone-screen-sim/owner-eye-blink-phases.png
-            build/phone-screen-sim/owner-eye-blink-phases-qa.jpg
-            build/phone-screen-sim/owner-home-comparison.png
-            build/phone-screen-sim/owner-home-comparison-qa.jpg
-            build/phone-screen-sim/phone-screens.png
-            build/phone-screen-sim/phone-screens-qa.jpg
-            build/mobile-eye-runtime-assets/runtime-assets-report.txt
+          name: maestro-reserve-measure-${{ github.sha }}
+          path: dist/reserve-measure/
           if-no-files-found: error
+          retention-days: 14
 
   build:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' || inputs.task == 'mobile-eye-compile' }}
     runs-on: ubuntu-latest
     # The repo default token permission is "read", which does NOT include actions:read — so
     # `gh run list --workflow=libbox.yml` (the libbox.aar fetch below) failed with
@@ -307,12 +550,18 @@ jobs:
       - name: Test olcRTC operations fail closed
         run: python -m unittest -v ops/test_olcrtc_ops.py
 
-      - name: Set test version (HIGH code so the OTA never replaces it)
+      - name: Set test version (above the published release, below the next one)
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         id: ver
         run: |
           set -euo pipefail
-          VC="$(( 90000 + ${{ github.run_number }} ))"
-          VN="1.0.92-test"
+          # Тестовый APK должен ставиться поверх выпущенного релиза (сейчас 1.0.169, VC 1016900),
+          # а следующий релиз 1.0.170 (VC 1017000) должен сам его заменить по OTA. Поэтому код
+          # фиксированный и лежит между ними: Android ставит APK с тем же versionCode поверх без
+          # удаления, номер прогона — в имени версии. Прежняя формула 1016012 + run_number давала
+          # ~1016600 — ниже релиза, не ставилось. После каждого релиза поднять оба числа выше его кода.
+          VC="1016930"
+          VN="1.0.169-test-r${{ github.run_number }}"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
 
@@ -328,7 +577,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3 (pinned: @v3 тянет удалённый пакет tools)
+        # Без packages действие пытается поставить удалённый из SDK пакет 'tools' и падает
+        # ('Failed to find package tools', sdkmanager exit 1) — 26.09.2026, раннеры ubuntu-24.04.
+        with:
+          packages: platform-tools
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
@@ -360,44 +613,39 @@ jobs:
           test -f app/libs/libbox.aar
           ls -lh app/libs/
 
-      - name: Fetch olcrtc android binaries → jniLibs (option-b; NON-FATAL)
-        # Option-b ships olcRTC as a separate-process native binary in jniLibs/<abi>/libolcrtc.so
-        # (NOT the old gomobile .aar, which collided with libbox's go.* runtime). Non-fatal so a
-        # broken olcrtc-bin.yml never blocks the app compile-check.
-        env:
-          GH_TOKEN: ${{ github.token }}
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -L1 \
-            --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ] || { echo "::warning::No successful olcrtc-bin.yml run — compiling without the binary." >&2; exit 0; }
-          gh run download "$RUN_ID" -n olcrtc-bin -D olcrtc-bin
-          for abi in arm64-v8a armeabi-v7a; do
-            [ -f "olcrtc-bin/libolcrtc-${abi}.so" ] || continue
-            mkdir -p "app/src/main/jniLibs/${abi}"
-            cp "olcrtc-bin/libolcrtc-${abi}.so" "app/src/main/jniLibs/${abi}/libolcrtc.so"
-          done
-          ls -lhR app/src/main/jniLibs/ 2>/dev/null || true
+      - name: Set up Go (xhttp child process)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: android-xhttp/go.mod
+          cache-dependency-path: android-xhttp/go.sum
 
-      - name: Fetch WDTT mobile transport binaries → jniLibs (required)
+      - name: Build xhttp child-process binary -> jniLibs (required for CDN)
+        # Test APKs never carried libmaestro_xhttp.so: without it the app answers
+        # 'CDN: подключение недоступно' (XhttpProcess.available() == false,
+        # cdn prepare-null: xhttp-unavailable). The release path builds the same PIE binary
+        # in android-cdn-apk-build.yml; the xhttp-native job cannot be reused here - it still
+        # builds the retired in-process c-shared library and dies on
+        # 'link: github.com/wlynxg/anet: invalid reference to net.zoneCache'.
         env:
-          GH_TOKEN: ${{ github.token }}
+          CGO_ENABLED: '1'
         run: |
           set -euo pipefail
-          RUN_ID=$(gh run list --workflow=wdtt-bin.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ] || { echo "::error::No successful wdtt-bin.yml artifact." >&2; exit 1; }
-          gh run download "$RUN_ID" -n wdtt-bin -D wdtt-bin
-          source <(grep -E '^WDTT_REF=' version.properties)
-          test "$(cat wdtt-bin/WDTT_UPSTREAM_COMMIT)" = "$WDTT_REF"
-          (cd wdtt-bin && sha256sum -c wdtt-sha256.txt)
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           for abi in arm64-v8a armeabi-v7a; do
-            test -s "wdtt-bin/libwdtt-${abi}.so"
-            mkdir -p "app/src/main/jniLibs/${abi}"
-            cp "wdtt-bin/libwdtt-${abi}.so" "app/src/main/jniLibs/${abi}/libwdtt.so"
+            if [ "$abi" = arm64-v8a ]; then
+              export GOOS=android GOARCH=arm64 CC="$toolchain/aarch64-linux-android23-clang"; unset GOARM
+            else
+              export GOOS=android GOARCH=arm GOARM=7 CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            mkdir -p "app/src/main/jniLibs/$abi"
+            (cd android-xhttp && go build -tags xhttpcli -buildmode=pie -trimpath \
+              -ldflags='-s -w -checklinkname=0' -o "../app/src/main/jniLibs/$abi/libmaestro_xhttp.so" .)
           done
+          sha256sum app/src/main/jniLibs/*/libmaestro_xhttp.so
+          file app/src/main/jniLibs/*/libmaestro_xhttp.so
 
       - name: Materialize the stable signing keystore from secret
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
         run: |
@@ -407,25 +655,20 @@ jobs:
           fi
 
       - name: Build :app:assembleOtherDebug
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          n=0
-          until [ "$n" -ge 4 ]; do
-            if ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon; then exit 0; fi
-            n=$((n + 1))
-            echo "::warning::gradle attempt $n failed — retrying in 90s" >&2
-            sleep 90
-          done
-          echo "::error::gradle build failed after retries" >&2
-          exit 1
+          # Preserve the first failure; retry only after its cause is corrected.
+          ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon
 
       # Та же причина, что в android.yml: выгрузка — удобство, а не результат гейта. Пока квота
       # артефактов выбрана, её падение уводило ИДУЩИЕ ПОСЛЕ unit-тесты в skipped, и гейт переставал
       # проверять то, ради чего существует. Сборка и тесты остаются блокирующими.
       - name: Upload test APK (artifact only — NO Release, NO OTA)
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -433,14 +676,25 @@ jobs:
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error
 
-      # The repo has unit tests (MaestroSubTest, WdttManagerTest, WdttVpnPolicyTest,
-      # ProtocolLabelTest) that no workflow has ever executed — this job only ever ran
+      # The repo has unit tests (MaestroSubTest, …) that no workflow has ever executed — this
+      # job only ever ran
       # assembleOtherDebug, so they were dead weight. Run them AFTER the APK upload so a test
       # failure can never cost us the artifact we came here for.
       #
       # Gating: run 30167294888 (2026-07-25) was the first time these ever executed anywhere and
       # all of them passed, so a failure from here on is a real regression, not unknown ground.
+      # Compile the existing app/test Kotlin and exercise only the eye contract.
+      # No deferred-transport binaries, keystore, APK, Release or OTA in this mode.
+      - name: Compile eye component (no tests or APK)
+        if: ${{ inputs.task == 'mobile-eye-compile' }}
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:compileOtherDebugKotlin --stacktrace --no-daemon
+
       - name: Unit tests
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: ./gradlew :app:testOtherDebugUnitTest --stacktrace --no-daemon

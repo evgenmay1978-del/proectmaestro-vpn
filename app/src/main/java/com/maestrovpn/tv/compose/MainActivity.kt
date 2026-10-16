@@ -20,6 +20,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -112,6 +115,9 @@ import com.maestrovpn.tv.compose.navigation.ProfileRoutes
 import com.maestrovpn.tv.compose.navigation.SFANavHost
 import com.maestrovpn.tv.compose.navigation.Screen
 import com.maestrovpn.tv.compose.navigation.bottomNavigationScreens
+import com.maestrovpn.tv.compose.premium.ApprovedMobileBackground
+import com.maestrovpn.tv.compose.premium.ApprovedMobileBrand
+import com.maestrovpn.tv.compose.screen.tvhome.PhoneBottomNavigation
 import com.maestrovpn.tv.compose.screen.configuration.ProfileImportHandler
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
@@ -996,15 +1002,25 @@ class MainActivity :
         }
 
         val topBarContent: @Composable () -> Unit = {
-            topBarOverride?.invoke()
+            val legacyPhoneHeader = !isTelevision(this@MainActivity) &&
+                (currentRoute == Screen.Settings.route ||
+                    (currentRoute?.startsWith("settings/") == true && !currentRoute.orEmpty().endsWith("/manage")))
+            if (legacyPhoneHeader) {
+                Column(Modifier.background(Color(0xFF120D09)).statusBarsPadding()) {
+                    ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = 30.dp).height(62.dp))
+                    topBarOverride?.invoke()
+                }
+            } else topBarOverride?.invoke()
         }
 
         val scaffoldContent: @Composable (PaddingValues) -> Unit = { paddingValues ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
+                    .padding(paddingValues)
+                    .then(if (!isTelevision(this@MainActivity)) Modifier.consumeWindowInsets(paddingValues) else Modifier),
             ) {
+                if (!isTelevision(this@MainActivity)) ApprovedMobileBackground(Modifier.fillMaxSize())
                 // TV routes share the same graphite base as the premium home. Individual
                 // screens may add their own subtle lighting, but the legacy wood artwork must
                 // never show through while navigating away from home. Phone rendering is
@@ -1036,7 +1052,7 @@ class MainActivity :
                     groupsViewModel = groupsViewModel,
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (!useNavigationRail && !isCleanHome) {
+                if (isTelevision(this@MainActivity) && !useNavigationRail && !isCleanHome) {
                     if (isRemote) {
                         RemoteStatusBar(
                             visible = !isSubScreen,
@@ -1286,7 +1302,24 @@ class MainActivity :
                         ScaffoldDefaults.contentWindowInsets
                     },
                     bottomBar = {
-                        if (!isSubScreen && bottomNavigationScreens.isNotEmpty()) {
+                        if (!isTelevision(this@MainActivity) && currentRoute != Screen.TvHome.route) {
+                            fun phoneSection(section: String) {
+                                val home = runCatching { navController.getBackStackEntry(Screen.TvHome.route) }.getOrNull()
+                                if (home != null) {
+                                    home.savedStateHandle["phone_section"] = section
+                                    navController.popBackStack(Screen.TvHome.route, false)
+                                } else {
+                                    navController.navigate(Screen.TvHome.route) { launchSingleTop = true }
+                                    navController.getBackStackEntry(Screen.TvHome.route).savedStateHandle["phone_section"] = section
+                                }
+                            }
+                            PhoneBottomNavigation(
+                                active = if (currentRoute == "buy") "account" else if (currentRoute == "claim" || currentRoute == "trial") "home" else "settings",
+                                home = { phoneSection("home") }, servers = { phoneSection("servers") },
+                                account = { phoneSection("account") }, settings = { phoneSection("settings") },
+                                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 6.dp, vertical = 5.dp),
+                            )
+                        } else if (!isSubScreen && bottomNavigationScreens.isNotEmpty()) {
                             val hasUpdate by UpdateState.hasUpdate
                             NavigationBar {
                                 bottomNavigationScreens.forEach { screen ->
@@ -1599,4 +1632,3 @@ class MainActivity :
         )
     }
 }
-

@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.MediaDrm
 import android.os.Build
 import android.provider.Settings
+import com.maestrovpn.tv.BuildConfig
+import java.net.URI
 import java.util.UUID
 
 /**
@@ -23,6 +25,52 @@ import java.util.UUID
 object MaestroSub {
     private const val PREFS = "maestro_device"
     private const val KEY = "device_id"
+    internal const val CDN_ORIGIN = "https://cdn-test.wapmixx.ru"
+
+    /** Only the canonical panel's subscription may send its credential to our CDN. */
+    internal fun cdnFallbackUrl(subUrl: String, accountPath: String? = null): String? = try {
+        val source = URI(subUrl)
+        val panel = URI(BuildConfig.BACKEND_URL)
+        val token = Regex("^/sub/([A-Za-z0-9._~+\\-]+=*)$").matchEntire(source.path.orEmpty())
+            ?.groupValues?.get(1)
+        if (source.scheme != "https" || source.host != panel.host || source.port != panel.port ||
+            source.rawUserInfo != null || token == null || token == "." || token == ".."
+        ) null
+        else if (accountPath != null) {
+            require(accountPath == "/cabinet/api/balance" || accountPath == "/cabinet/api/runtime")
+            CDN_ORIGIN + accountPath
+        } else {
+            CDN_ORIGIN + source.rawPath + (source.rawQuery?.let { "?$it" } ?: "")
+        }
+    } catch (_: Exception) { null }
+
+    /**
+     * A control endpoint for the CDN origin. [pinnedAddress] is non-null when the request must be
+     * dialled to that literal edge address while the URL keeps the origin's name (see
+     * CdnPinnedClient).
+     */
+    internal data class CdnEndpoint(val url: String, val pinnedAddress: String? = null)
+
+    /**
+     * CDN edge addresses worth dialling by literal address, in try order. `188.72.103.0/24` is the
+     * only Yandex-CDN range published in the federal mobile whitelist, and the four production
+     * edges are the ones the tunnel itself uses — if the tunnel can run on an operator, so can the
+     * control plane on the same address. GSLB alone is not enough: it may hand out an edge the
+     * operator's whitelist does not carry.
+     */
+    internal val CDN_EDGE_ADDRESSES = listOf(
+        "188.72.103.4",
+        "188.72.111.7",
+        "188.72.111.19",
+        "188.72.111.35",
+        "188.72.110.4",
+    )
+
+    /** Control endpoints in try order: canonical origin first, then the pinned edges. */
+    internal fun cdnEndpoints(subUrl: String, accountPath: String? = null): List<CdnEndpoint> {
+        val origin = cdnFallbackUrl(subUrl, accountPath) ?: return emptyList()
+        return listOf(CdnEndpoint(origin)) + CDN_EDGE_ADDRESSES.map { CdnEndpoint(origin, it) }
+    }
 
     /**
      * Stable per-DEVICE id. Persisted once; on FIRST generation it is derived from ANDROID_ID so a

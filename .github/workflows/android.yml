@@ -38,10 +38,15 @@ jobs:
 
       - name: Set build version (monotonic — the in-app updater always sees newer)
         id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VN="1.0.${{ github.run_number }}"
-          VC="${{ github.run_number }}"
+          # Версия задаётся явно: номер запуска и список релизов дают то занятый тег (tv-v1.0.167),
+          # то старый номер. versionCode держим выше тестовой сборки 1016567 — иначе встроенный
+          # апдейтер не увидит обновление. Следующий релиз: поднять обе цифры на 1.
+          VN="1.0.169"
+          VC="1016900"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
           echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
@@ -200,6 +205,14 @@ jobs:
           set -euo pipefail
           VN="${{ steps.ver.outputs.version_name }}"
           VC="${{ steps.ver.outputs.version_code }}"
+          # Выпуск — только сознательный: новая версия в шаге «Set build version». Если тег этой
+          # версии уже есть, любой push в main с изменениями app/** лишь собирает APK в артефакты.
+          # Раньше такой push доходил до gh release create и не выпускал релиз лишь потому, что
+          # тег существовал (прогон 38966945114, 16.10.2026).
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/tv-v${VN}" >/dev/null 2>&1; then
+            echo "::notice::tv-v${VN} уже выпущен — публикация пропущена. Для выпуска поднимите VN/VC."
+            exit 0
+          fi
           APK=$(ls app/build/outputs/apk/other/release/*.apk | head -1)
           ASSET="MaestroVPN-TV-${VN}.apk"
           cp "$APK" "$ASSET"

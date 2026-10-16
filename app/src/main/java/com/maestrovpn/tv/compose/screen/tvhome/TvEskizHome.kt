@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -66,6 +67,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.model.visibleActiveProtocol
+import com.maestrovpn.tv.compose.model.visibleProtocolTags
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.utils.ConnectivityCheck
 import com.maestrovpn.tv.vendor.Vendor
@@ -202,7 +205,7 @@ internal fun TvEskizHome(
             TvHeroPane(
                 connected = connected,
                 statusText = statusText,
-                activeProtocol = activeProtocol ?: selected,
+                activeProtocol = visibleActiveProtocol(activeProtocol, selected),
                 accountLogin = accountLogin,
                 daysLeft = daysLeft,
                 accountExpires = accountExpires,
@@ -481,10 +484,7 @@ private fun TvProtocolGrid(
     rowGap: Dp = 10.dp,
     showBadges: Boolean = true,
 ) {
-    val baseProtocols = protocols
-        .filterNot { it == "vk-turn" }
-        .ifEmpty { listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg") }
-    val display = (if (baseProtocols.contains("olcrtc")) baseProtocols else baseProtocols + "olcrtc").take(8)
+    val display = visibleTvProtocols(protocols)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowGap)) {
         listOf(display.take(5), display.drop(5)).filter { it.isNotEmpty() }.forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -509,6 +509,13 @@ private fun TvProtocolGrid(
         }
     }
 }
+
+internal fun visibleTvProtocols(protocols: List<String>): List<String> =
+    if (protocols.isEmpty()) {
+        listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg")
+    } else {
+        visibleProtocolTags(protocols).take(8)
+    }
 
 @Composable
 private fun TvProtocolButton(
@@ -659,6 +666,7 @@ private fun tvProtocolIcon(protocol: String) = when (protocol) {
     "naive" -> Icons.Filled.Public
     "anytls" -> Icons.Filled.Lock
     "olcrtc" -> Icons.Filled.Videocam
+    "awg" -> Icons.Filled.VpnLock
     else -> Icons.Filled.Wifi
 }
 
@@ -669,6 +677,7 @@ private fun tvProtocolLabel(protocol: String) = when (protocol.lowercase()) {
     "naive" -> "Naive"
     "anytls" -> "AnyTLS"
     "olcrtc" -> "OLC RTC"
+    "awg" -> "AmneziaWG"
     else -> protocol
 }
 
@@ -678,6 +687,7 @@ private fun tvProtocolBadge(protocol: String) = when (protocol.lowercase()) {
     "vless" -> "универсальный"
     "naive" -> "маскировка"
     "anytls" -> "стабильный"
+    "awg" -> "маскировка"
     else -> "доступен"
 }
 

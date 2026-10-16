@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -75,8 +76,11 @@ fun ProfileOverrideScreen(
     navController: NavController,
     serviceStatus: Status = Status.Stopped,
 ) {
+    val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
         TopAppBar(
+            colors = if (phoneArtwork) androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent) else androidx.compose.material3.TopAppBarDefaults.topAppBarColors(),
+            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
             title = { Text(stringResource(R.string.profile_override)) },
             navigationIcon = {
                 IconButton(onClick = { navController.navigateUp() }) {
@@ -200,10 +204,10 @@ fun ProfileOverrideScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp, vertical = 8.dp).then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = if (phoneArtwork) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             ),
         ) {
             ListItem(
@@ -287,10 +291,10 @@ fun ProfileOverrideScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp).then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = if (phoneArtwork) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             ),
         ) {
             Column {

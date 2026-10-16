@@ -1,0 +1,7 @@
+# Critical workflow policy trust root. The repository ruleset must require
+# code-owner approval and must not allow direct-push or administrator bypass.
+/.github/CODEOWNERS @evgenmay1978-del
+/.github/workflows/critical-workflow-source-policy.yml @evgenmay1978-del
+/.github/workflows/ha-control-plane.yml @evgenmay1978-del
+/.github/workflows/ha-dr-restore-drill.yml @evgenmay1978-del
+/.github/workflows/yandex-cdn-release.yml @evgenmay1978-del

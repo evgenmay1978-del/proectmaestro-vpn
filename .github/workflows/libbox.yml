@@ -13,6 +13,7 @@ on:
     paths:
       - version.properties
       - .github/workflows/libbox.yml
+      - libbox-awg/**
   workflow_dispatch:
 
 jobs:
@@ -79,11 +80,11 @@ jobs:
             https://github.com/SagerNet/sing-box.git sing-box
           echo "built ref:"; git -C sing-box rev-parse HEAD
 
-      # AmneziaWG (official amneziawg-go v0.2.15) is now part of the FLEET libbox so the whole
+      # AmneziaWG (official amneziawg-go v3.1) is now part of the FLEET libbox so the whole
       # fleet can run AWG as an unblockable manual-fallback protocol. The awg endpoint stays
       # DORMANT until a customer is provisioned WG creds AND their app is version-gated in (see
       # api.go awgMinVC) — so shipping this engine ahead of provisioning is safe and inert.
-      - name: Apply OFFICIAL AmneziaWG patch (amneziawg-go v0.2.15 onto the 1.14 base)
+      - name: Apply OFFICIAL AmneziaWG patch (amneziawg-go v3.1 onto the 1.14 base)
         run: |
           set -euo pipefail
           # 1) overlay the ported OFFICIAL AWG source (full patched copies — no fragile sed).
@@ -99,9 +100,15 @@ jobs:
             sing-box/cmd/internal/build_libbox/main.go
           grep -q '"with_awg"' sing-box/cmd/internal/build_libbox/main.go \
             || { echo "::error::with_awg tag not added to build_libbox"; exit 1; }
-          # 3) pull in the OFFICIAL AmneziaWG engine
+          # 3) pull in the OFFICIAL AmneziaWG engine — 3.1, matching the server
+          # (S4: amneziawg-tools/kernel 3.1.20260812, "awg --version" 3.1.20260812). The old
+          # v0.2.15 line is pre-3.x: its client never got a handshake through to a 3.1 server
+          # from the owner phone, while the official AmneziaVPN build (3.1-capable) does.
+          # The v3 module path carries the /v3 suffix, and it is the only change the overlay
+          # needed: conn.Bind, conn.Endpoint, device.NewDevice/IpcSet/Up/Close and
+          # tun/netstack.CreateNetTUN all keep the same shape in 3.1.
           cd sing-box
-          go get github.com/amnezia-vpn/amneziawg-go@v0.2.15
+          go get github.com/amnezia-vpn/amneziawg-go/v3@v3.1.20260828
           go mod tidy
 
       # Verbatim Makefile targets. lib_install installs gomobile+gobind @v0.1.13

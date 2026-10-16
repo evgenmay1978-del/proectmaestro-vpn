@@ -176,37 +176,7 @@ fun FantasyScreenBackground(
                     },
             )
         } else {
-            androidx.compose.foundation.Image(
-                painter = painterResource(R.drawable.mobile_surface),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop,
-            )
-            // Preserve the phone lighting exactly.
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .drawBehind {
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0f to Color(0xFFFFD998).copy(alpha = 0.06f),
-                                0.32f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.18f),
-                            ),
-                        )
-                        val center = Offset(size.width * 0.5f, size.height * 0.45f)
-                        val radius = size.maxDimension * 0.72f
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.30f)),
-                                center = center,
-                                radius = radius,
-                            ),
-                            center = center,
-                            radius = radius,
-                        )
-                    },
-            )
+            com.maestrovpn.tv.compose.premium.ApprovedMobileBackground(Modifier.matchParentSize())
         }
         content()
     }
