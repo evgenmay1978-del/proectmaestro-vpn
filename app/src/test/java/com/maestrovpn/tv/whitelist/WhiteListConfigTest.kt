@@ -66,4 +66,20 @@ class WhiteListConfigTest {
         assertNull(payload["subscription"])
         assertNull(payload["route_id"])
     }
+
+    /**
+     * A CDN pick must not depend on the selector's live choice: every "select" hop of the loaded
+     * subscription — both route rules and the final outbound — is retargeted onto the ephemeral
+     * CDN outbound, while the edge's DIRECT rule and concrete outbounds stay untouched.
+     */
+    @Test fun everySelectHopIsRetargetedToTheCdnOutbound() {
+        val withRoute = """{"dns":{"strategy":"prefer_ipv4"},"route":{"final":"select","rules":[{"action":"sniff"},{"action":"route","outbound":"select","domain_suffix":["example.com"]}]},"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","ordinary"],"default":"auto"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}]}"""
+        val routed = Json.parseToJsonElement(WhiteListConfig.inject(withRoute, route, EDGE, 12345, "user", "pass")).jsonObject["route"]!!.jsonObject
+        assertEquals(route.tag, routed["final"]!!.jsonPrimitive.content)
+        val rules = routed["rules"]!!.jsonArray.map { it.jsonObject }
+        assertEquals("direct", rules.first()["outbound"]!!.jsonPrimitive.content)
+        val selectHop = rules.first { it["domain_suffix"] != null }
+        assertEquals(route.tag, selectHop["outbound"]!!.jsonPrimitive.content)
+        assertTrue(rules.none { (it["outbound"] as? JsonPrimitive)?.content == "select" })
+    }
 }

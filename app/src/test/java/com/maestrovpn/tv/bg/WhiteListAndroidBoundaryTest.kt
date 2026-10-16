@@ -44,9 +44,14 @@ class WhiteListAndroidBoundaryTest {
         assertTrue(navigation.contains("groupsViewModel.selectCdn(tag)"))
         assertTrue(session.contains("DefaultNetworkListener.start"))
         assertTrue(session.contains("DefaultNetworkListener.stop"))
-        assertTrue(session.contains("if (!vpn.protect(fd)) false"))
-        assertTrue(session.contains("ParcelFileDescriptor.fromFd(fd)"))
-        assertTrue(session.contains("bindSocket(it.fileDescriptor)"))
+        // Границей владеет дочерний процесс (XhttpProcess): in-process protect(fd)/
+        // ParcelFileDescriptor/bindSocket удалены, а собственный выход к CDN-эджу уведён
+        // в direct правилом ip_cidr (WhiteListConfig.edgeDirectRoute).
+        val config = appFile("src/main/java/com/maestrovpn/tv/whitelist/WhiteListConfig.kt").readText()
+        assertTrue(session.contains("XhttpProcess.start"))
+        assertTrue(session.contains("XhttpProcess.stop"))
+        assertTrue(config.contains("edgeDirectRoute"))
+        assertFalse(config.contains("VpnService()"))
         assertFalse(session.contains("adoptFd"))
         assertFalse(session.contains("registerNetworkCallback"))
         assertFalse(session.contains("VpnService()"))

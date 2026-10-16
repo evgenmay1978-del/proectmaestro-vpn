@@ -52,8 +52,29 @@ internal object WhiteListConfig {
             put("udp_over_tcp", buildJsonObject { put("enabled", true); put("version", 2) })
         }
         return JsonObject(
-            root + ("outbounds" to JsonArray(updated + socks)) + ("route" to edgeDirectRoute(root, edge)),
+            root + ("outbounds" to JsonArray(updated + socks)) + ("route" to cdnRoute(root, edge, route.tag)),
         ).toString()
+    }
+
+    /**
+     * Route every VPN-bound hop of the subscription to the ephemeral CDN outbound instead of the
+     * named "select" selector. The selector's `default` is not enough on its own: libbox keeps a
+     * live box that can still resolve "select" to its previous choice, and the 02.10.2026 device run
+     * showed traffic leaving through the ordinary nodes seconds after a CDN pick
+     * (log: "cdn apply: hasCdnTag=true checkConfig=ok", yet sockets went to NL/CZ, not to the edge).
+     * Rules that already point at a concrete outbound (direct / sniff / hijack-dns) are untouched.
+     */
+    private fun cdnRoute(root: JsonObject, edge: String, tag: String): JsonObject {
+        val routed = edgeDirectRoute(root, edge)
+        val rules = routed["rules"] as? JsonArray ?: JsonArray(emptyList())
+        val retargeted = JsonArray(rules.map { element ->
+            val rule = element as? JsonObject ?: return@map element
+            if ((rule["outbound"] as? JsonPrimitive)?.content != "select") return@map rule
+            JsonObject(rule + ("outbound" to JsonPrimitive(tag)))
+        })
+        val final = routed["final"]
+        val withFinal = if ((final as? JsonPrimitive)?.content == "select") routed + ("final" to JsonPrimitive(tag)) else routed
+        return JsonObject(withFinal + ("rules" to retargeted))
     }
 
     /**

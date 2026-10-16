@@ -129,11 +129,25 @@ func TestGeneratedConfigHasNoListenerAndOnlyXHTTP(t *testing.T) {
 				Fingerprint string
 			}
 			XHTTPSettings struct {
-				Host                string
-				Path                string
-				Mode                string
-				UplinkHTTPMethod    string
-				UplinkDataPlacement string
+				Host            string
+				Path            string
+				Mode            string
+				SessionIDKey    string
+				SessionIDLength int
+				SeqKey          string
+				Extra           struct {
+					UplinkHTTPMethod     string
+					UplinkDataPlacement  string
+					XPaddingKey          string
+					XPaddingBytes        string
+					XPaddingHeader       string
+					XPaddingPlacement    string
+					NoSSEHeader          bool
+					NoGRPCHeader         bool
+					ScMaxEachPostBytes   int
+					ServerMaxHeaderBytes int
+					UplinkChunkSize      int
+				}
 			}
 		}
 	}
@@ -141,14 +155,21 @@ func TestGeneratedConfigHasNoListenerAndOnlyXHTTP(t *testing.T) {
 		t.Fatal("invalid outbounds")
 	}
 	o := outbounds[0]
+	x := o.StreamSettings.XHTTPSettings
 	if o.Protocol != "vless" || o.StreamSettings.Network != "xhttp" ||
 		o.StreamSettings.Security != "tls" || o.StreamSettings.Sockopt.Mark != 7 ||
 		o.StreamSettings.TLSSettings.ServerName != v.ServerName ||
 		o.StreamSettings.TLSSettings.Fingerprint != "firefox" ||
-		len(o.StreamSettings.TLSSettings.ALPN) != 1 || o.StreamSettings.TLSSettings.ALPN[0] != "h2" ||
-		o.StreamSettings.XHTTPSettings.Host != v.Host || o.StreamSettings.XHTTPSettings.Path != v.Path ||
-		o.StreamSettings.XHTTPSettings.Mode != "packet-up" || o.StreamSettings.XHTTPSettings.UplinkHTTPMethod != "GET" ||
-		o.StreamSettings.XHTTPSettings.UplinkDataPlacement != "body" {
+		len(o.StreamSettings.TLSSettings.ALPN) != 2 ||
+		o.StreamSettings.TLSSettings.ALPN[0] != "h2" || o.StreamSettings.TLSSettings.ALPN[1] != "http/1.1" ||
+		x.Host != v.Host || x.Path != v.Path || x.Mode != "packet-up" ||
+		x.SessionIDKey != "auth" || x.SessionIDLength != 16 || x.SeqKey != "chunk_id" ||
+		x.Extra.UplinkHTTPMethod != "GET" || x.Extra.UplinkDataPlacement != "header" ||
+		x.Extra.XPaddingKey != "x_padding" || x.Extra.XPaddingBytes != "50-150" ||
+		x.Extra.XPaddingHeader != "X-Padding" || x.Extra.XPaddingPlacement != "header" ||
+		!x.Extra.NoSSEHeader || !x.Extra.NoGRPCHeader ||
+		x.Extra.ScMaxEachPostBytes != 16384 || x.Extra.ServerMaxHeaderBytes != 32768 ||
+		x.Extra.UplinkChunkSize != 4096 {
 		t.Fatal("transport contract drift")
 	}
 }
