@@ -548,8 +548,11 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          VC="$(( 1016012 + ${{ github.run_number }} ))"
-          VN="1.0.167-test-medallion"
+          # Диагностическая сборка ветки diag/awg-bind-20261016: на телефоне владельца
+          # стоит канарейка diag5 (versionCode 1016805), поэтому код должен быть ВЫШЕ неё,
+          # иначе Android откажет в установке; и ниже порога релиза флота 1.0.169 (1016900).
+          VC="1016810"
+          VN="1.0.168-awgbind-2"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
 
