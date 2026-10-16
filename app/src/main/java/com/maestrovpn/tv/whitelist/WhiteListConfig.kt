@@ -12,13 +12,18 @@ internal object WhiteListConfig {
     fun ordinaryTag(base: String): String? {
         val root = Json.parseToJsonElement(base) as JsonObject
         val outbounds = (root["outbounds"] as JsonArray).map { it as JsonObject }
+        // AWG из обычной подписки sing-box держит в top-level "endpoints" (type "awg"), а не в
+        // "outbounds": без этого выбранный awg не попадал в usable, и реконсиляция managed-режима
+        // молча откатывала его на "auto" — ядро уходило по VLESS (инцидент 16.10.2026).
+        val endpoints = (root["endpoints"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
         fun JsonObject.text(key: String) = (this[key] as? JsonPrimitive)?.content
         if (outbounds.any { it.text("tag")?.startsWith("cdn:") == true }) return null
         val selector = outbounds.singleOrNull { it.text("tag") == "select" && it.text("type") == "selector" } ?: return null
         val choices = (selector["outbounds"] as JsonArray).mapNotNull { (it as? JsonPrimitive)?.content }
+        val selectable = outbounds + endpoints
         val usable = choices.filter { tag ->
-            outbounds.any { it.text("tag") == tag && it.text("type") in setOf(
-                "selector", "urltest", "vless", "hysteria2", "naive", "anytls", "trojan", "vmess", "shadowsocks", "wireguard",
+            selectable.any { it.text("tag") == tag && it.text("type") in setOf(
+                "selector", "urltest", "vless", "hysteria2", "naive", "anytls", "trojan", "vmess", "shadowsocks", "wireguard", "awg",
             ) }
         }
         return selector.text("default")?.takeIf { it in usable } ?: "auto".takeIf { it in usable } ?: usable.firstOrNull()
