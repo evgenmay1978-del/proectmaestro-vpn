@@ -189,8 +189,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private fun recordAwgDiag(line: String) {
         runCatching {
-            val dir = Application.application.getExternalFilesDir(null) ?: Application.application.filesDir
-            val file = java.io.File(dir, "awg-diag.log")
+            val file = java.io.File(Application.application.filesDir, "awg-diag.log")
             if (file.length() > 32_768L) file.writeText("")
             val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
             file.appendText(stamp + " " + line + "\n")
@@ -218,7 +217,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 recordAwgDiag(
                     "prepare request=" + (request?.tag ?: "-") + " cdn=" + cdn +
                         " default=" + selectorDefaultOf(effective) +
-                        " awgEndpoint=" + effective.contains("\"type\":\"awg\"") +
+                        " awgEndpoint=" + (effective.contains("\"type\": \"awg\"") || effective.contains("\"type\":\"awg\"")) +
+                        " active=" + WhiteListSelection.view.value.active +
+                        " selected=" + WhiteListSelection.view.value.selected +
                         " bytes=" + effective.length,
                 )
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
