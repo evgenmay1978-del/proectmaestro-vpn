@@ -68,8 +68,8 @@ func TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology(t *testing.T) {
 			}
 			want := subgen.Customer{
 				Name: "runtime-fixture-login", DNSFakeIP: true,
-				VLESS:  &subgen.VLESSCreds{Server: "s1.runtime.test", Port: 1443, UUID: "runtime-vless", SNI: "s1-tls.runtime.test", PublicKey: "s1-public", ShortID: "1111", Flow: "fixture-flow", Fingerprint: "firefox"},
-				Hy2:    &subgen.Hy2Creds{Server: "hy2.runtime.test", Port: 2443, User: "runtime-fixture-login", Pass: "runtime-hy2", SNI: "hy2-tls.runtime.test"},
+				VLESS: &subgen.VLESSCreds{Server: "s1.runtime.test", Port: 1443, UUID: "runtime-vless", SNI: "s1-tls.runtime.test", PublicKey: "s1-public", ShortID: "1111", Flow: "fixture-flow", Fingerprint: "firefox"},
+				// hy2 (hysteria2) retired 2026-10: HY2_* env and a hysteria2 credential remain in this fixture, so the absence of Hy2 here asserts the subscription no longer advertises hy2 even when its inputs are present.
 				Naive:  &subgen.NaiveCreds{Server: "naive.runtime.test", Port: 3443, Username: "runtime-fixture-login", Password: "runtime-naive", SNI: "naive-tls.runtime.test"},
 				AnyTLS: &subgen.AnyTLSCreds{Server: "anytls.runtime.test", Port: 4443, Password: "runtime-anytls", SNI: "anytls-tls.runtime.test"},
 				VLESS3: &subgen.VLESSCreds{Server: "s3.runtime.test", Port: 5443, UUID: "runtime-vless", SNI: "s3-tls.runtime.test", PublicKey: "s3-public", ShortID: "3333", Flow: "s3-flow", Fingerprint: "safari"},
