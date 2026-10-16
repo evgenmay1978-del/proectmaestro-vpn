@@ -173,6 +173,29 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
         }
 
+    /** Diagnostics for the AWG incident (16.10.2026): what the core is handed and how it answers. */
+    private fun selectorDefaultOf(content: String): String {
+        val marker = "\"default\""
+        val at = content.indexOf(marker)
+        if (at < 0) return "?"
+        val colon = content.indexOf(':', at)
+        if (colon < 0) return "?"
+        val first = content.indexOf('"', colon)
+        if (first < 0) return "?"
+        val second = content.indexOf('"', first + 1)
+        if (second < 0) return "?"
+        return content.substring(first + 1, second)
+    }
+
+    private fun recordAwgDiag(line: String) {
+        runCatching {
+            val file = java.io.File(Application.application.filesDir, "awg-diag.log")
+            if (file.length() > 32_768L) file.writeText("")
+            val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            file.appendText(stamp + " " + line + "\n")
+        }
+    }
+
     /** Serialize native configuration changes; the latest explicit request wins. */
     private suspend fun applySelectedContent(content: String, sourceAccount: Pair<Long, Long>, expected: WhiteListSelection.Request? = null): Boolean = contentMutex.withLock {
         if (expected != null && !WhiteListSelection.matches(expected)) return@withLock true
@@ -191,9 +214,24 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
                 }
+                recordAwgDiag(
+                    "prepare request=" + (request?.tag ?: "-") + " cdn=" + cdn +
+                        " default=" + selectorDefaultOf(effective) +
+                        " awgEndpoint=" + effective.contains("\"type\":\"awg\"") +
+                        " bytes=" + effective.length,
+                )
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
-                commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
+                try {
+                    commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
+                    recordAwgDiag("started request=" + (request?.tag ?: "-") + " status=" + status.value)
+                } catch (startError: Exception) {
+                    recordAwgDiag(
+                        "start-failed request=" + (request?.tag ?: "-") + " " +
+                            startError.javaClass.simpleName + ": " + startError.message,
+                    )
+                    throw startError
+                }
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()
                     closeService()
