@@ -378,7 +378,11 @@ jobs:
           retention-days: 7
 
   xhttp-native:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.task == 'xhttp-native' || inputs.task == 'cdn-runtime-test-apk') }}
+    # Every run that builds an APK needs these libraries. Without libmaestro_xhttp.so in
+    # jniLibs the app answers "CDN: подключение недоступно" (XhttpProcess.available() false,
+    # cdn prepare-null: xhttp-unavailable). 16.10.2026: the release APK carried 10 .so,
+    # every test APK only 8 — CDN was untestable in canary builds for that reason alone.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' || inputs.task == 'mobile-eye-compile' || inputs.task == 'xhttp-native' || inputs.task == 'cdn-runtime-test-apk' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -531,6 +535,7 @@ jobs:
           retention-days: 14
 
   build:
+    needs: xhttp-native
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' || inputs.task == 'mobile-eye-compile' }}
     runs-on: ubuntu-latest
     # The repo default token permission is "read", which does NOT include actions:read — so
@@ -600,6 +605,61 @@ jobs:
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
           test -f app/libs/libbox.aar
           ls -lh app/libs/
+
+      - name: Fetch xhttp native libraries → jniLibs (required for CDN)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          native_root="$RUNNER_TEMP/native-input"
+          mkdir "$native_root"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$native_root/artifacts.json"
+          python3 - "$native_root" <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(__import__('sys').argv[1])
+          artifacts = json.loads((root / 'artifacts.json').read_text())['artifacts']
+          matches = [a for a in artifacts if a['name'] == 'maestro-xhttp-native-' + os.environ['GITHUB_SHA']]
+          assert len(matches) == 1 and matches[0]['expired'] is False
+          a = matches[0]
+          assert a['workflow_run']['id'] == int(os.environ['GITHUB_RUN_ID'])
+          assert a['workflow_run']['head_sha'] == os.environ['GITHUB_SHA']
+          assert a['digest'].startswith('sha256:') and len(a['digest']) == 71
+          (root / 'artifact-id').write_text(str(a['id']))
+          (root / 'expected-sha256').write_text(a['digest'][7:])
+          PY
+          artifact_id="$(cat "$native_root/artifact-id")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$native_root/native.zip"
+          python3 - "$native_root" <<'PY'
+          import hashlib, json, os, pathlib, struct, sys, zipfile
+          root = pathlib.Path(sys.argv[1])
+          archive = root / 'native.zip'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == (root / 'expected-sha256').read_text()
+          with zipfile.ZipFile(archive) as z:
+              assert len(z.namelist()) == len(set(z.namelist()))
+              info = z.getinfo('manifest.json')
+              assert info.file_size <= 16384
+              manifest = json.loads(z.read(info))
+              assert manifest['schema_version'] == 1 and manifest['source_commit'] == os.environ['GITHUB_SHA']
+              assert manifest['xray_commit'] == '5ca6f4b7d4dc20a881d4330e498892697627ec0c'
+              assert manifest['ndk'] == '28.0.13004108' and manifest['android_api'] == 23
+              libraries = manifest['libraries']
+              assert len(libraries) == 2 and {x['abi'] for x in libraries} == {'arm64-v8a', 'armeabi-v7a'}
+              for lib in libraries:
+                  abi = lib['abi']
+                  name = abi + '/libmaestro_xhttp.so'
+                  assert lib['path'] == name and 0 < lib['bytes'] <= 64 * 1024 * 1024
+                  assert z.getinfo(name).file_size == lib['bytes']
+                  data = z.read(name)
+                  assert hashlib.sha256(data).hexdigest() == lib['sha256']
+                  assert data[:4] == b'\x7fELF' and data[5] == 1
+                  assert data[4] == (2 if abi == 'arm64-v8a' else 1)
+                  assert struct.unpack_from('<H', data, 18)[0] == (183 if abi == 'arm64-v8a' else 40)
+                  destination = pathlib.Path('app/src/main/jniLibs') / abi / 'libmaestro_xhttp.so'
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  with destination.open('xb') as output:
+                      output.write(data)
+          (root / 'verified-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
 
       - name: Materialize the stable signing keystore from secret
         if: ${{ inputs.task != 'mobile-eye-compile' }}
