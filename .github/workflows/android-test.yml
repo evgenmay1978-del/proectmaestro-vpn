@@ -543,13 +543,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set test version (HIGH code so the OTA never replaces it)
+      - name: Set test version (above the published release, below the next one)
         if: ${{ inputs.task != 'mobile-eye-compile' }}
         id: ver
         run: |
           set -euo pipefail
-          VC="$(( 1016012 + ${{ github.run_number }} ))"
-          VN="1.0.167-test-medallion"
+          # Тестовый APK должен ставиться поверх выпущенного 1.0.168 (VC 1016735) и канареек
+          # 16.10.2026 (до 1016821), а следующий релиз 1.0.169 (VC 1016900) должен сам его
+          # заменить по OTA. Поэтому код фиксированный и лежит между ними: Android ставит APK с
+          # тем же versionCode поверх без удаления, номер прогона — в имени версии.
+          # Прежняя формула 1016012 + run_number давала ~1016600 — ниже релиза, не ставилось.
+          # После выпуска 1.0.169 поднять оба числа выше его кода.
+          VC="1016830"
+          VN="1.0.168-test-r${{ github.run_number }}"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
 
