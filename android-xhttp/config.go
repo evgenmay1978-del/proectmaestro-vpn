@@ -177,13 +177,37 @@ func (v transport) config(sessionID int64) ([]byte, error) {
 				"network": "xhttp", "security": "tls",
 				"sockopt": map[string]any{"mark": sessionID},
 				"tlsSettings": map[string]any{
-					"serverName": v.ServerName, "alpn": []string{"h2"}, "fingerprint": "firefox",
+					"serverName": v.ServerName, "alpn": []string{"h2", "http/1.1"}, "fingerprint": "firefox",
 				},
+				// The uplink must travel in request headers, not in a GET body: the Yandex CDN
+				// edge drops GET requests that carry a body (its rules allow no body for
+				// GET/HEAD/OPTIONS), so the previous "uplinkDataPlacement": "body" preset never
+				// delivered a single uplink packet. The VLESS/ML-KEM handshake is the first
+				// uplink, so the session never came up: the origin saw only downlink GETs and
+				// "ML-KEM-768 handshake failed > EOF", the GB meter stayed at zero and every
+				// selected app stalled, while the same account worked from clients using the
+				// published preset. Measured on the owner phone 03.10.2026: 103 child downlinks
+				// and 0 child uplinks at the origin, against 83 uplinks from the control client.
+				// This is the published incy-flat-1 preset - what /cdn-sub hands to third-party
+				// clients and what the whitelist runtime names in compatibility_preset_id.
 				"xhttpSettings": map[string]any{
 					"host": v.Host, "path": v.Path, "mode": "packet-up",
-					"uplinkHTTPMethod": "GET", "uplinkDataPlacement": "body",
-					"sessionIDPlacement": "query", "sessionIDKey": "auth", "sessionIDLength": 16,
-					"seqPlacement": "query", "seqKey": "chunk_id",
+					"sessionIDKey": "auth", "sessionIDLength": 16, "seqKey": "chunk_id",
+					"extra": map[string]any{
+						"xmux": map[string]any{
+							"cMaxReuseTimes": "0", "maxConnections": "1", "hKeepAlivePeriod": 0,
+							"hMaxRequestTimes": "400-600", "hMaxReusableSecs": "120-180",
+						},
+						"sessionIDKey": "auth", "sessionIDLength": "16-32",
+						"sessionIDPlacement": "query",
+						"seqKey":             "chunk_id", "seqPlacement": "query",
+						"uplinkHTTPMethod": "GET", "uplinkDataPlacement": "header",
+						"xPaddingKey": "x_padding", "xPaddingBytes": "50-150", "xPaddingHeader": "X-Padding",
+						"xPaddingMethod": "tokenish", "xPaddingPlacement": "header", "xPaddingObfsMode": true,
+						"noSSEHeader": true, "noGRPCHeader": true,
+						"scMaxBufferedPosts": 100, "scMaxEachPostBytes": 16384, "scMinPostsIntervalMs": "10",
+						"serverMaxHeaderBytes": 32768, "uplinkChunkSize": 4096,
+					},
 				},
 			},
 		}},

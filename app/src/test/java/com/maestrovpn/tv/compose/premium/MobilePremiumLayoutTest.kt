@@ -7,7 +7,8 @@ class MobilePremiumLayoutTest {
     @Test
     fun narrowPortraitPurchaseUsesRegularResponsivePadding() {
         assertEquals(
-            18,
+            // Узкий портрет = Regular (см. mobilePremiumLayoutMode): 24/30/42 для Compact/Regular/Expanded.
+            30,
             mobilePremiumHorizontalPadding(widthDp = 320, heightDp = 568),
         )
     }
