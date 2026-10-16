@@ -21,6 +21,11 @@ on:
       - 'version.properties'
       - '.github/workflows/android.yml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Опубликовать GitHub Release (OTA флоту). Без галочки — только сборка и артефакт.'
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -189,7 +194,11 @@ jobs:
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error
 
+      # Публикация — только push в main или ручной запуск с явной галочкой publish.
+      # Прогон 38966945114 (16.10.2026): dispatch с тестовой ветки дошёл до этого шага и
+      # не создал релиз лишь потому, что тег tv-v1.0.168 уже существовал.
       - name: Publish GitHub Release (OTA source for the in-app updater)
+        if: github.event_name == 'push' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
