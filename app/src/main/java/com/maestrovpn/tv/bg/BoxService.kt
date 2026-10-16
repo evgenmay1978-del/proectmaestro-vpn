@@ -214,8 +214,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
                 }
+                // DIAG (16.10.2026, AWG): the core accepts the awg pick but sends zero packets
+                // (server capture: 0 packet from the phone).  Experiment: switch the awg endpoint
+                // to the app's integrated tun and raise the core log level so its errors surface.
+                val effectivePatched = run {
+                    var s = effective
+                    if (s.contains("\"type\": \"awg\"")) {
+                        s = s.replace("\"type\": \"awg\"", "\"type\": \"awg\", \"useIntegratedTun\": true")
+                    }
+                    s.replace("\"level\": \"warn\"", "\"level\": \"debug\"")
+                }
                 recordAwgDiag(
                     "prepare request=" + (request?.tag ?: "-") + " cdn=" + cdn +
+                        " patched=" + (effectivePatched.length - effective.length) +
                         " default=" + selectorDefaultOf(effective) +
                         " awgEndpoint=" + (effective.contains("\"type\": \"awg\"") || effective.contains("\"type\":\"awg\"")) +
                         " active=" + WhiteListSelection.view.value.active +
@@ -225,7 +236,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
                 try {
-                    commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
+                    commandServer.startOrReloadService(effectivePatched, buildOverrideOptions(effectivePatched, cdn))
                     recordAwgDiag("started request=" + (request?.tag ?: "-") + " status=" + status.value)
                 } catch (startError: Exception) {
                     recordAwgDiag(
