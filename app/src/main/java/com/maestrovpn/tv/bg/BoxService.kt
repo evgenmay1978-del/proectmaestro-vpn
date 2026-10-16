@@ -258,6 +258,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 if (request != null) WhiteListSelection.started(request)
                 return@withLock true
             } catch (e: Exception) {
+                recordAwgDiag(
+                    "apply-failed request=" + (request?.tag ?: "-") + " cdn=" + cdn + " " +
+                        e.javaClass.simpleName + ": " + e.message,
+                )
                 whiteListSession?.close()
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 if (cdn && WhiteListSession.network() == null) {
