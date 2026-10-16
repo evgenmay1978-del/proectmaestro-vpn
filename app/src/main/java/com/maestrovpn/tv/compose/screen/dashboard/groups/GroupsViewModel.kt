@@ -293,6 +293,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      * reports "auto", so the pick is always a real change.
      */
     private fun applyPendingSelection(groupTag: String, itemTag: String) {
+        diagSelect("apply-pending group=" + groupTag + " tag=" + itemTag + " status=" + _serviceStatus.value)
         if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -300,6 +301,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // selection at a torn-down command server; the offline-groups path repaints anyway.
                 if (_serviceStatus.value != Status.Started) return@launch
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                diagSelect("apply-pending selectOutbound ok tag=" + itemTag)
                 // Pin the chip to the picked protocol: a live-groups payload racing in right after
                 // the box starts reports the momentary "auto", which would otherwise flick the
                 // highlight off the protocol the user chose until the next payload catches up.
@@ -309,6 +311,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     }
                 }
             } catch (e: Exception) {
+                diagSelect("apply-pending FAILED tag=" + itemTag + " " + e.javaClass.simpleName + ": " + e.message)
                 sendError(e)
             }
         }
@@ -400,7 +403,26 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         return true
     }
 
+    /** AWG diagnostics (16.10.2026): what we ask the core to select and what the core reports back. */
+    private var diagLastSelect: String? = null
+
+    private fun diagSelect(line: String) {
+        runCatching {
+            val dir = Application.application.getExternalFilesDir(null) ?: Application.application.filesDir
+            val file = java.io.File(dir, "awg-diag.log")
+            if (file.length() > 32_768L) file.writeText("")
+            val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            file.appendText(stamp + " vm " + line + "\n")
+        }
+    }
+
     fun selectGroupItem(groupTag: String, itemTag: String) {
+        diagSelect(
+            "request group=" + groupTag + " tag=" + itemTag +
+                " status=" + _serviceStatus.value +
+                " active=" + WhiteListSelection.view.value.active +
+                " selected=" + WhiteListSelection.view.value.selected,
+        )
         if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
         if (selectCdnOrRestore(groupTag, itemTag)) return
         // Check if this is actually a different selection
@@ -418,6 +440,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             try {
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                diagSelect("selectOutbound ok tag=" + itemTag)
 
                 // Update local state and show snackbar
                 withContext(Dispatchers.Main) {
@@ -437,6 +460,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     sendEvent(GroupsEvent.GroupSelected(groupTag, itemTag))
                 }
             } catch (e: Exception) {
+                diagSelect("selectOutbound FAILED tag=" + itemTag + " " + e.javaClass.simpleName + ": " + e.message)
                 sendError(e)
             }
         }
@@ -491,6 +515,19 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     override fun updateGroups(newGroups: MutableList<OutboundGroup>) {
+        runCatching {
+            val selectGroup = newGroups.firstOrNull { it.tag == "select" }
+            if (selectGroup != null) {
+                val signature = selectGroup.selected + "|" + selectGroup.items.joinToString(",") { it.tag }
+                if (signature != diagLastSelect) {
+                    diagLastSelect = signature
+                    diagSelect(
+                        "core-select selected=" + selectGroup.selected +
+                            " items=" + selectGroup.items.joinToString(",") { it.tag },
+                    )
+                }
+            }
+        }
         viewModelScope.launch(Dispatchers.Default) {
             val currentGroups = uiState.value.groups
             val newGroupsMap = newGroups.associateBy { it.tag }
