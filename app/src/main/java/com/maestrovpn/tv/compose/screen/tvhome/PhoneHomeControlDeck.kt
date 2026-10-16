@@ -835,6 +835,7 @@ internal fun homeProtocolLabel(tag: String): String = when (tag) {
  */
 internal fun homeProtocolSectorLabel(tag: String): String = when (tag) {
     "naive" -> "NAIVE\nPROXY"
+    "awg" -> "AMNEZIA\nWG"
     else -> homeProtocolLabel(tag)
 }
 

@@ -45,8 +45,8 @@ jobs:
           # Версия задаётся явно: номер запуска и список релизов дают то занятый тег (tv-v1.0.167),
           # то старый номер. versionCode держим выше тестовой сборки 1016567 — иначе встроенный
           # апдейтер не увидит обновление. Следующий релиз: поднять обе цифры на 1.
-          VN="1.0.168"
-          VC="1016735"
+          VN="1.0.169"
+          VC="1016900"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
           echo "version_name=${VN}" >> "$GITHUB_OUTPUT"

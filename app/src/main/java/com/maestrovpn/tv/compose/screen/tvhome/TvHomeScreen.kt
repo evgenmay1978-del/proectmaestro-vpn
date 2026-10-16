@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -254,6 +255,7 @@ internal fun protocolIcon(tag: String): ImageVector = when (tag) {
     "anytls" -> Icons.Filled.Lock
     "olcrtc" -> Icons.Filled.Videocam
     "vk-turn" -> Icons.Filled.Videocam
+    "awg" -> Icons.Filled.VpnLock
     else -> Icons.Filled.Layers
 }
 
@@ -268,6 +270,7 @@ internal fun protocolLabel(tag: String): String = if (tag.startsWith("cdn:")) {
     "anytls" -> "AnyTLS"
     "olcrtc" -> "olcRTC"
     "vk-turn" -> "WDTT"
+    "awg" -> "AmneziaWG"
     else -> tag.replaceFirstChar { it.uppercase() }
 }
 
@@ -282,6 +285,7 @@ internal fun protocolBadge(tag: String): String = if (tag.startsWith("cdn:")) "�
     "vk-turn" -> "через VK"
     "trojan" -> "Макс. защита"
     "shadowsocks" -> "Стабильный"
+    "awg" -> "Маскировка трафика"
     else -> "Стабильный"
 }
 

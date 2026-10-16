@@ -12,16 +12,43 @@ internal object WhiteListConfig {
     fun ordinaryTag(base: String): String? {
         val root = Json.parseToJsonElement(base) as JsonObject
         val outbounds = (root["outbounds"] as JsonArray).map { it as JsonObject }
+        // AWG из обычной подписки sing-box держит в top-level "endpoints" (type "awg"), а не в
+        // "outbounds": без этого выбранный awg не попадал в usable, и реконсиляция managed-режима
+        // молча откатывала его на "auto" — ядро уходило по VLESS (инцидент 16.10.2026).
+        val endpoints = (root["endpoints"] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
         fun JsonObject.text(key: String) = (this[key] as? JsonPrimitive)?.content
         if (outbounds.any { it.text("tag")?.startsWith("cdn:") == true }) return null
         val selector = outbounds.singleOrNull { it.text("tag") == "select" && it.text("type") == "selector" } ?: return null
         val choices = (selector["outbounds"] as JsonArray).mapNotNull { (it as? JsonPrimitive)?.content }
+        val selectable = outbounds + endpoints
         val usable = choices.filter { tag ->
-            outbounds.any { it.text("tag") == tag && it.text("type") in setOf(
-                "selector", "urltest", "vless", "hysteria2", "naive", "anytls", "trojan", "vmess", "shadowsocks", "wireguard",
+            selectable.any { it.text("tag") == tag && it.text("type") in setOf(
+                "selector", "urltest", "vless", "hysteria2", "naive", "anytls", "trojan", "vmess", "shadowsocks", "wireguard", "awg",
             ) }
         }
         return selector.text("default")?.takeIf { it in usable } ?: "auto".takeIf { it in usable } ?: usable.firstOrNull()
+    }
+
+    /**
+     * Убирает decoy-пакеты AmneziaWG (i1..i5) из awg-эндпоинтов.
+     *
+     * Панель выдаёт всем клиентам один и тот же префикс i1, и с ним рукопожатие с сервером
+     * AmneziaWG 3.1 не проходит; официальный клиент AmneziaVPN эти поля не отправляет и с тем же
+     * конфигом держит туннель. Без i1..i5 наш движок на 3.1 проходит рукопожатие
+     * (проверено на телефоне 17.10.2026). Конфиг без awg-эндпоинтов возвращается без изменений.
+     */
+    fun stripAwgDecoys(base: String): String {
+        val root = runCatching { Json.parseToJsonElement(base) as? JsonObject }.getOrNull() ?: return base
+        val endpoints = root["endpoints"] as? JsonArray ?: return base
+        val decoys = setOf("i1", "i2", "i3", "i4", "i5")
+        fun JsonObject.isAwgWithDecoys() =
+            (this["type"] as? JsonPrimitive)?.content == "awg" && keys.any { it in decoys }
+        if (endpoints.none { (it as? JsonObject)?.isAwgWithDecoys() == true }) return base
+        val cleaned = JsonArray(endpoints.map { element ->
+            val endpoint = element as? JsonObject
+            if (endpoint?.isAwgWithDecoys() == true) JsonObject(endpoint.filterKeys { it !in decoys }) else element
+        })
+        return JsonObject(root + ("endpoints" to cleaned)).toString()
     }
 
     /** Only an explicitly selected CDN session uses this ephemeral variant. */
@@ -52,8 +79,29 @@ internal object WhiteListConfig {
             put("udp_over_tcp", buildJsonObject { put("enabled", true); put("version", 2) })
         }
         return JsonObject(
-            root + ("outbounds" to JsonArray(updated + socks)) + ("route" to edgeDirectRoute(root, edge)),
+            root + ("outbounds" to JsonArray(updated + socks)) + ("route" to cdnRoute(root, edge, route.tag)),
         ).toString()
+    }
+
+    /**
+     * Route every VPN-bound hop of the subscription to the ephemeral CDN outbound instead of the
+     * named "select" selector. The selector's `default` is not enough on its own: libbox keeps a
+     * live box that can still resolve "select" to its previous choice, and the 02.10.2026 device run
+     * showed traffic leaving through the ordinary nodes seconds after a CDN pick
+     * (log: "cdn apply: hasCdnTag=true checkConfig=ok", yet sockets went to NL/CZ, not to the edge).
+     * Rules that already point at a concrete outbound (direct / sniff / hijack-dns) are untouched.
+     */
+    private fun cdnRoute(root: JsonObject, edge: String, tag: String): JsonObject {
+        val routed = edgeDirectRoute(root, edge)
+        val rules = routed["rules"] as? JsonArray ?: JsonArray(emptyList())
+        val retargeted = JsonArray(rules.map { element ->
+            val rule = element as? JsonObject ?: return@map element
+            if ((rule["outbound"] as? JsonPrimitive)?.content != "select") return@map rule
+            JsonObject(rule + ("outbound" to JsonPrimitive(tag)))
+        })
+        val final = routed["final"]
+        val withFinal = if ((final as? JsonPrimitive)?.content == "select") routed + ("final" to JsonPrimitive(tag)) else routed
+        return JsonObject(withFinal + ("rules" to retargeted))
     }
 
     /**

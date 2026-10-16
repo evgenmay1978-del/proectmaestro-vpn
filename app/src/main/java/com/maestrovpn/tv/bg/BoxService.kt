@@ -186,13 +186,23 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             whiteListSession?.close()
             val cdn = request?.tag?.startsWith("cdn:") == true
             try {
-                val effective = when {
+                val effective = WhiteListConfig.stripAwgDecoys(when {
                     cdn -> requireNotNull(whiteListSession?.prepare(content, requireNotNull(request))) { "CDN unavailable" }
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
-                }
+                })
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
+                if (cdn) {
+                    // Diagnose-02.10.2026: a valid injected CDN config was never used by the engine
+                    // (traffic stayed on the ordinary nodes while the UI showed CDN connected), so the
+                    // engine's own verdict on the exact bytes we hand over is logged before the call.
+                    val verdict = runCatching { Libbox.checkConfig(effective) }.exceptionOrNull()
+                    Log.d(TAG, "cdn apply: bytes=" + effective.length + " hasCdnTag=" + effective.contains("cdn:") +
+                        " checkConfig=" + (verdict?.message ?: "ok"))
+                    if (verdict != null) throw IllegalStateException("CDN: конфигурация отклонена ядром", verdict)
+                }
+                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + effective.length)
                 commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()

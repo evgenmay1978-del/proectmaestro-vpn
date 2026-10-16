@@ -2,103 +2,181 @@ package awg
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/netip"
 	"sync"
-	"syscall"
+	"time"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+	"github.com/sagernet/sing/common"
+	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
+	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/service"
+	"github.com/sagernet/sing/service/pause"
 )
 
 var _ conn.Bind = (*bind_adapter)(nil)
 
+// bind_adapter carries the outer (encrypted) AWG traffic over a sing-box dialer.
+//
+// amneziawg-go's own conn.NewStdNetBind() accepts no control functions — its controlFns is a
+// package global filled in only by the engine's own platform init — so there is no hook for
+// VpnService.protect() and its sockets would be captured by our own tun on Android. Upstream
+// sing-box hits the same wall for WireGuard-over-detour and solves it with
+// transport/wireguard.ClientBind; this is that design ported onto the amneziawg Bind
+// interface, and it has to keep the two properties that make it work:
+//
+//   - The socket is opened LAZILY, on the first send or receive — never in Open(). Open() runs
+//     inside box start, before the tun inbound exists and before the interface monitor has
+//     settled on a default interface, and on Android dialer.ListenPacket then picks the
+//     interface itself (platformInterface makes networkStrategy non-nil). A socket opened that
+//     early binds against a half-built view of the network and silently blackholes every
+//     packet afterwards, with no error anywhere: the engine reports the handshake as sent and
+//     nothing reaches the wire.
+//   - A socket error CLOSES the socket so the next call builds a fresh one, instead of being
+//     returned upwards. A ReceiveFunc that returns an error stops the engine's receive loop
+//     for good, so a single transient read error would otherwise end the tunnel permanently.
 type bind_adapter struct {
-	conn4  net.PacketConn
-	conn6  net.PacketConn
-	dialer N.Dialer
-	ctx    context.Context
-	mutex  sync.Mutex
+	ctx          context.Context
+	logger       logger.Logger
+	pauseManager pause.Manager
+	dialer       N.Dialer
+	isConnect    bool
+	connectAddr  netip.AddrPort
+	bindCtx      context.Context
+	bindDone     context.CancelFunc
+	connAccess   sync.Mutex
+	conn         *wireConn
+	done         chan struct{}
 }
 
-func newBind(dial N.Dialer) conn.Bind {
+func newBind(ctx context.Context, logger logger.Logger, dial N.Dialer, isConnect bool, connectAddr netip.AddrPort) conn.Bind {
 	return &bind_adapter{
-		dialer: dial,
+		ctx:          ctx,
+		logger:       logger,
+		pauseManager: service.FromContext[pause.Manager](ctx),
+		dialer:       dial,
+		isConnect:    isConnect,
+		connectAddr:  connectAddr,
+		done:         make(chan struct{}),
 	}
 }
 
-func (b *bind_adapter) connect(addr netip.Addr, port uint16) (net.PacketConn, error) {
-	return b.dialer.ListenPacket(b.ctx, M.Socksaddr{Addr: addr, Port: port})
+func (b *bind_adapter) waitActive() {
+	if b.pauseManager != nil {
+		b.pauseManager.WaitActive()
+	}
 }
 
-func (b *bind_adapter) receive(c net.PacketConn) conn.ReceiveFunc {
-	return func(packets [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
-		n, addr, err := c.ReadFrom(packets[0])
-		if err != nil {
-			return 0, E.Cause(err, "read data")
+func (b *bind_adapter) connect() (*wireConn, error) {
+	serverConn := b.conn
+	if serverConn != nil {
+		select {
+		case <-serverConn.done:
+			serverConn = nil
+		default:
+			return serverConn, nil
 		}
-
-		bindEp, err := b.ParseEndpoint(addr.String())
-		if err != nil {
-			return 0, E.Cause(err, "parse endpoint")
-		}
-
-		sizes[0] = n
-		eps[0] = bindEp
-		return 1, nil
 	}
+	b.connAccess.Lock()
+	defer b.connAccess.Unlock()
+	select {
+	case <-b.done:
+		return nil, net.ErrClosed
+	default:
+	}
+	serverConn = b.conn
+	if serverConn != nil {
+		select {
+		case <-serverConn.done:
+			serverConn = nil
+		default:
+			return serverConn, nil
+		}
+	}
+	bindCtx := b.bindCtx
+	if bindCtx == nil {
+		bindCtx = b.ctx
+	}
+	// The socket is always built by dialer.ListenPacket and every datagram is written to the
+	// explicit peer address. Measured on the owner phone (16.10.2026) against an AmneziaWG 3.1
+	// server: a plain socket carrying only the protect() control chain and a connected
+	// dialer.DialContext socket both lost every packet to the server's port, while the
+	// ListenPacket shape delivered all of them and completed the handshake.
+	udpConn, err := b.dialer.ListenPacket(bindCtx, M.Socksaddr{Addr: netip.IPv4Unspecified()})
+	if err != nil {
+		return nil, err
+	}
+	packetConn := bufio.NewPacketConn(udpConn)
+	b.logger.Debug("awg bind: listener socket ", packetConn.LocalAddr(), " -> ", b.connectAddr)
+	b.conn = &wireConn{
+		PacketConn: packetConn,
+		done:       make(chan struct{}),
+	}
+	return b.conn, nil
 }
 
 func (b *bind_adapter) Open(port uint16) (fns []conn.ReceiveFunc, actualPort uint16, err error) {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	if b.conn4 != nil || b.conn6 != nil {
-		return nil, 0, conn.ErrBindAlreadyOpen
+	b.connAccess.Lock()
+	defer b.connAccess.Unlock()
+	select {
+	case <-b.done:
+		b.done = make(chan struct{})
+	default:
 	}
+	b.bindCtx, b.bindDone = context.WithCancel(b.ctx)
+	return []conn.ReceiveFunc{b.receive}, 0, nil
+}
 
-	conn4, err := b.connect(netip.IPv4Unspecified(), port)
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
-		return nil, 0, E.Cause(err, "create ipv4 connection")
+func (b *bind_adapter) receive(packets [][]byte, sizes []int, eps []conn.Endpoint) (count int, err error) {
+	udpConn, err := b.connect()
+	if err != nil {
+		select {
+		case <-b.done:
+			return
+		default:
+		}
+		b.logger.Error(E.Cause(err, "connect to server"))
+		err = nil
+		b.waitActive()
+		time.Sleep(time.Second)
+		return
 	}
-	if conn4 != nil {
-		fns = append(fns, b.receive(conn4))
+	n, addr, err := udpConn.ReadFrom(packets[0])
+	if err != nil {
+		udpConn.Close()
+		select {
+		case <-b.done:
+		default:
+			b.logger.Error(E.Cause(err, "read packet"))
+			err = nil
+		}
+		return
 	}
-
-	conn6, err := b.connect(netip.IPv6Unspecified(), port)
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
-		return nil, 0, E.Cause(err, "create ipv6 connection")
-	}
-	if conn6 != nil {
-		fns = append(fns, b.receive(conn6))
-	}
-
-	b.conn4 = conn4
-	b.conn6 = conn6
-
-	return fns, port, nil
+	sizes[0] = n
+	eps[0] = bind_endpoint(M.SocksaddrFromNet(addr).Unwrap().AddrPort())
+	count = 1
+	return
 }
 
 func (b *bind_adapter) Close() error {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	var err4, err6 error
-
-	if b.conn4 != nil {
-		err4 = b.conn4.Close()
-		b.conn4 = nil
+	b.connAccess.Lock()
+	defer b.connAccess.Unlock()
+	select {
+	case <-b.done:
+	default:
+		close(b.done)
 	}
-
-	if b.conn6 != nil {
-		err6 = b.conn6.Close()
-		b.conn6 = nil
+	if b.bindDone != nil {
+		b.bindDone()
+		b.bindDone = nil
 	}
-
-	return errors.Join(err4, err6)
+	common.Close(common.PtrOrNil(b.conn))
+	b.conn = nil
+	return nil
 }
 
 func (b *bind_adapter) SetMark(mark uint32) error {
@@ -106,33 +184,24 @@ func (b *bind_adapter) SetMark(mark uint32) error {
 }
 
 func (b *bind_adapter) Send(bufs [][]byte, ep conn.Endpoint) error {
-	var conn net.PacketConn
-	if ep.DstIP().Is6() {
-		conn = b.conn6
-	} else {
-		conn = b.conn4
+	udpConn, err := b.connect()
+	if err != nil {
+		b.logger.Error(E.Cause(err, "awg bind: open socket"))
+		b.waitActive()
+		time.Sleep(time.Second)
+		return err
 	}
-
-	if conn == nil {
-		return errors.ErrUnsupported
+	destination, err := endpointAddrPort(ep)
+	if err != nil {
+		return err
 	}
-
-	bindEp, ok := ep.(*bind_endpoint)
-	if !ok {
-		return errors.ErrUnsupported
-	}
-
-	udpAddr := &net.UDPAddr{
-		IP:   bindEp.AddrPort.Addr().AsSlice(),
-		Port: int(bindEp.AddrPort.Port()),
-	}
-
 	for _, buf := range bufs {
-		if _, err := conn.WriteTo(buf, udpAddr); err != nil {
+		if _, err = udpConn.WriteToUDPAddrPort(buf, destination); err != nil {
+			b.logger.Error(E.Cause(err, "awg bind: write to ", destination))
+			udpConn.Close()
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -141,38 +210,68 @@ func (b *bind_adapter) ParseEndpoint(s string) (conn.Endpoint, error) {
 	if err != nil {
 		return nil, E.Cause(err, "parse addrport")
 	}
-
-	return &bind_endpoint{AddrPort: ap}, nil
+	return bind_endpoint(ap), nil
 }
 
 func (b *bind_adapter) BatchSize() int {
 	return 1
 }
 
+func endpointAddrPort(ep conn.Endpoint) (netip.AddrPort, error) {
+	switch endpoint := ep.(type) {
+	case bind_endpoint:
+		return netip.AddrPort(endpoint), nil
+	case *bind_endpoint:
+		return netip.AddrPort(*endpoint), nil
+	default:
+		return netip.AddrPort{}, E.New("unexpected endpoint type: ", ep.DstToString())
+	}
+}
+
+type wireConn struct {
+	net.PacketConn
+	access sync.Mutex
+	done   chan struct{}
+}
+
+func (w *wireConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (int, error) {
+	return w.PacketConn.WriteTo(b, M.SocksaddrFromNetIP(addr).UDPAddr())
+}
+
+func (w *wireConn) Close() error {
+	w.access.Lock()
+	defer w.access.Unlock()
+	select {
+	case <-w.done:
+		return net.ErrClosed
+	default:
+	}
+	w.PacketConn.Close()
+	close(w.done)
+	return nil
+}
+
 var _ conn.Endpoint = (*bind_endpoint)(nil)
 
-type bind_endpoint struct {
-	AddrPort netip.AddrPort
-}
+type bind_endpoint netip.AddrPort
 
-func (e bind_endpoint) ClearSrc() {
-}
+func (e bind_endpoint) ClearSrc() {}
 
 func (e bind_endpoint) SrcToString() string {
 	return ""
 }
 
 func (e bind_endpoint) DstToString() string {
-	return e.AddrPort.String()
+	return (netip.AddrPort)(e).String()
 }
 
 func (e bind_endpoint) DstToBytes() []byte {
-	b, _ := e.AddrPort.MarshalBinary()
+	b, _ := (netip.AddrPort)(e).MarshalBinary()
 	return b
 }
 
 func (e bind_endpoint) DstIP() netip.Addr {
-	return e.AddrPort.Addr()
+	return (netip.AddrPort)(e).Addr()
 }
 
 func (e bind_endpoint) SrcIP() netip.Addr {
