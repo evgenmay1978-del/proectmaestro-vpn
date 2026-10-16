@@ -85,6 +85,19 @@ internal object WhiteListSelection {
         return true
     }
 
+    /**
+     * Pressing "Connect" is a fresh consent for the CDN server that is already selected. The
+     * selection itself may be minutes old (pick the server, then press the power button later),
+     * and WhiteListSession.prepare() rejects requests older than 60 s — every such start ended in
+     * "CDN: подключение недоступно" before the core was even started (16.10.2026, issue #100).
+     * Only the timestamp changes: same epoch, tag and account, so nothing else is resumed.
+     */
+    @Synchronized fun renewForStart(): Request? {
+        val value = request ?: return null
+        if (!value.tag.startsWith("cdn:") || account() != (value.profileId to value.revision)) return value
+        return value.copy(requestedAt = SystemClock.elapsedRealtime()).also { request = it }
+    }
+
     /** A network handover revokes CDN consent; returning to cellular never resumes it. */
     @Synchronized fun restoreOrdinary(value: Request, tag: String): Request? {
         if (!matches(value) || !value.tag.startsWith("cdn:") || tag.startsWith("cdn:")) return null

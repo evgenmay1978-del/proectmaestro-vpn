@@ -131,7 +131,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         GlobalScope.launch(Dispatchers.IO) {
                             if (status.value != Status.Started) return@launch
                             runCatching { reloadSelectedContent(requested) }.onFailure {
-                                stopAndAlert(Alert.CreateService, "CDN: подключение недоступно")
+                                stopAndAlert(Alert.CreateService, it.message ?: "CDN: подключение недоступно")
                             }
                         }
                     }
@@ -269,7 +269,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     if (ordinaryTag != null && WhiteListSelection.restoreOrdinary(requireNotNull(request), ordinaryTag) != null) return@repeat
                 }
                 // A libbox parse error could contain a fragment of the ephemeral credentials.
-                if (cdn) throw IllegalStateException("CDN: подключение недоступно")
+                if (cdn) {
+                    // Show WHY (a short label, never the exception text: a libbox parse error could
+                    // contain a fragment of the ephemeral credentials).
+                    val why = whiteListSession?.lastFailure ?: e.javaClass.simpleName
+                    throw IllegalStateException("CDN: подключение недоступно ($why)")
+                }
                 throw e
             }
         }
@@ -316,6 +321,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             DefaultNetworkMonitor.start()
 
+            WhiteListSelection.renewForStart()
             try {
                 if (!applySelectedContent(content, sourceAccount)) return
             } catch (e: Exception) {
@@ -418,6 +424,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
         lastProfileName = profile.name
+        WhiteListSelection.renewForStart()
         try {
             if (!applySelectedContent(content, sourceAccount)) return
         } catch (e: Exception) {

@@ -100,12 +100,18 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         }
     }
 
+    /** Short label of the last prepare() refusal, shown in the start-failure dialog. */
+    @Volatile var lastFailure: String? = null
+        private set
+
     private fun prepNull(why: String): String? {
+        lastFailure = why.substringBefore(" have=")
         cdnDiag("prepare-null: " + why)
         return null
     }
 
     suspend fun prepare(base: String, request: WhiteListSelection.Request): String? {
+        lastFailure = null
         close()
         // Native is a single engine. A replacement cannot race the old engine's stop.
         stopPending?.get(2, TimeUnit.SECONDS)
@@ -132,7 +138,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         if (!runtime.fresh(SystemClock.elapsedRealtime())) return prepNull("runtime-not-fresh")
         if (!WhiteListSelection.matches(request)) return prepNull("request-not-matching#2")
         if (network != WhiteListSession.network()) return prepNull("network-changed")
-        val id = ids.incrementAndGet().takeIf { it > 0 }?.toLong() ?: return null
+        val id = ids.incrementAndGet().takeIf { it > 0 }?.toLong() ?: return prepNull("session-id-overflow")
         val port = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         val random = SecureRandom()
         fun credential(): String = android.util.Base64.encodeToString(ByteArray(24).also(random::nextBytes),
@@ -149,6 +155,8 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
             if (it != network || !isCellular(it)) expire(live, restoreOrdinary = true)
         }
         if (!watchWifi(live) || !valid(live)) {
+            lastFailure = "lease-invalid-before-start"
+            cdnDiag("prepare-null: lease-invalid-before-start")
             DefaultNetworkListener.stop(live)
             expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
             return null
@@ -207,6 +215,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val result = try { XhttpProcess.start(id, payload) } finally { payload.fill(0) }
         if (result != 0 || !valid(live)) {
             cdnDiag("xhttp-start-result=" + result + " valid=" + valid(live))
+            lastFailure = "xhttp-start=" + result + (if (valid(live)) "" else " lease-expired")
             expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
             stopPending = stopExecutor.submit { XhttpProcess.stop(id) }
             return null
