@@ -215,14 +215,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     else -> content
                 }
                 // DIAG (16.10.2026, AWG): the core accepts the awg pick but sends zero packets
-                // (server capture: 0 packet from the phone).  Experiment: switch the awg endpoint
-                // to the app's integrated tun and raise the core log level so its errors surface.
+                // (server capture: 0 packets from the phone). useIntegratedTun was tried and is
+                // WRONG for Android — that branch opens /dev/tun and dies with "permission denied".
+                // Now the core writes its own debug log to a file we can read from the device shell.
                 val effectivePatched = run {
-                    var s = effective
-                    if (s.contains("\"type\": \"awg\"")) {
-                        s = s.replace("\"type\": \"awg\"", "\"type\": \"awg\", \"useIntegratedTun\": true")
-                    }
-                    s.replace("\"level\": \"warn\"", "\"level\": \"debug\"")
+                    val logDir = (Application.application.getExternalFilesDir(null)
+                        ?: Application.application.filesDir).absolutePath
+                    effective.replace(
+                        "\"level\": \"warn\"",
+                        "\"level\": \"debug\", \"output\": \"" + logDir + "/core.log\", \"timestamp\": true",
+                    )
                 }
                 recordAwgDiag(
                     "prepare request=" + (request?.tag ?: "-") + " cdn=" + cdn +
