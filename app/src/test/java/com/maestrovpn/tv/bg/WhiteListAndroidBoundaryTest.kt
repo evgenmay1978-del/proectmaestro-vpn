@@ -53,7 +53,12 @@ class WhiteListAndroidBoundaryTest {
         assertTrue(config.contains("edgeDirectRoute"))
         assertFalse(config.contains("VpnService()"))
         assertFalse(session.contains("adoptFd"))
-        assertFalse(session.contains("registerNetworkCallback"))
+        // Единственный собственный колбэк сессии — сторож Wi-Fi: платный CDN снимается, как только
+        // появляется Wi-Fi (APK 159, 7403f2a). Граница: ровно одна регистрация, только на
+        // TRANSPORT_WIFI, и она же снимается в stopWatchingWifi — никаких других колбэков сети.
+        assertEquals(1, Regex("""(?<!un)registerNetworkCallback\(""").findAll(session).count())
+        assertEquals(1, Regex("""unregisterNetworkCallback\(""").findAll(session).count())
+        assertTrue(session.contains("addTransportType(NetworkCapabilities.TRANSPORT_WIFI)"))
         assertFalse(session.contains("VpnService()"))
     }
 
