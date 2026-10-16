@@ -88,24 +88,50 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
     private val listenerKey = AtomicReference<Any?>()
     @Volatile private var stopPending: java.util.concurrent.Future<*>? = null
 
+    /** CDN diagnostics (16.10.2026): every "return null" below used to be invisible — the screen only
+     *  said "CDN: подключение недоступно". Log the exact stop point into the shared diag file. */
+    private fun cdnDiag(line: String) {
+        runCatching {
+            val dir = vpn.getExternalFilesDir(null) ?: vpn.filesDir
+            val file = java.io.File(dir, "awg-diag.log")
+            if (file.length() > 32_768L) file.writeText("")
+            val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            file.appendText(stamp + " cdn " + line + "\n")
+        }
+    }
+
+    private fun prepNull(why: String): String? {
+        cdnDiag("prepare-null: " + why)
+        return null
+    }
+
     suspend fun prepare(base: String, request: WhiteListSelection.Request): String? {
         close()
         // Native is a single engine. A replacement cannot race the old engine's stop.
         stopPending?.get(2, TimeUnit.SECONDS)
-        if (DeviceFormFactor.isTelevision(vpn) || !request.tag.startsWith("cdn:") ||
-            !WhiteListSelection.matches(request) || SystemClock.elapsedRealtime() - request.requestedAt !in 0..60_000 || !XhttpProcess.available()) return null
-        val network = network() ?: return null
-        val subscription = ProfileManager.get(request.profileId)?.typed?.remoteURL ?: return null
+        if (DeviceFormFactor.isTelevision(vpn)) return prepNull("television")
+        if (!request.tag.startsWith("cdn:")) return prepNull("tag-not-cdn:" + request.tag)
+        if (!WhiteListSelection.matches(request)) return prepNull("request-not-matching")
+        val ageMs = SystemClock.elapsedRealtime() - request.requestedAt
+        if (ageMs !in 0..60_000) return prepNull("request-age-ms=" + ageMs)
+        if (!XhttpProcess.available()) return prepNull("xhttp-unavailable")
+        val network = network() ?: return prepNull("no-network")
+        val subscription = ProfileManager.get(request.profileId)?.typed?.remoteURL ?: return prepNull("no-remote-url")
         val initialFetchStarted = SystemClock.elapsedRealtime()
-        val runtime = WhiteListRuntimeClient.fetch(subscription, network) ?: return null
+        val runtime = WhiteListRuntimeClient.fetch(subscription, network) ?: return prepNull("runtime-fetch-null")
         var lastFetchMs = (SystemClock.elapsedRealtime() - initialFetchStarted).coerceAtLeast(0L)
-        val route = runtime.profiles.singleOrNull { it.tag == request.tag } ?: return null
+        val route = runtime.profiles.singleOrNull { it.tag == request.tag }
+            ?: return prepNull("tag-not-in-runtime:" + request.tag + " have=" + runtime.profiles.joinToString(",") { it.tag })
         val lookup = dnsExecutor.submit<Array<InetAddress>> { network.getAllByName(route.address) }
-        val addresses = try { lookup.get(1, TimeUnit.SECONDS) } finally { lookup.cancel(true) }
+        val addresses = try { lookup.get(1, TimeUnit.SECONDS) } catch (t: Throwable) {
+            return prepNull("dns " + route.address + " " + t.javaClass.simpleName)
+        } finally { lookup.cancel(true) }
         val address = addresses.filterIsInstance<Inet4Address>().firstOrNull {
             !it.isAnyLocalAddress && !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isSiteLocalAddress && !it.isMulticastAddress
-        }?.hostAddress ?: return null
-        if (!runtime.fresh(SystemClock.elapsedRealtime()) || !WhiteListSelection.matches(request) || network != WhiteListSession.network()) return null
+        }?.hostAddress ?: return prepNull("no-usable-ipv4-for:" + route.address)
+        if (!runtime.fresh(SystemClock.elapsedRealtime())) return prepNull("runtime-not-fresh")
+        if (!WhiteListSelection.matches(request)) return prepNull("request-not-matching#2")
+        if (network != WhiteListSession.network()) return prepNull("network-changed")
         val id = ids.incrementAndGet().takeIf { it > 0 }?.toLong() ?: return null
         val port = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         val random = SecureRandom()
@@ -180,6 +206,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val payload = WhiteListConfig.payload(route, address, port, user, pass)
         val result = try { XhttpProcess.start(id, payload) } finally { payload.fill(0) }
         if (result != 0 || !valid(live)) {
+            cdnDiag("xhttp-start-result=" + result + " valid=" + valid(live))
             expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
             stopPending = stopExecutor.submit { XhttpProcess.stop(id) }
             return null
