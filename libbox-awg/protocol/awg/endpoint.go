@@ -15,9 +15,11 @@ import (
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/transport/awg"
 	"github.com/sagernet/sing/common/bufio"
+	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/format"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/service"
 
 	"go4.org/netipx"
 )
@@ -108,7 +110,43 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
 		address: options.Address,
 		router:  router,
 		logger:  logger,
+		// Was declared but never filled: domain destinations went into netstack, whose
+		// resolver has an empty server list ("cannot marshal DNS message").
+		dnsRouter: service.FromContext[adapter.DNSRouter](ctx),
 	}, nil
+}
+
+// DialContext and ListenPacket resolve domains with the sing-box DNS router before the
+// netstack, as upstream protocol/wireguard does.
+func (e *Endpoint) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	if destination.IsFqdn() {
+		addresses, err := e.dnsRouter.Lookup(ctx, destination.Fqdn, adapter.DNSQueryOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return N.DialSerial(ctx, e.Device, network, destination, addresses)
+	} else if !destination.Addr.IsValid() {
+		return nil, E.New("invalid destination: ", destination)
+	}
+	return e.Device.DialContext(ctx, network, destination)
+}
+
+func (e *Endpoint) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	if destination.IsFqdn() {
+		addresses, err := e.dnsRouter.Lookup(ctx, destination.Fqdn, adapter.DNSQueryOptions{})
+		if err != nil {
+			return nil, err
+		}
+		packetConn, destinationAddress, err := N.ListenSerial(ctx, e.Device, destination, addresses)
+		if err != nil {
+			return nil, err
+		}
+		if destinationAddress.IsValid() && destination != M.SocksaddrFrom(destinationAddress, destination.Port) {
+			return bufio.NewNATPacketConn(bufio.NewPacketConn(packetConn), M.SocksaddrFrom(destinationAddress, destination.Port), destination), nil
+		}
+		return packetConn, nil
+	}
+	return e.Device.ListenPacket(ctx, destination)
 }
 
 func genIpcConfig(opts option.AwgEndpointOptions) (string, error) {

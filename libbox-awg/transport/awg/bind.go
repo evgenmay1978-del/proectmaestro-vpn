@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
+	"github.com/sagernet/sing-box/common/dialer"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -101,13 +102,37 @@ func (b *bind_adapter) connect() (*wireConn, error) {
 	if bindCtx == nil {
 		bindCtx = b.ctx
 	}
-	if b.isConnect {
-		// A connected UDP socket to the single literal peer: the same dial path every other
-		// protocol in this app already uses successfully on Android.
+	if wgListener, isWgListener := common.Cast[dialer.WireGuardListener](b.dialer); isWgListener {
+		// The upstream WireGuard path (transport/wireguard: conn.NewStdNetBind(WireGuardControl())):
+		// a plain UDP socket carrying ONLY the dialer's control chain - on Android that is
+		// VpnService.protect() - and no per-interface binding. The kernel then routes it over the
+		// current default network, exactly like the official AmneziaWG app does.
+		//
+		// The networkStrategy dial path (DialContext/ListenPacket of the default dialer) picks an
+		// interface itself and BINDS the socket to it. The first send happens inside box start
+		// (device.Up), when the interface view is not settled yet, and a socket bound to the wrong
+		// interface (our own tun) never errors: the engine logs "sending handshake initiation" and
+		// nothing reaches the wire. That was the 16.10.2026 phone result (0 packets on S4).
+		network := "udp"
+		if b.isConnect && b.connectAddr.Addr().Is4() {
+			network = "udp4"
+		}
+		listenConfig := net.ListenConfig{Control: wgListener.WireGuardControl()}
+		udpConn, err := listenConfig.ListenPacket(bindCtx, network, "")
+		if err != nil {
+			return nil, err
+		}
+		b.logger.Info("awg bind: protected socket ", udpConn.LocalAddr(), " -> ", b.connectAddr)
+		b.conn = &wireConn{
+			PacketConn: udpConn,
+			done:       make(chan struct{}),
+		}
+	} else if b.isConnect {
 		udpConn, err := b.dialer.DialContext(bindCtx, N.NetworkUDP, M.SocksaddrFromNetIP(b.connectAddr))
 		if err != nil {
 			return nil, err
 		}
+		b.logger.Info("awg bind: dialer socket ", udpConn.LocalAddr(), " -> ", b.connectAddr)
 		b.conn = &wireConn{
 			PacketConn: bufio.NewUnbindPacketConn(udpConn),
 			done:       make(chan struct{}),
@@ -117,6 +142,7 @@ func (b *bind_adapter) connect() (*wireConn, error) {
 		if err != nil {
 			return nil, err
 		}
+		b.logger.Info("awg bind: dialer listener ", udpConn.LocalAddr())
 		b.conn = &wireConn{
 			PacketConn: bufio.NewPacketConn(udpConn),
 			done:       make(chan struct{}),
@@ -192,6 +218,7 @@ func (b *bind_adapter) SetMark(mark uint32) error {
 func (b *bind_adapter) Send(bufs [][]byte, ep conn.Endpoint) error {
 	udpConn, err := b.connect()
 	if err != nil {
+		b.logger.Error(E.Cause(err, "awg bind: open socket"))
 		b.waitActive()
 		time.Sleep(time.Second)
 		return err
@@ -202,6 +229,7 @@ func (b *bind_adapter) Send(bufs [][]byte, ep conn.Endpoint) error {
 	}
 	for _, buf := range bufs {
 		if _, err = udpConn.WriteToUDPAddrPort(buf, destination); err != nil {
+			b.logger.Error(E.Cause(err, "awg bind: write to ", destination))
 			udpConn.Close()
 			return err
 		}
