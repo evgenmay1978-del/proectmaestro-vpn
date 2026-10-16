@@ -1,3 +1,60 @@
+## Текущие правила мобильного продолжения — 10.09.2026
+
+Нужен настоящий «вау» от качества и естественности глаза внутри утверждённого дерево/золото/изумруд интерфейса. Никаких4D, параллакса, покачивания, пульсации света. Рамка/орнамент неподвижны; глаз двигает взгляд/зрачок и смыкает зелёные веки. Показывать целый экран и движение. Native OFF в fffd600 не принят из-за видимого стыка ткани; математическое смыкание и успешная сборка не являются визуальной готовностью. Следующий preview — цельный материал и исправленная запись.13 старых референсов удалены и сохранены на GitHub; утверждённые источники/runtime assets сохранены.
+
+CDN controller b14738d установлен с batch-чтениями и однократным учётом времени запроса; absolute deadlines/5s guard сохранены. Публичный runtime200/4профиля за1790ms/wireTTL4s; Android1500ms и слишком поздний renew ещё требуют адресного исправления. Обычная панель, front/env, Xray, боты и суммы сохранены. Не расширять задачу на старый lease-код/лимиты. Новое приложение должно обновлять прежнее с той же подписью/package и сохранять TV; fleet остаётся160/1016001. Сборки/эмулятор/адресные тесты только GitHub, повторять только изменённый сценарий.
+
+## Выпуск160 и проверка мобильного приложения — 10.09.2026
+
+Опубликована исправленная1.0.160/versionCode1016001, прежняя fleet-подпись. Исходник APK e0b737d864e86062e1e5c3fe2fdfb26e663130f8; GitHub release385949773/tag tv-v1.0.160. GitHub, Yandex update.json и S1 static update.json теперь выдают этот выпуск; waypoint107 сохранён. Исходная версия владельца157, затем на его телефон ставился кандидат160/1016000; последний1016001 пока не подтверждён установленным. Android требует штатного подтверждения установки.
+
+Владелец разрешил разумные адресные тесты и эмулятор на GitHub. Проверка завершена:32 адресных JVM и13 Android-сценариев в совокупности прошли; повторялись только затронутые проверки. Настоящие native screenshots просмотрены, включая OFF/STARTING/ON, IME, выбор приложений, QR/ссылки, оплату и русские настройки. На ноутбуке сборки/эмулятор/тесты не запускать. Для будущего GitHub-просмотра использовать native x86_64 из имеющегося AAR, не ARM-трансляцию. Не повторять завершённый набор без новой наблюдаемой ошибки или поручения.
+
+Согласованное оформление сохранять: резная шапка MaestroVPN, дерево/золото/изумруд, реалистичный глаз, орнамент по всей центральной панели. После входа виден логин с карандашом смены, до входа — «Ввести логин»; CDN/ГБ в одной строке. Не менять рабочие серверы/CDN, ботов, платежи, балансы и TV ради мобильной графики. Следующие действия — только по новым замечаниям владельца. Доказательства, файлы и откат в CONTEXT_HANDOFF.md.
+
+## Уточнение владельца от 09.09.2026 — актуальность контекста
+
+AGENTS.md и CONTEXT_HANDOFF.md должны оставаться актуальными. При существенном изменении разрешения, результата или блокера обновлять их в той же рабочей сессии. В handoff фиксировать наблюдаемый результат, незавершённый шаг и откат; в AGENTS — действующие правила. Исторические записи ниже не являются подтверждением текущего состояния сервера.
+
+Новые тесты и тестовый CI — только по явному указанию владельца. На компьютере сборки не запускать. Использовать кратчайшее достаточное решение без лишних wrapper, рефакторинга и повторных исследований. Уже полученное разрешение повторно не запрашивать.
+
+09.09.2026 владелец разрешил «применяй»: после исправления порядка final reports установлен controller 0cb9592392702c400d1f95d41fff37e987d7c8bc с досрочным обновлением readiness receipt за полное 60-секундное окно. Наблюдение 100 секунд подтвердило 7 продлений deadline, минимум 39,5 секунды и отсутствие ready/expired/finals; внутренний допуск больше не истекает. Владелец затем подтвердил, что CDN в клиенте на мобильной сети работает правильно. Обычная панель не перезапускалась, боты, база, front, server Xray, runtime.env и балансы сохранены. Исправление завершено; не повторять final-ordering и lease-renewal исследования без новой наблюдаемой ошибки. Подробности и откат в CONTEXT_HANDOFF.md.
+
+# Yandex CDN white-list task
+
+Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).
+
+Current execution contract (22.08.2026):
+
+- `codex/yandex-cdn-whitelist-task3-sync` is the sole canonical working/push
+  branch; one writer owns it. Alternate branches/worktrees are review-only and
+  must never become the handoff or push source.
+- The weak local Windows PC is used only for edits, repetition guard, narrow
+  Git/diff/static/unit checks. Heavy/full/race/vet/rqlite/Android APK validation
+  runs in GitHub Actions against the exact pushed SHA.
+- Immutable production Android/TV baseline: version `1.0.157`, tag
+  `tv-v1.0.157`, commit
+  `9653636863cb65cc2ac95545d953d9c5e06db8bb`, APK SHA-256
+  `0c51d1036c76b2d9a7347b59b9f967942159ec27738a2d6bcae099529695a148`.
+- The only next Android identity is test-only
+  `versionName 1.0.158-task7-test`, `versionCode 1015800`; it is never a
+  production tag/release/OTA.
+- After every completed top-level task, update `CONTEXT_HANDOFF.md` and the
+  redacted baseline manifest, verify them, commit, and push the canonical
+  branch so local and GitHub resolve to the same exact SHA.
+- Existing owner authorization covers non-production pushes and GitHub Actions
+  on the canonical branch only. Merge, tag, release/publish/signing, OTA,
+  production deploy/server/client/billing/cutover mutation require a new
+  explicit owner approval.
+
+Invariants: ordinary VPN is unchanged; White-List Entitlement defaults OFF and is additive; initial work is isolated; mandatory target is independently reconciled S1/S2/S3/S4 nodes; no production restart/update/migration/firewall/UUID/URI/client/OTA/real charging; no secrets in Git/logs/docs; WDTT/qWDTT/CSQTT/olcRTC are out of scope.
+
+Local checks: `python -m unittest scripts.tests.test_yandex_cdn_docs`; `python scripts/validate_yandex_cdn_docs.py`; `python scripts/render_redacted_baseline.py`.
+
+Stop gates: live inventory, backup/restore, sidecar deployment, CDN origin switch, production Xray/3x-ui/firewall/DB, real-client switch, charging, OTA, reboot, deletion, and push require explicit owner approval. Sensitive owner-supplied test context remains only in MASTER_REQUIREMENTS; derivative docs/logs must cite sections rather than repeat literals.
+
+---
+
 # MaestroVPN — точка входа для Codex и других агентов
 
 Перед любой работой в этом репозитории:
@@ -40,6 +97,64 @@ If a generated full-file transformation reports one anchor mismatch, do not tune
 [`ops/README.md`](ops/README.md). Если guard отсутствует, повреждён или сам
 возвращает блокировку, production- и внешние действия запрещены.
 
+### Атомарный барьер попытки
+
+`check` всегда выполняется отдельным вызовом инструмента или отдельной командой.
+Его запрещено объединять в одной shell-команде с изменением файлов, тестом,
+сетевым действием, `git add`, `commit` или `push`. Один успешный `check` разрешает
+ровно одно смысловое действие. Сразу после него нужно прочитать код выхода и
+вывод; последующая успешная команда не может маскировать предыдущий сбой.
+
+Если действие завершилось неожиданно, инструмент вернул ошибку или владелец
+указал, что способ неверен, следующим исполняемым действием обязан быть `fail`.
+До `fail` запрещены повтор, альтернативная команда, другой инструмент и новая
+мутация. Затем разрешены только безопасная диагностика, `correct`, отдельный
+`check` новой семьи и одна исправленная попытка. Переименование `action` не
+сбрасывает блокировку: одинаковая корневая причина считается тем же сбоем. При
+повторе корневой причины сначала обновить `AGENTS.md` и постоянный навык, и лишь
+потом возвращаться к реализации.
+
+Для изменений исходников действуют дополнительные триггеры:
+
+- создание или изменение patch-файла тоже считается мутацией;
+- после второго `context mismatch` для одной смысловой правки запрещены новые
+  ручные hunks. Считать фактический текущий файл, построить новый желаемый файл
+  вне worktree, получить generated diff из сравнения этих двух файлов, проверить
+  его отдельно и применить один раз;
+
+#### Bounded instruction bootstrap
+
+Apply the 200-line output bound to bootstrap and skill/reference reads too. Do not combine instruction files in one exec result. Bound output at the outer functions.exec layer as well as the nested command; after truncation, read only the missing portion of one file, never rerun the full combined read.
+
+#### Sandbox apply_patch ACL fallback
+
+If `apply_patch` returns `helper_unknown_error: apply deny-read ACLs` even for a verified writable external mirror, record `fail` and do not retry `apply_patch` or broaden permissions. Use one escalated exact-line structural generator only on the external `new/` mirror, require exactly one bounded match, inspect the changed region, generate a contextual old/new diff, then run separate `git apply --check` and one `git apply` against the canonical worktree. Never use this exception to shell-edit the canonical file directly.
+
+#### File discovery before content search
+
+For an unfamiliar file or directory, first run `rg --files` from a confirmed existing project root, optionally filtered by a filename glob. Pass only exact returned paths to content searches. A remembered or plausible name is a search term, not a verified path. If the expected directory is absent, return to its nearest confirmed parent and discover paths there; do not guess a sibling file.
+
+#### Python validator preflight
+
+After `ModuleNotFoundError`, check `importlib.util.find_spec` for the missing module in the exact candidate interpreter before retrying the full command. An alternate runtime is not evidence that the dependency exists. Use a verified isolated dependency directory when needed; on Windows run UTF-8 repository/skill validators with `python -X utf8`.
+
+#### Windows generated-patch path rule
+
+Never hand-author unified-diff hunk range counts. Build verified `old/` and `new/` mirror trees and let `git diff --no-index` calculate every range/count.
+After any `git apply --check` result containing `corrupt patch`, discard that artifact and generate a fresh diff from the mirrors; do not repair or tune hunk headers manually.
+
+If a generated patch is needed on Windows, never build it from absolute drive paths and then rewrite quoted `a/C:\...` headers. Create external `old/<repo-relative-path>` and `new/<repo-relative-path>` mirror trees; run `git diff --no-index --src-prefix=a/ --dst-prefix=b/ -- old/<repo-relative-path> new/<repo-relative-path>` from their common parent; inspect headers; then use `git apply --check --recount -p2 <patch>` before one `git apply --recount -p2 <patch>`. After one absolute-path normalization failure, record it and move to this method; do not tune quoting, slash conversion, prefix stripping, or header text.
+Before any `git apply` inside an external mirror, run `git rev-parse --show-toplevel`. If Git discovers an ancestor repository above the mirror, do not trust the process working directory: either set `GIT_CEILING_DIRECTORIES` to the verified mirror parent for both check and apply, or run from the discovered top-level with an explicit verified `--directory=<repo-relative-mirror-root>`. Immediately verify that the intended mirror file changed; exit code 0 without the expected bounded diff is a failed attempt.
+- для существующего исходника запрещены `--unidiff-zero` и hunks без устойчивого
+  контекста функции/типа;
+- после применения патча до staging показать целиком изменённую функцию или
+  ограниченный участок с обеими структурными границами, затем выполнить
+  `git diff --check` и профильную локальную проверку;
+- локально видимую структурную или синтаксическую ошибку запрещено отправлять в
+  GitHub «для проверки CI»;
+- mutation, validation, `git add`, `git commit` и `git push` — пять отдельных
+  смысловых действий, каждое со своим отдельным `check` и проверкой результата.
+
 Не выполнять рекурсивные обходы всего `C:\Users\User\Documents\Codex` на слабом
 компьютере владельца. Использовать уже зафиксированный список репозиториев и
 узкие `rg`/Git-проверки конкретного проекта; тяжёлые сборки выполнять в GitHub
@@ -50,6 +165,11 @@ Actions, если handoff не требует другого проверенн�
 `dash`/`sh -n` такой шаблон не править повторно: заменить условие простым
 предикатом через stdin и `grep -F`, затем отдельно проверить синтаксис в Linux
 GitHub Actions до запуска тестов.
+
+Большие текстовые файлы и широкие поисковые выборки читать не более чем по 200
+строк на один вывод либо одним приостанавливаемым потоковым процессом. После
+первого усечения вывода запрещено расширять лимит, объединять несколько файлов
+или повторять широкий поиск: перейти к одному файлу и блокам до 200 строк.
 
 Отвечать владельцу по-русски.
 
@@ -70,3 +190,49 @@ TV-геометрию и ветки `isTv`.
 шаг материально изменились, перед завершением обновить `CONTEXT_HANDOFF.md`.
 Если материально изменились production, серверы, боты, OTA или протоколы,
 обновить `CURRENT_PRODUCTION_HANDOFF.md` только обезличенными фактами.
+
+### PowerShell regex generation guard
+
+When a generated Python or PowerShell regex contains both quote types, use a single-quoted here-string as the whole-block template. Write it to an external new mirror, inspect it, and generate the patch from old/new mirrors; never embed that regex in a quoted PowerShell expression. Keep synthetic URL/token fixtures in named in-memory test data and keep owner-supplied endpoints or credentials out of derivative docs and secrecy scans.
+
+### PowerShell exact-line patch preflight guard
+
+For an exact-line presence/removal preflight used to generate a patch, do not use regex. Read the source as a line array and count every required line with literal case-sensitive equality (`Where-Object { $_ -ceq $literal }` or an explicit `foreach`), especially lines containing `$`, quotes, or backslashes; assert the exact count before any removal or insertion.
+
+### PowerShell exact-source transformation guard
+
+For an exact multiline source transformation, represent the input and output as
+explicit line arrays or as one single-quoted here-string, then serialize with
+`-join "`n"` and BOM-less UTF-8. A PowerShell single-quoted string treats
+backslashes literally: `\n` and `\r\n` are text, not line separators. Assert the
+exact match/replacement count, inspect the generated mirror, and only then build
+the old/new patch; after this root cause, do not tune another escaped fragment.
+
+For tab-prefixed exact-line checks, construct the tab as [char]9 (for example [string]::Concat([char]9, $literal)); never rely on backtick escapes inside single-quoted PowerShell strings.
+
+### Windows native rg glob guard
+
+On Windows PowerShell, never pass a wildcard path such as `path/*.go` to native
+`rg`: PowerShell does not expand it and `rg` receives a nonexistent literal
+path. Pass the verified directory as a path and use `-g '*.go'` or
+`--glob '*.go'`.
+
+### PowerShell exact-line array guard
+
+When a PowerShell array element is built by concatenating `[char]9` or another
+prefix with a literal, wrap every concatenation in parentheses or use
+`[string]::Concat`. An unparenthesized comma/`+` expression can split one
+intended line into multiple array elements. Assert the array count and exact
+element lengths before using it as a structural preflight.
+
+### PowerShell foreach pipeline guard
+
+Never pipe directly from a PowerShell `foreach (...) { ... }` statement; that grammar can produce `ParserError: An empty pipe element is not allowed`. Collect the loop output into an array variable first, then pipe that variable. After this parser error, do not tune braces or pipe placement.
+
+### Production adapter compatibility test guard
+
+A fake `Business`, handler, store, or port test cannot close a compatibility
+finding when the production adapter adds authorization, status, expiry, cache,
+or rendering gates. Closure requires the public boundary through the real
+production adapter and real migrations/storage (or an explicitly proven exact
+equivalent), with both positive and negative states asserted.

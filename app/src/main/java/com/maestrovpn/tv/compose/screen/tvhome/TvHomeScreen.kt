@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.compose.component.NeonAccountCard
+import com.maestrovpn.tv.compose.model.visibleActiveProtocol
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -84,6 +85,11 @@ fun TvHomeScreen(
     onShareIos: () -> Unit = {},
     onScanQr: () -> Unit = {},
     onEnterTrial: () -> Unit = {},
+    onOpenServers: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    phoneSection: String = "home",
+    onPhoneSectionChange: (String) -> Unit = {},
+    onRefreshServers: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -137,8 +143,7 @@ fun TvHomeScreen(
                     connectFocus = connectFocus,
                 )
             } else {
-                Mobile4DHome(
-                    statusText = statusText,
+                PhoneDashboard(
                     connected = connected,
                     connecting = connecting,
                     protocols = protocols,
@@ -148,17 +153,19 @@ fun TvHomeScreen(
                     daysLeft = daysLeft,
                     accountExpires = accountExpires,
                     hasSubProfile = hasSubProfile,
-                    hasOlcrtcCreds = hasOlcrtcCreds,
-                    olcrtcProvider = olcrtcProvider,
                     onToggleConnect = onToggleConnect,
                     onSelectProtocol = onSelectProtocol,
-                    onSelectOlcrtc = onSelectOlcrtc,
                     onBuy = onBuy,
                     onEnterCode = onEnterCode,
                     onSplitTunnel = onSplitTunnel,
                     onShareIos = onShareIos,
                     onScanQr = onScanQr,
                     onEnterTrial = onEnterTrial,
+                    onOpenServers = onOpenServers,
+                    onOpenSettings = onOpenSettings,
+                    entrySection = phoneSection,
+                    onSectionChange = onPhoneSectionChange,
+                    onRefreshServers = onRefreshServers,
                 )
             }
         }
@@ -201,7 +208,7 @@ internal fun PhoneStatusRow(
     // 1:1 к эталону owner: ОТКЛЮЧЕНО = красная точка + красный текст (было серебро/белый),
     // и строка протокола видна в ОБОИХ состояниях («Отключён: Vless-s3 • авто»).
     val stateRed = Color(0xFFFF4040)
-    val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
+    val protoMain = visibleActiveProtocol(activeProtocol, selected)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -251,7 +258,9 @@ internal fun protocolIcon(tag: String): ImageVector = when (tag) {
 }
 
 /** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */
-internal fun protocolLabel(tag: String): String = when (tag) {
+internal fun protocolLabel(tag: String): String = if (tag.startsWith("cdn:")) {
+    com.maestrovpn.tv.whitelist.WhiteListSelection.label(tag) ?: "CDN"
+} else when (tag) {
     "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
@@ -263,7 +272,7 @@ internal fun protocolLabel(tag: String): String = when (tag) {
 }
 
 /** Short recommendation badge under each protocol chip (unified style). */
-internal fun protocolBadge(tag: String): String = when (tag) {
+internal fun protocolBadge(tag: String): String = if (tag.startsWith("cdn:")) "При ограничениях" else when (tag) {
     "auto" -> "Рекомендуется"
     "vless", "vless-s3" -> "Оптимальный"
     "hysteria2" -> "Самый быстрый"

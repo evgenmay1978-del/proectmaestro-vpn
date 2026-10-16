@@ -10,7 +10,12 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
+import java.io.IOException
+import java.net.URL
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.HttpsURLConnection
 
 class HTTPClient : Closeable {
     companion object {
@@ -26,15 +31,22 @@ class HTTPClient : Closeable {
             userAgent += ")"
             userAgent
         }
+
+        /** Control-plane documents are a few KB; anything bigger is not ours. */
+        const val SUBSCRIPTION_LIMIT = 512 * 1024
     }
 
     private val client = Libbox.newHTTPClient()
+    private val closed = AtomicBoolean(false)
+    private val subscriptionConnection = AtomicReference<HttpsURLConnection?>()
 
     init {
         client.modernTLS()
     }
 
-    fun getString(url: String): String {
+    fun getString(url: String, timeoutMs: Long = 15_000): String {
+        val cdn = MaestroSub.cdnEndpoints(url)
+        if (cdn.isNotEmpty()) return getSubscriptionString(listOf(MaestroSub.CdnEndpoint(url)) + cdn, timeoutMs)
         val request = client.newRequest()
         request.setUserAgent(userAgent)
         request.setURL(url)
@@ -42,7 +54,54 @@ class HTTPClient : Closeable {
         return response.content.unwrap
     }
 
+    private fun getSubscriptionString(endpoints: List<MaestroSub.CdnEndpoint>, timeoutMs: Long): String {
+        var failure: IOException? = null
+        for (endpoint in endpoints) {
+            if (closed.get()) throw IOException("subscription request closed")
+            var request: HttpsURLConnection? = null
+            var status = 0
+            try {
+                if (endpoint.pinnedAddress != null) {
+                    val parsed = URL(endpoint.url)
+                    val path = parsed.path + (parsed.query?.let { "?$it" } ?: "")
+                    val response = CdnPinnedClient.get(parsed.host, endpoint.pinnedAddress, path, null,
+                        timeoutMs.coerceIn(1, Int.MAX_VALUE.toLong()).toInt(), SUBSCRIPTION_LIMIT)
+                        ?: throw IOException("subscription edge unreachable")
+                    status = response.status
+                    if (status != 200) throw IOException("subscription HTTP $status")
+                    return response.body
+                }
+                val connection = URL(endpoint.url).openConnection() as HttpsURLConnection
+                request = connection
+                subscriptionConnection.set(connection)
+                if (closed.get()) throw IOException("subscription request closed")
+                connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = false
+                connection.useCaches = false
+                connection.connectTimeout = timeoutMs.coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+                connection.readTimeout = connection.connectTimeout
+                connection.setRequestProperty("User-Agent", userAgent)
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("Cache-Control", "no-store")
+                status = connection.responseCode
+                if (status != 200) throw IOException("subscription HTTP $status")
+                return connection.inputStream.bufferedReader().use { it.readText() }
+            } catch (error: IOException) {
+                failure = error
+                if (endpoint === endpoints.last() || closed.get() ||
+                    (status != 0 && status != -1 && status != 200 && status !in 500..599)
+                ) throw error
+            } finally {
+                subscriptionConnection.compareAndSet(request, null)
+                request?.disconnect()
+            }
+        }
+        throw failure ?: IOException("subscription unavailable")
+    }
+
     override fun close() {
+        closed.set(true)
+        subscriptionConnection.getAndSet(null)?.disconnect()
         client.close()
     }
 }
@@ -68,13 +127,14 @@ suspend fun httpGetStringTimed(url: String, timeoutMs: Long = 15_000): String? {
     val client = HTTPClient()
     GlobalScope.launch(Dispatchers.IO) {
         try {
-            result.complete(client.getString(url))
+            result.complete(client.getString(url, timeoutMs))
         } catch (t: Throwable) {
             result.complete(null)
         }
     }
     return try {
-        withTimeoutOrNull(timeoutMs) { result.await() }
+        val waitMs = if (MaestroSub.cdnFallbackUrl(url) != null) timeoutMs * 2 else timeoutMs
+        withTimeoutOrNull(waitMs) { result.await() }
     } finally {
         runCatching { client.close() }
     }

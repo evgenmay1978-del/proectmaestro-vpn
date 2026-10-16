@@ -296,14 +296,8 @@ private fun Mobile4DSceneAndHero(
                     }
                 },
         ) {
-            LivingEyeMedallion(
+            MonogramMedallion(
                 connected = connected,
-                touchGaze = touchGaze,
-                opennessOverride = when (eyeState) {
-                    Mobile4DEyeState.Disconnected -> 0f
-                    Mobile4DEyeState.Connecting -> 0.5f
-                    Mobile4DEyeState.Connected -> null
-                },
                 modifier = Modifier.fillMaxSize(),
             )
             Button(

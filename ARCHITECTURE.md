@@ -10,9 +10,11 @@
 > **Живое состояние одной командой:** `sh /root/maestrotv-ops/orient.sh`.
 > **Статус задач:** `memory/OPEN.md`.
 >
-> Сверка 2026-08-02: узлов ЧЕТЫРЕ (S1 194.48.141.106 NL, S2 85.137.166.237 CZ,
-> S3 46.30.42.151 NL, S4 89.125.19.95 NL). VLESS-Reality отдают ТОЛЬКО S1, S3 и S4.
-> Клиентов в витрине панели 71. Подписка отдаёт 6 outbounds + 1 endpoint (awg).
+> **Авторитетный S1 checkpoint владельца (29.08.2026):** единственный актуальный
+> S1 — `193.17.183.48` (`ubuntu24`, SSH host key
+> `SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`). Сверка 2026-08-02,
+> клиентские числа и прежние topology notes ниже — исторический snapshot, а не
+> команда для обращения к старому узлу.
 
 Own-brand **Android TV** VPN client. Headline feature: **the client never touches
 keys** — the app fetches its config from the backend and auto-updates when the
@@ -25,7 +27,7 @@ key rotates. Built so a non-technical customer needs to do nothing after install
   Base: fork/adapt **sing-box-for-android (sfa)** — native Kotlin, already has
   auto-updating *remote profiles* (= the auto-key mechanism), TV-adaptable.
 - **Backends (both, with failover):**
-  - Server 1 — THIS box `194.48.141.106` (NL): **3x-ui** (Xray VLESS/Reality).
+  - Server 1 — current box `193.17.183.48` (`ubuntu24`): **3x-ui** (Xray VLESS/Reality).
     Has subscription-URL support → the natural auto-key source.
   - Server 2 — `85.137.166.237`: **NaiveProxy**, ⚠️ has existing production users —
     touch carefully, never disrupt them.
@@ -57,7 +59,7 @@ Android TV app (first run) ── stores sub URL ──► polls it (e.g. every 
         │                                              │
         ▼                                              ▼
  sing-box core (urltest selector)            config updated → key rotation transparent
-   ├── server1 VLESS/Reality (194.48.141.106)
+   ├── server1 VLESS/Reality (193.17.183.48)
    └── server2 VLESS/Reality (85.137.166.237, added alongside naive)   ← ⛔ НЕ СДЕЛАНО, см. выше
        (фактически: S3 46.30.42.151 и S4 89.125.19.95 — оба VLESS/Reality :443)
         │
@@ -109,7 +111,11 @@ sing-box covers BOTH servers with NO second client:
 - Provisioning: the rixxx-panel API issues server-2 creds; 3x-ui issues server-1
   configs. A thin per-customer "subscription" combines both for the app.
 
-## Server 1 study (194.48.141.106, wapmixx.ru) — 2026-06-14
+## Historical Server 1 study (old S1 `194.48.141.106`, `wapmixx.ru`) — 2026-06-14
+
+> **Superseded 29.08.2026:** this evidence describes the permanently retired
+> predecessor only. It is not an operational target; use the owner-authoritative
+> S1 checkpoint above for every current or future action.
 
 - **3x-ui v3.3.0.** VLESS inbounds: `:443` ("moy2") + `:8443` ("VLESS STABIL").
   ⚠️ Замер 14.06 был 133 и 7 клиентов. Пересчёт 2026-08-02: **69 и 2**. Цифры в этом файле

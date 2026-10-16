@@ -83,6 +83,7 @@ fun MobilePremiumButton(
             color = PremiumText,
             fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,
+            lineHeight = 20.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -135,6 +136,7 @@ fun MobilePremiumTextField(
                         text = placeholder,
                         color = PremiumTextMuted,
                         fontSize = 16.sp,
+                        lineHeight = 22.sp,
                     )
                 }
                 innerTextField()
@@ -223,14 +225,7 @@ fun MobilePremiumSegmented(
                 modifier = Modifier
                     .weight(1f)
                     .defaultMinSize(minHeight = PremiumTouchTarget)
-                    .background(
-                        color = if (selected) {
-                            PremiumEmerald.copy(alpha = 0.20f)
-                        } else {
-                            PremiumWalnut.copy(alpha = 0.28f)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                    )
+                    .approvedMobilePanel(selected = selected)
                     .selectable(
                         selected = selected,
                         role = Role.RadioButton,
@@ -243,6 +238,8 @@ fun MobilePremiumSegmented(
                     text = label,
                     color = if (selected) PremiumText else PremiumTextMuted,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -264,14 +261,7 @@ fun MobilePremiumAppRow(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = PremiumTouchTarget)
-            .background(
-                color = if (selected) {
-                    PremiumEmerald.copy(alpha = 0.13f)
-                } else {
-                    PremiumLeather.copy(alpha = 0.72f)
-                },
-                shape = RoundedCornerShape(PremiumPanelCorner),
-            )
+            .approvedMobilePanel(selected = selected)
             .toggleable(
                 value = selected,
                 role = Role.Checkbox,
@@ -344,14 +334,7 @@ fun MobilePremiumSettingRow(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = PremiumTouchTarget)
-            .background(
-                color = if (selected) {
-                    PremiumEmerald.copy(alpha = 0.13f)
-                } else {
-                    PremiumLeather.copy(alpha = 0.72f)
-                },
-                shape = RoundedCornerShape(PremiumPanelCorner),
-            )
+            .approvedMobilePanel(selected = selected)
             .then(clickModifier)
             .alpha(if (enabled) 1f else 0.46f)
             .padding(horizontal = 14.dp, vertical = 10.dp),

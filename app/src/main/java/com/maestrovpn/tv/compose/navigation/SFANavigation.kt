@@ -1,7 +1,6 @@
 package com.maestrovpn.tv.compose.navigation
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,11 +14,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.maestrovpn.tv.bg.OlcrtcManager
-import com.maestrovpn.tv.bg.WdttManager
-import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.model.isProtocolSelectionAllowed
+import com.maestrovpn.tv.compose.model.isProtocolVisibleInUi
+import com.maestrovpn.tv.compose.model.visibleProtocolTags
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -91,18 +89,16 @@ fun SFANavHost(
         modifier = modifier,
     ) {
         composable(Screen.TvHome.route) {
+            val homeState = it.savedStateHandle
+            val phoneSection by homeState.getStateFlow("phone_section", "home").collectAsState()
             val tvStatusText = when (serviceStatus) {
                 Status.Starting -> "Подключение…"
                 Status.Started -> "Подключено"
                 else -> "Отключено"
             }
             val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
-            val isTv = rememberIsTv()
             // login + days-left for the active subscription (refetched on connect change)
-            val accountInfo by rememberAccountInfo(
-                refreshKey = connected,
-                preserveVerifiedIdentityOnOutage = !isTv,
-            )
+            val accountInfo by rememberAccountInfo(connected)
             // ⛔ Expiry gate (owner: «при истёкшей подписке открывать экран оплаты»). When the
             // subscription has EXPIRED, greet the user with the payment screen instead of home.
             // Keyed on days_left and acts ONLY on an explicit value — NEVER on null (loading /
@@ -126,12 +122,17 @@ fun SFANavHost(
             if (showIosQr) {
                 IosKaringDialog(onDismiss = { showIosQr = false })
             }
+            val phoneLoginEditor = !com.maestrovpn.tv.compose.rememberIsTv()
+            fun openLogin() {
+                navController.navigate("claim")
+                if (phoneLoginEditor) navController.getBackStackEntry("claim").savedStateHandle["account_login"] = accountInfo.login
+            }
             if (groupsViewModel != null) {
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
                 val selectGroup = groupsUi.groups.firstOrNull { it.tag == "select" }
-                    ?: groupsUi.groups.firstOrNull { it.selectable }
+                    ?: groupsUi.groups.firstOrNull { it.selectable && isProtocolVisibleInUi(it.tag) }
                 // Resolve the protocol ACTUALLY carrying traffic: follow the
                 // selector → urltest → … → leaf chain. With "auto", the urltest
                 // group's `selected` is the live lowest-latency pick, so this
@@ -142,26 +143,23 @@ fun SFANavHost(
                     val g = groupsUi.groups.firstOrNull { it.tag == activeProtocol } ?: break
                     activeProtocol = g.selected
                 }
-                val olcCtx = LocalContext.current
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
                     connecting = serviceStatus == Status.Starting,
-                    protocols = selectGroup?.items?.map { it.tag }
-                        ?.filterNot { isTv && it == WdttManager.OUTBOUND_TAG } ?: emptyList(),
-                    selected = selectGroup?.selected,
-                    activeProtocol = activeProtocol,
+                    // Each home filters before its fallback so a hidden-only profile stays empty.
+                    protocols = (visibleProtocolTags(selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
+                    selected = groupsUi.cdnSelected ?: selectGroup?.selected?.takeUnless { it.startsWith("cdn:") && groupsUi.cdnActive != it },
+                    activeProtocol = groupsUi.cdnActive ?: activeProtocol?.takeUnless { it.startsWith("cdn:") },
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
                     accountExpires = accountInfo.expiresDate,
                     hasSubProfile = accountInfo.hasSubProfile,
-                    // olcRTC teaser: the entry is shown to everyone, but only owner logins
-                    // (creds delivered via /info) can actually use it; hasCreds() gates the lock.
-                    hasOlcrtcCreds = OlcrtcManager.hasCreds(),
-                    olcrtcProvider = OlcrtcManager.provider(),
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag ->
-                        selectGroup?.let { g ->
+                        if (tag.startsWith("cdn:")) {
+                            if (groupsViewModel.selectCdn(tag) && serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
+                        } else selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
                             if (serviceStatus == Status.Started) {
                                 // VPN already up — just switch the live protocol.
                                 groupsViewModel.selectGroupItem(g.tag, tag)
@@ -175,15 +173,17 @@ fun SFANavHost(
                             }
                         }
                     },
-                    onSelectOlcrtc = {
-                        Toast.makeText(olcCtx, "olcRTC — по запросу у поддержки (@wapmixx)", Toast.LENGTH_LONG).show()
-                    },
                     onBuy = { navController.navigate("buy") },
-                    onEnterCode = { navController.navigate("claim") },
+                    onEnterCode = { openLogin() },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
+                    onOpenServers = { navController.navigate(Screen.Groups.route) },
+                    onOpenSettings = { navController.navigate("settings") },
+                    phoneSection = phoneSection,
+                    onPhoneSectionChange = { homeState["phone_section"] = it },
+                    onRefreshServers = { groupsViewModel.refreshCdnMenu() },
                 )
             } else {
                 TvHomeScreen(
@@ -199,11 +199,15 @@ fun SFANavHost(
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = {},
                     onBuy = { navController.navigate("buy") },
-                    onEnterCode = { navController.navigate("claim") },
+                    onEnterCode = { openLogin() },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
+                    onOpenServers = { navController.navigate(Screen.Groups.route) },
+                    onOpenSettings = { navController.navigate("settings") },
+                    phoneSection = phoneSection,
+                    onPhoneSectionChange = { homeState["phone_section"] = it },
                 )
             }
         }
@@ -213,7 +217,7 @@ fun SFANavHost(
             enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
             popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
         ) {
-            ClaimScreen(onDone = { navController.popBackStack() })
+            ClaimScreen(onDone = { navController.popBackStack() }, currentLogin = it.savedStateHandle.get<String>("account_login"))
         }
 
         composable(
@@ -247,9 +251,10 @@ fun SFANavHost(
         ) {
             // Per-app split tunnel (donor screen). On exit, enable split only when
             // the user actually picked apps; an empty list means "all apps via VPN".
+            val tvSplit = com.maestrovpn.tv.compose.rememberIsTv()
             PerAppProxyScreen(
                 onBack = {
-                    Settings.perAppProxyEnabled = Settings.perAppProxyList.isNotEmpty()
+                    if (tvSplit) Settings.perAppProxyEnabled = Settings.perAppProxyList.isNotEmpty()
                     navController.popBackStack()
                 },
                 serviceStatus = serviceStatus,

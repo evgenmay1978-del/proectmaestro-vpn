@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,6 +77,9 @@ fun MobilePremium4DShell(
                 .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            ApprovedMobileBrand(Modifier.widthIn(max = maximumContentWidth).fillMaxWidth()
+                .padding(horizontal = horizontalPadding).height(62.dp))
+            Spacer(Modifier.height(8.dp))
             MobilePremiumTopBar(
                 title = title,
                 onBack = onBack,
@@ -108,10 +112,11 @@ fun MobilePremiumTopBar(
     compact: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val titleSize = if (compact) 25.sp else 30.sp
+    val titleSize = if (compact) 18.sp else 20.sp
     Row(
         modifier = modifier
-            .defaultMinSize(minHeight = if (compact) 56.dp else 64.dp)
+            .approvedMobilePanel()
+            .defaultMinSize(minHeight = 52.dp)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -132,9 +137,9 @@ fun MobilePremiumTopBar(
             text = title,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 4.dp),
             color = PremiumGold,
-            fontFamily = PlayfairFamily,
+            fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.SemiBold,
             fontSize = titleSize,
             lineHeight = (titleSize.value + 5).sp,
@@ -162,10 +167,10 @@ fun MobilePremiumDialogSurface(
         Text(
             text = title,
             color = PremiumGold,
-            fontFamily = PlayfairFamily,
+            fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 24.sp,
-            lineHeight = 29.sp,
+            fontSize = 20.sp,
+            lineHeight = 25.sp,
         )
         Spacer(Modifier.height(16.dp))
         Column(
@@ -193,42 +198,5 @@ fun MobilePremiumSheetSurface(
 
 @Composable
 private fun MobilePremium4DBackground(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .testTag("premium-mobile-shell-background")
-            .background(PremiumWalnut)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(PremiumLeather, PremiumWalnut, PremiumShellShadow),
-                    ),
-                )
-                val lightX = size.width * 0.5f
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            PremiumGold.copy(alpha = 0.10f),
-                            Color.Transparent,
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(lightX, size.height * 0.18f),
-                        radius = size.maxDimension * 0.64f,
-                    ),
-                    center = androidx.compose.ui.geometry.Offset(lightX, size.height * 0.18f),
-                    radius = size.maxDimension * 0.64f,
-                )
-            },
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(4.dp)
-                .fantasyFrame(R.drawable.frame_panel)
-                .alpha(PremiumShellFrameAlpha),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = PremiumShellReadabilityScrimAlpha)),
-        )
-    }
+    ApprovedMobileBackground(modifier.testTag("premium-mobile-shell-background"))
 }
