@@ -518,12 +518,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         runCatching {
             val selectGroup = newGroups.firstOrNull { it.tag == "select" }
             if (selectGroup != null) {
-                val signature = selectGroup.selected + "|" + selectGroup.items.joinToString(",") { it.tag }
+                val signature = selectGroup.selected + "|" + selectGroup.items.size
                 if (signature != diagLastSelect) {
                     diagLastSelect = signature
                     diagSelect(
-                        "core-select selected=" + selectGroup.selected +
-                            " items=" + selectGroup.items.joinToString(",") { it.tag },
+                        "core-select selected=" + selectGroup.selected + " items=" + selectGroup.items.size,
                     )
                 }
             }
