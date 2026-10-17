@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,7 +78,9 @@ fun FantasyDialog(
                 .background(Color.Black.copy(alpha = 0.86f))
                 .then(
                     if (dismissOnClickOutside) {
-                        Modifier.clickable(
+                        // Затемнение закрывает окно только касанием: фокус пульта на него не попадает,
+                        // иначе «OK» на ТВ закрывал диалог вместо нажатия его кнопки.
+                        Modifier.focusProperties { canFocus = false }.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                         ) { onDismiss() }

@@ -15,7 +15,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -26,6 +29,7 @@ import dev.jeziellago.compose.markdowntext.MarkdownText
 import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
+import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -64,6 +68,17 @@ fun UpdateAvailableDialog(
         onHide()
     }
 
+    // ТВ: без явного фокуса пульт попадал на затемнение вокруг окна, и «OK» закрывал окно вместо
+    // обновления (жалоба владельца 18.10; телеметрия: «Установка отменена пользователем»).
+    val isTv = rememberIsTv()
+    val updateFocus = remember { FocusRequester() }
+    if (isTv) {
+        LaunchedEffect(updateInfo.versionCode) {
+            kotlinx.coroutines.delay(150) // окно диалога должно прикрепиться к дереву фокуса
+            runCatching { updateFocus.requestFocus() }
+        }
+    }
+
     // ── Dark-Fantasy modal (phone + TV) ──
     FantasyDialog(onDismiss = onHide, title = stringResource(R.string.check_update)) {
         Text(
@@ -86,7 +101,7 @@ fun UpdateAvailableDialog(
             onClick = onUpdate,
             accent = NeonGreen,
             wood = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(updateFocus),
         )
         Spacer(Modifier.height(6.dp))
         Row(
