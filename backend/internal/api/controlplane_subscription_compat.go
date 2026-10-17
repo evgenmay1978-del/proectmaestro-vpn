@@ -69,7 +69,7 @@ func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topo
 	}
 	// Match the legacy HTTP handler for links, old/non-app clients, and normal
 	// requests. A saved WG tuple alone never enables an incompatible engine.
-	if configured.WG != nil && appVersionCode(options.UserAgent) < awgMinVC {
+	if configured.WG != nil && !awgAllowed(options.UserAgent) {
 		configured.WG = nil
 	}
 	if options.ClientRequest {
