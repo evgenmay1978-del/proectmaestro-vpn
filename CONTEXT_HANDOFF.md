@@ -24,6 +24,15 @@
 - Имя VPN-сессии и запасной заголовок уведомления: `sing-box` → `MaestroVPN`.
 - Настройки: убран раздел «О программе» апстрима (доки sing-box, исходники SagerNet, спонсоры sekai.icu).
 
+- Телефон: «Telegram-бот» и «Поддержка» открывают `tg://resolve?domain=…` (fallback `https://t.me/…`) —
+  голая https-ссылка на Android 12+ уходила в браузер вместо Telegram (жалоба владельца 17.10).
+- Иконка: новый генератор `ops/launcher-icons.py` (мастер `docs/design/maestrovpn-mv-logo-reference-2026-07-13.jpg`):
+  вензель вписан в safe zone adaptive-иконки (радиус 0.29 при допуске 0.3056 — маски круг/капля/сквиркл не
+  режут засечки), добавлен `<monochrome>` для тематических иконок Android 13+, legacy ic_launcher/round —
+  скруглённый квадрат/круг с вензелем внутри, ic_stat_fox/ic_qs_spider — сплошной белый силуэт.
+  TV-баннер не тронут. Старый `ops/icon-pipeline.py` НЕ запускать: он перезаписывает tv_banner в .png рядом с
+  существующим `drawable-xxhdpi/tv_banner.webp` (дубликат ресурса) и ставит вензель вне safe zone.
+
 Вычищено (только без ссылок из живого кода; история в Git):
 - 4D-Home телефона: `Mobile4DHome/BitmapLoader/GeneratedAssets/SceneModel/Tilt`, `PhoneHomeControlDeck`,
   `PhoneHomeReferenceLayout` — нигде не вызывались (Home телефона = `PhoneDashboard`), + их тесты;
