@@ -114,6 +114,11 @@ func (s *Server) handleOrderPaidClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Отметка «клиент заявил оплату» выводит заказ из суточной чистки брошенных счетов.
+	// Сбой записи не мешает уведомлению владельца — заказ просто остаётся как раньше.
+	if claimed, err := s.orders.MarkPaidClaimed(o.ID); err == nil {
+		o = claimed
+	}
 	text := fmt.Sprintf("💳 Оплата подписки\nТариф: %s · %d ₽\nКод платежа: %s\nЗаказ: %s\n\nКлиент нажал «Я оплатил». Проверьте поступление по СБП и подтвердите.",
 		o.Tariff, o.Rub, o.Code, o.ID)
 	_ = s.tg.NotifyOrder(s.cfg.TGAdminID, text, o.ID)

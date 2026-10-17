@@ -19,9 +19,6 @@ def package(name, target, crop=False, size=None):
 
 def main():
     package('home_wood_c.png', 'phone_home_wood.png', size=(720, 1560))
-    package('home_frame_c.png', 'phone_home_frame.png', size=(720, 1560))
-    package('home_cartouche_c.png', 'phone_home_title.png', crop=True, size=(900, 180))
-    package('home_ring_c.png', 'phone_home_ring.png', crop=True, size=(900, 900))
     photo = Image.open(ROOT / 'design/mobile-4d-references/11-natural-emerald-eye-2026-09-09.png').convert('RGBA').resize((720, 720), Image.Resampling.LANCZOS)
     photo.save(OUT / 'phone_eye_photo.png')
     # The same two cubic arcs used by LivingEyeReferenceGeometry, at 2x resolution.

@@ -101,8 +101,9 @@ internal fun PhoneDashboard(
     }
     val balanceText = phoneCdnBalanceText(hasSubProfile, wallet)
     fun openBot() {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/MaestroSecureVPN_bot"))) }
-            .onFailure { Toast.makeText(context, "Не удалось открыть Telegram", Toast.LENGTH_SHORT).show() }
+        if (!context.openTelegramChat("MaestroSecureVPN_bot")) {
+            Toast.makeText(context, "Не удалось открыть Telegram", Toast.LENGTH_SHORT).show()
+        }
     }
     fun refreshAccount() { refresh++; onRefreshServers() }
     val server = phoneServer(actual, actual?.let { cdnView.labels[it] })
@@ -281,8 +282,9 @@ internal fun PhoneDashboard(
                             Text("Поддержка", color = PremiumGold, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
                             PhoneSettingsRow("Telegram-бот", null, Icons.Default.Send, { openBot() })
                             PhoneSettingsRow("Поддержка", null, Icons.Default.SupportAgent, {
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/wapmixx"))) }
-                                    .onFailure { Toast.makeText(context, "Не удалось открыть поддержку", Toast.LENGTH_SHORT).show() }
+                                if (!context.openTelegramChat("wapmixx")) {
+                                    Toast.makeText(context, "Не удалось открыть поддержку", Toast.LENGTH_SHORT).show()
+                                }
                             })
                             PhoneSettingsRow("Обновление приложения", "Проверить обновление", Icons.Default.SystemUpdate, { navigate("update") })
                         }
@@ -362,6 +364,22 @@ internal fun phoneServerTitle(tag: String?, runtimeLabel: String?): Pair<String,
     phoneServer(tag, runtimeLabel).let { it.name to it.detail }
 
 /** Service roles match backend/internal/api/legacy_subscription_labels.go; unknown tags stay literal. */
+/**
+ * Opens a Telegram chat. `https://t.me/<name>` alone often lands in the browser instead of the
+ * app (Android 12+ opens an https link in an app only when the app's link is verified), and t.me
+ * in a Russian browser is unreliable — so «Telegram-бот» did nothing useful. `tg://resolve` goes
+ * straight to any installed Telegram client; the web link stays as the fallback.
+ */
+private fun android.content.Context.openTelegramChat(username: String): Boolean {
+    val uris = listOf("tg://resolve?domain=$username", "https://t.me/$username")
+    for (uri in uris) {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+        if (this !is android.app.Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { startActivity(intent) }.isSuccess) return true
+    }
+    return false
+}
+
 private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
     if (runtimeLabel == null && tag?.trim()?.lowercase() == "awg") {
         return PhoneServer("", AWG_SERVER_NAME, AWG_SERVER_DETAIL, Icons.Default.VpnLock)

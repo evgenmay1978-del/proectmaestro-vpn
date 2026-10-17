@@ -64,7 +64,14 @@ type Order struct {
 	// Hy2), заказ оставался pending — и повторное подтверждение начисляло дни ВТОРОЙ раз.
 	// omitempty: в уже существующих orders.json поля нет, отсутствие читается как false.
 	Credited bool `json:"credited,omitempty"`
+	// PaidClaimedAt — клиент нажал «Я оплатил». Такой заказ ждёт ручной проверки СБП и НЕ
+	// считается брошенным: суточная чистка его не трогает (иначе приложение, опрашивающее
+	// /order/<id>, получало 404 на оплаченный счёт — случай 16.10.2026). nil = не заявлено.
+	PaidClaimedAt *time.Time `json:"paid_claimed_at,omitempty"`
 }
+
+// claimedOrderMaxAge bounds how long a claimed-but-never-confirmed order is kept.
+const claimedOrderMaxAge = 30 * 24 * time.Hour
 
 // Store is a JSON-file-backed order registry, safe for concurrent use.
 type Store struct {
@@ -200,11 +207,41 @@ func (s *Store) Cancel(id string) error {
 	return s.flush()
 }
 
-// purgeStaleLocked drops pending orders older than maxAge. Caller holds the lock.
+// MarkPaidClaimed records that the customer pressed «Я оплатил». Idempotent: the first
+// claim time is kept.
+func (s *Store) MarkPaidClaimed(id string) (*Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, ok := s.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if o.PaidClaimedAt != nil {
+		return o, nil
+	}
+	now := time.Now()
+	o.PaidClaimedAt = &now
+	return o, s.flush()
+}
+
+// purgeStaleLocked drops abandoned pending orders older than maxAge. An order whose payment
+// the customer already claimed waits for the owner's check and is kept up to
+// claimedOrderMaxAge. Caller holds the lock.
 func (s *Store) purgeStaleLocked(maxAge time.Duration) {
-	cutoff := time.Now().Add(-maxAge)
+	now := time.Now()
+	cutoff := now.Add(-maxAge)
+	claimedCutoff := now.Add(-claimedOrderMaxAge)
 	for id, o := range s.byID {
-		if o.Status == "pending" && o.CreatedAt.Before(cutoff) {
+		if o.Status != "pending" {
+			continue
+		}
+		if o.PaidClaimedAt != nil {
+			if o.CreatedAt.Before(claimedCutoff) {
+				delete(s.byID, id)
+			}
+			continue
+		}
+		if o.CreatedAt.Before(cutoff) {
 			delete(s.byID, id)
 		}
 	}
