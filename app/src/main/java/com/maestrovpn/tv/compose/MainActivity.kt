@@ -667,7 +667,11 @@ class MainActivity :
         val updateInfo by UpdateState.updateInfo
         val promptRequest by UpdateState.promptRequest
         val coordinatorAttempt by UpdateState.activeAttempt
-        val promptSession = remember { UpdatePromptSession() }
+        // Новая сессия подсказок при каждом возвращении в приложение после проверки обновлений:
+        // закрытое (не «Отмена») предложение показывается снова. Раньше версия глушилась до
+        // пересоздания экрана, а на ТВ он живёт неделями — окно «не всегда выскакивало».
+        val promptEpoch by updatePromptEpoch
+        val promptSession = remember(promptEpoch) { UpdatePromptSession() }
         var activeUpdateOffer by remember { mutableStateOf<UpdatePromptOffer?>(null) }
 
         // Download dialog state
@@ -677,7 +681,7 @@ class MainActivity :
         var activeUpdateAttempt by remember { mutableStateOf<UpdateAttempt?>(null) }
         var activeCancellationGate by remember { mutableStateOf<UpdateAttemptCancellationGate?>(null) }
 
-        LaunchedEffect(updateInfo, promptRequest?.sequence, coordinatorAttempt?.id, showDownloadDialog) {
+        LaunchedEffect(updateInfo, promptRequest?.sequence, coordinatorAttempt?.id, showDownloadDialog, promptSession) {
             if (!showDownloadDialog) {
                 activeUpdateOffer = promptSession.nextOffer(
                     candidate = updateInfo,
@@ -1510,6 +1514,7 @@ class MainActivity :
     }
 
     private var lastUpdateCheckMs = 0L
+    private val updatePromptEpoch = androidx.compose.runtime.mutableIntStateOf(0)
     private var lastSubRefreshMs = 0L
 
     override fun onResume() {
@@ -1544,6 +1549,7 @@ class MainActivity :
             lastUpdateCheckMs = System.currentTimeMillis()
             lifecycleScope.launch(Dispatchers.IO) {
                 UpdateState.applyUpdateCheckResult(runCatching { Vendor.checkUpdateAsync() })
+                withContext(Dispatchers.Main) { updatePromptEpoch.intValue++ }
             }
         }
         // Force a fresh /sub pull on foreground (bypasses the 15-min periodic floor) so an

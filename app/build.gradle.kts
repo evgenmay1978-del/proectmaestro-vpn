@@ -186,7 +186,11 @@ android {
             }
         }
         release {
-            isMinifyEnabled = true
+            // R8 ВЫКЛЮЧЕН (18.10.2026): в R8-релизах 1.0.169–1.0.171 AWG поднимал туннель
+            // (рукопожатие с S4 есть), но трафик не шёл — «подключено, интернета нет»; та же
+            // кодовая база без минификации (тестовые сборки, флот ≤1.0.168) работает. Пока точная
+            // причина в keep-правилах не найдена, релиз собирается как проверенная тестовая сборка.
+            isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
             vcsInfo.include = false
