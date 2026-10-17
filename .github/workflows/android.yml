@@ -45,8 +45,8 @@ jobs:
           # Версия задаётся явно: номер запуска и список релизов дают то занятый тег (tv-v1.0.167),
           # то старый номер. versionCode держим выше тестовой сборки 1016567 — иначе встроенный
           # апдейтер не увидит обновление. Следующий релиз: поднять обе цифры на 1.
-          VN="1.0.169"
-          VC="1016900"
+          VN="1.0.170"
+          VC="1017000"
           sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
           sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
           echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
@@ -210,6 +210,56 @@ jobs:
           done
           echo "::error::gradle build failed after retries" >&2
           exit 1
+
+      # Гейт против повтора 1.0.169: релиз уехал флоту без libmaestro_xhttp.so, и CDN
+      # отвечал «подключение недоступно». Наличие ОДНОГО файла мало — снятая c-shared
+      # сборка тоже .so, но exec даёт EACCES, поэтому проверяем, что это PIE-исполняемый
+      # (ET_DYN + PT_INTERP). Сборка падает ДО публикации, а не после выката.
+      - name: Verify CDN child-process binary inside the release APK
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/other/release/*.apk | head -1)
+          echo "APK: $APK"
+          python3 - "$APK" <<'PY'
+          import struct
+          import sys
+          import zipfile
+
+          expected = ('arm64-v8a', 'armeabi-v7a')
+          zf = zipfile.ZipFile(sys.argv[1])
+          names = set(zf.namelist())
+          failures = []
+
+          for abi in expected:
+              name = 'lib/%s/libmaestro_xhttp.so' % abi
+              if name not in names:
+                  failures.append(name + ': отсутствует в APK')
+                  continue
+              data = zf.read(name)
+              bits = data[4]
+              endian = '<' if data[5] == 1 else '>'
+              e_type = struct.unpack_from(endian + 'H', data, 16)[0]
+              if bits == 2:
+                  phoff, = struct.unpack_from(endian + 'Q', data, 0x20)
+                  phentsize, phnum = struct.unpack_from(endian + 'HH', data, 0x36)
+              else:
+                  phoff, = struct.unpack_from(endian + 'I', data, 0x1C)
+                  phentsize, phnum = struct.unpack_from(endian + 'HH', data, 0x2A)
+              has_interp = any(
+                  struct.unpack_from(endian + 'I', data, phoff + i * phentsize)[0] == 3
+                  for i in range(phnum)
+              )
+              ok = e_type == 3 and has_interp     # ET_DYN + PT_INTERP = PIE-исполняемый
+              print('%s: %d bytes, e_type=%d, PT_INTERP=%s -> %s'
+                    % (name, len(data), e_type, has_interp, 'OK' if ok else 'BAD'))
+              if not ok:
+                  failures.append('%s: не PIE-исполняемый (e_type=%d, PT_INTERP=%s)'
+                                  % (name, e_type, has_interp))
+
+          if failures:
+              raise SystemExit('CDN-бинарь непригоден: ' + '; '.join(failures))
+          print('CDN child-process binary present and executable for both ABIs')
+          PY
 
       # Резервная копия APK в артефактах — УДОБСТВО, а не источник релиза: шаг ниже берёт файл
       # прямо с диска раннера (`ls app/build/outputs/.../*.apk`). Поэтому выгрузка НЕ должна
