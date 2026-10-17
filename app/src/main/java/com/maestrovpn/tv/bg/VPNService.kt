@@ -67,7 +67,7 @@ class VPNService :
 
         val builder =
             Builder()
-                .setSession("sing-box")
+                .setSession("MaestroVPN")
                 .setMtu(tunMtu)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

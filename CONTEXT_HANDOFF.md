@@ -1,5 +1,56 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 17.10.2026, вечер: аудит APK 1.0.170 → ветка `claude/app-fixes-cleanup-20261017` (PR, НЕ в main)
+
+Мерж в main = авторелиз на флот, поэтому только PR; релиз — решение владельца.
+
+Исправлено:
+- **Автозапуск после перезагрузки/OTA.** `BootReceiver` отменял автостарт при ЛЮБОМ непрочитанном
+  краш-репорте и сбрасывал `startedByUser`, а пометить репорт прочитанным в приложении нечем (экрана
+  крашей нет) → один краш навсегда выключал переподключение после ребута и после тихого обновления.
+  Теперь пропуск только при крэш-лупе (≥3 краша за 30 мин, `CrashReportManager.isCrashLooping`),
+  флаг не трогается. `stopAndAlert` сбрасывает `startedByUser` только для `EmptyConfiguration` и
+  `RequestLocationPermission`; временные сбои (CDN/сеть на загрузке, отказ фонового рестарта) — нет.
+- **«Подписка» → HTTP 404 навсегда (клиент stas1270, заказ `ord_FEACCQC25KHJ8G89`).** Приложение хранило
+  локальный счёт и на 404 от `/order/<id>` его не сбрасывало. Теперь 404 закрывает счёт
+  (`BuyViewModel.dropLostOrder`, `PurchaseHttpException`), «Повторить» ведёт к тарифам.
+  Панель: «Я оплатил» ставит `paid_claimed_at`, такие заказы суточная чистка не удаляет (хранятся до 30 дней).
+  ✅ Панель задеплоена 17.10.2026 ~19:57 UTC из `b45ae12` (checkout `/root/panel-src/app-fixes-20261017` на S1,
+  бэкенд = прод `e50462d` + 2 файла заказов); `/healthz` → `ok b45ae12`, бэкап прежнего бинаря
+  `/root/maestro-panel.bin.bak-1792267070`. Откат: вернуть бэкап в `/usr/local/bin/maestro-panel` + restart.
+- Версии: тестовый APK `android-test.yml` 1.0.170-test / VC 1017030 (ставится поверх 1.0.170), релиз `android.yml`
+  поднят до 1.0.171 / VC 1017100. Тестовый APK run 39064602200, artifact 12112892050, APK sha256 `706a3063…abf7`,
+  подпись флота 17:B9:58:45…; передан владельцу на проверку поверх установленной версии.
+- Имя VPN-сессии и запасной заголовок уведомления: `sing-box` → `MaestroVPN`.
+- Настройки: убран раздел «О программе» апстрима (доки sing-box, исходники SagerNet, спонсоры sekai.icu).
+
+- Телефон: «Telegram-бот» и «Поддержка» открывают `tg://resolve?domain=…` (fallback `https://t.me/…`) —
+  голая https-ссылка на Android 12+ уходила в браузер вместо Telegram (жалоба владельца 17.10).
+- Иконка: новый генератор `ops/launcher-icons.py` (мастер `docs/design/maestrovpn-mv-logo-reference-2026-07-13.jpg`):
+  вензель вписан в safe zone adaptive-иконки (радиус 0.29 при допуске 0.3056 — маски круг/капля/сквиркл не
+  режут засечки), добавлен `<monochrome>` для тематических иконок Android 13+, legacy ic_launcher/round —
+  скруглённый квадрат/круг с вензелем внутри, ic_stat_fox/ic_qs_spider — сплошной белый силуэт.
+  TV-баннер не тронут. Старый `ops/icon-pipeline.py` НЕ запускать: он перезаписывает tv_banner в .png рядом с
+  существующим `drawable-xxhdpi/tv_banner.webp` (дубликат ресурса) и ставит вензель вне safe zone.
+
+Вычищено (только без ссылок из живого кода; история в Git):
+- 4D-Home телефона: `Mobile4DHome/BitmapLoader/GeneratedAssets/SceneModel/Tilt`, `PhoneHomeControlDeck`,
+  `PhoneHomeReferenceLayout` — нигде не вызывались (Home телефона = `PhoneDashboard`), + их тесты;
+  `assets/mobile_4d` (27 атласов, ~63 МБ в APK);
+- мёртвый UI апстрима: `LineChart`, `QRCodeDialog`, `QRSDialog`, `QRSBitmapState`, `QRSEncoder`,
+  `IconSelectionDialog`, `ktx/Dialogs.kt`, `compat/LazyItemModifiers.kt`; `assets/termux-colors`
+  (темы удалённого SSH-терминала);
+- drawable без ссылок: `mobile_medallion_glow_halo/ring`, `phone_home_frame/ring/title`,
+  `ic_find_in_page_24`, `ic_insert_drive_file_24`, `ic_menu` (~6.7 МБ); `ops/mobile-dashboard-assets.py`
+  больше не генерирует phone_home_frame/ring/title.
+
+Сознательно НЕ тронуто: TV-файлы и `tvm_*` (в т.ч. неиспользуемые `tvm_bg_on/off`, `tvm_wood_bg`,
+`tvm_qr_bezel` ≈ 8 МБ — на них опирается `ops/tv-master-sim.py`), `TvEskizSpec.kt`, `contact_*`
+(читает `ops/phone-screen-sim.py`), не-UI код без ссылок (`PackageEntry`, Xposed AIDL,
+`WhiteListNetworkBinding`, `WhiteListRuntimeGate`, `ConnectivityBinderUtils`, `VpnDetectionTest`).
+⚠️ `ops/phone-screen-sim.py`, `ops/mobile-4d-assets.py` описывают удалённый 4D-Home и требуют
+пересмотра под `PhoneDashboard`.
+
 ## MAIN ДОГНАЛ ПРОД. 17.10.2026: серверная часть main = задеплоенная панель
 
 До сегодня бэкенд в `main` был **августовским снимком** (последняя правка 13.08, на 512 файлов меньше), а живая

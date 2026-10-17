@@ -507,7 +507,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
         whiteListSession?.close()
         WhiteListSelection.clear()
-        Settings.startedByUser = false
+        // Only failures that need the USER to act (no profile, a missing permission) cancel
+        // "reconnect after reboot". A transient start failure — network not up yet at boot, CDN
+        // edge unreachable, a background restart refused by Android — used to clear the flag
+        // too, so one bad start silently disabled autostart for every later reboot and update.
+        if (type == Alert.EmptyConfiguration || type == Alert.RequestLocationPermission) {
+            Settings.startedByUser = false
+        }
         releaseWakeLock()
         val pfd = fileDescriptor
         if (pfd != null) {

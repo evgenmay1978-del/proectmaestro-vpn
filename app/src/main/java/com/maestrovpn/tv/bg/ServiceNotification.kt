@@ -94,7 +94,7 @@ class ServiceNotification(private val status: MutableLiveData<Status>, private v
         service.startForeground(
             notificationId,
             notificationBuilder
-                .setContentTitle(lastProfileName.takeIf { it.isNotBlank() } ?: "sing-box")
+                .setContentTitle(lastProfileName.takeIf { it.isNotBlank() } ?: "MaestroVPN")
                 .setContentText(service.getString(contentTextId)).build(),
         )
     }

@@ -22,10 +22,12 @@ class BootReceiver : BroadcastReceiver() {
         GlobalScope.launch(Dispatchers.IO) {
             if (Settings.startedByUser) {
                 CrashReportManager.refresh()
-                if (CrashReportManager.unreadCount.value > 0) {
-                    Settings.startedByUser = false
-                    return@launch
-                }
+                // Skip autostart only while the app is actually crash-looping, and keep the
+                // user's intent: once the loop window passes, the next boot/update connects again.
+                // Previously ANY unread report blocked it and cleared startedByUser forever — but
+                // nothing in the app marks reports read (there is no crash viewer screen), so a
+                // single crash permanently disabled reconnect after reboot and after OTA updates.
+                if (CrashReportManager.isCrashLooping()) return@launch
                 withContext(Dispatchers.Main) {
                     BoxService.start()
                 }
