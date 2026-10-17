@@ -108,6 +108,18 @@ object CrashReportManager {
     }
 
     /**
+     * True while the app is crash-looping: at least [CRASH_LOOP_THRESHOLD] crash reports dated
+     * within the last [CRASH_LOOP_WINDOW_MS]. Boot/update autostart backs off only in that case;
+     * an old or isolated crash must not stop the tunnel from coming back. Uses the reports loaded
+     * by the last [refresh].
+     */
+    fun isCrashLooping(now: Date = Date()): Boolean =
+        _reports.value.count { now.time - it.date.time in 0..CRASH_LOOP_WINDOW_MS } >= CRASH_LOOP_THRESHOLD
+
+    private const val CRASH_LOOP_THRESHOLD = 3
+    private const val CRASH_LOOP_WINDOW_MS = 30 * 60 * 1000L
+
+    /**
      * Silently POST any locally-recorded crash reports we haven't shipped yet to the panel's
      * /report sink (BuildConfig.BACKEND_URL), so the fleet's real failures land on S1 without
      * waiting for a customer to complain. PII-free: only metadata.json (exception + versions) and

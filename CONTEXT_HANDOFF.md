@@ -1,5 +1,42 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 17.10.2026, вечер: аудит APK 1.0.170 → ветка `claude/app-fixes-cleanup-20261017` (PR, НЕ в main)
+
+Мерж в main = авторелиз на флот, поэтому только PR; релиз — решение владельца.
+
+Исправлено:
+- **Автозапуск после перезагрузки/OTA.** `BootReceiver` отменял автостарт при ЛЮБОМ непрочитанном
+  краш-репорте и сбрасывал `startedByUser`, а пометить репорт прочитанным в приложении нечем (экрана
+  крашей нет) → один краш навсегда выключал переподключение после ребута и после тихого обновления.
+  Теперь пропуск только при крэш-лупе (≥3 краша за 30 мин, `CrashReportManager.isCrashLooping`),
+  флаг не трогается. `stopAndAlert` сбрасывает `startedByUser` только для `EmptyConfiguration` и
+  `RequestLocationPermission`; временные сбои (CDN/сеть на загрузке, отказ фонового рестарта) — нет.
+- **«Подписка» → HTTP 404 навсегда (клиент stas1270, заказ `ord_FEACCQC25KHJ8G89`).** Приложение хранило
+  локальный счёт и на 404 от `/order/<id>` его не сбрасывало. Теперь 404 закрывает счёт
+  (`BuyViewModel.dropLostOrder`, `PurchaseHttpException`), «Повторить» ведёт к тарифам.
+  Панель: «Я оплатил» ставит `paid_claimed_at`, такие заказы суточная чистка не удаляет (хранятся до 30 дней).
+  ⚠️ Бэкенд-правка требует отдельного деплоя панели (`ops/deploy-panel.sh`) — не выполнялся.
+- Имя VPN-сессии и запасной заголовок уведомления: `sing-box` → `MaestroVPN`.
+- Настройки: убран раздел «О программе» апстрима (доки sing-box, исходники SagerNet, спонсоры sekai.icu).
+
+Вычищено (только без ссылок из живого кода; история в Git):
+- 4D-Home телефона: `Mobile4DHome/BitmapLoader/GeneratedAssets/SceneModel/Tilt`, `PhoneHomeControlDeck`,
+  `PhoneHomeReferenceLayout` — нигде не вызывались (Home телефона = `PhoneDashboard`), + их тесты;
+  `assets/mobile_4d` (27 атласов, ~63 МБ в APK);
+- мёртвый UI апстрима: `LineChart`, `QRCodeDialog`, `QRSDialog`, `QRSBitmapState`, `QRSEncoder`,
+  `IconSelectionDialog`, `ktx/Dialogs.kt`, `compat/LazyItemModifiers.kt`; `assets/termux-colors`
+  (темы удалённого SSH-терминала);
+- drawable без ссылок: `mobile_medallion_glow_halo/ring`, `phone_home_frame/ring/title`,
+  `ic_find_in_page_24`, `ic_insert_drive_file_24`, `ic_menu` (~6.7 МБ); `ops/mobile-dashboard-assets.py`
+  больше не генерирует phone_home_frame/ring/title.
+
+Сознательно НЕ тронуто: TV-файлы и `tvm_*` (в т.ч. неиспользуемые `tvm_bg_on/off`, `tvm_wood_bg`,
+`tvm_qr_bezel` ≈ 8 МБ — на них опирается `ops/tv-master-sim.py`), `TvEskizSpec.kt`, `contact_*`
+(читает `ops/phone-screen-sim.py`), не-UI код без ссылок (`PackageEntry`, Xposed AIDL,
+`WhiteListNetworkBinding`, `WhiteListRuntimeGate`, `ConnectivityBinderUtils`, `VpnDetectionTest`).
+⚠️ `ops/phone-screen-sim.py`, `ops/mobile-4d-assets.py` описывают удалённый 4D-Home и требуют
+пересмотра под `PhoneDashboard`.
+
 ## MAIN ДОГНАЛ ПРОД. 17.10.2026: серверная часть main = задеплоенная панель
 
 До сегодня бэкенд в `main` был **августовским снимком** (последняя правка 13.08, на 512 файлов меньше), а живая

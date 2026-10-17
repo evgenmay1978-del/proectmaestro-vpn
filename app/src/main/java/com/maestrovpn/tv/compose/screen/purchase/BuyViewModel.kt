@@ -142,6 +142,7 @@ class BuyViewModel @JvmOverloads constructor(
                 saveReceipt()
                 awaitPayment(id)
             } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: PurchaseHttpException) { if (e.code == 404) dropLostOrder() else _state.value = BuyState.Error(e.message ?: "ошибка") }
             catch (e: Exception) { _state.value = BuyState.Error(e.message ?: "не удалось отправить заявку; счёт сохранён") }
         }
     }
@@ -160,7 +161,13 @@ class BuyViewModel @JvmOverloads constructor(
     private suspend fun awaitPayment(id: String) {
         val confirmed = withTimeoutOrNull(15 * 60 * 1000L) {
             while (true) {
-                val order = JSONObject(httpGet("$base/order/$id"))
+                val order = try {
+                    JSONObject(httpGet("$base/order/$id"))
+                } catch (e: PurchaseHttpException) {
+                    if (e.code != 404) throw e
+                    dropLostOrder()
+                    return@withTimeoutOrNull true
+                }
                 when (order.optString("status")) {
                     "paid" -> {
                         _state.value = BuyState.Activating
@@ -184,6 +191,22 @@ class BuyViewModel @JvmOverloads constructor(
             @Suppress("UNREACHABLE_CODE") false
         }
         if (confirmed == null) _state.value = BuyState.Error("Подтверждение ещё не получено. Счёт сохранён — проверьте статус позже, повторно платить не нужно.")
+    }
+
+    /**
+     * The server no longer knows this order (404): it was closed or cleaned up there — e.g. a
+     * pending order older than 24 h is purged, or the owner settled the payment by hand. Keeping
+     * the local receipt made «Подписка» poll a dead id forever (HTTP 404 on every open, only an
+     * app-data wipe helped). Forget it so «Повторить» goes back to the tariff list.
+     */
+    private fun dropLostOrder() {
+        receipt = null
+        orderId = null
+        saveReceipt()
+        _state.value = BuyState.Error(
+            "Счёт больше не действует. Если вы уже оплатили — напишите в поддержку, оплату зачтём. " +
+                "Нажмите «Повторить», чтобы выбрать тариф.",
+        )
     }
 
     private suspend fun activate(subUrl: String) {
@@ -227,12 +250,15 @@ class BuyViewModel @JvmOverloads constructor(
 
 }
 
+/** A non-200 purchase API answer; the message stays «HTTP <code>» as before. */
+class PurchaseHttpException(val code: Int) : IOException("HTTP $code")
+
 private fun defaultPurchaseGet(url: String): String {
     val c = URL(url).openConnection() as HttpURLConnection
     try {
         c.connectTimeout = 15000
         c.readTimeout = 15000
-        if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
+        if (c.responseCode != 200) throw PurchaseHttpException(c.responseCode)
         return c.inputStream.bufferedReader().use { it.readText() }
     } finally {
         c.disconnect()
@@ -248,7 +274,7 @@ private fun defaultPurchasePost(url: String, json: String): String {
         c.readTimeout = 15000
         c.setRequestProperty("Content-Type", "application/json")
         c.outputStream.use { it.write(json.toByteArray()) }
-        if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
+        if (c.responseCode != 200) throw PurchaseHttpException(c.responseCode)
         return c.inputStream.bufferedReader().use { it.readText() }
     } finally {
         c.disconnect()

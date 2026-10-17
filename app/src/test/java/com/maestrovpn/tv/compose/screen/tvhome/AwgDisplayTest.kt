@@ -21,9 +21,6 @@ class AwgDisplayTest {
     @Test fun chipsAndTvShowAmneziaWg() {
         assertEquals("AmneziaWG", protocolLabel("awg"))
         assertEquals("Маскировка трафика", protocolBadge("awg"))
-        assertEquals("AMNEZIAWG", homeProtocolLabel("awg"))
-        // Девять букв не помещаются в сектор дуги (та же ловушка, что NAIVEPROXY) — перенос задан руками.
-        assertEquals("AMNEZIA\nWG", homeProtocolSectorLabel("awg"))
         assertTrue(visibleTvProtocols(listOf("auto", "awg")).contains("awg"))
     }
 }
