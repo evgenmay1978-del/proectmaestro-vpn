@@ -576,3 +576,82 @@ func withFakeIP(c Customer) Customer {
 	c.DNSFakeIP = true
 	return c
 }
+
+// AmneziaWG: endpoint shape + membership in BOTH groups (owner's decision 2026-10-17 — «сервис сам
+// понимает, каким протоколом лучше подключиться»). urltest only picks a leaf that answers its probe,
+// so an engine that can't handshake with the 3.1 server just never gets chosen.
+func TestGenerateSingboxAWGInAutoAndSelector(t *testing.T) {
+	c := sampleCustomer()
+	c.WG = &WGCreds{Server: "89.125.19.95", Port: 443, PeerPublicKey: "server-pub", PrivateKey: "client-priv", LocalAddress: "10.10.8.31/32"}
+	raw, err := GenerateSingbox(c)
+	if err != nil {
+		t.Fatalf("GenerateSingbox(+awg): %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	var auto, selector map[string]any
+	for _, o := range cfg["outbounds"].([]any) {
+		m := o.(map[string]any)
+		switch m["tag"] {
+		case tagAuto:
+			auto = m
+		case tagPick:
+			selector = m
+		}
+		if m["tag"] == tagWG {
+			t.Fatal("awg must be an ENDPOINT, never an outbound")
+		}
+	}
+	has := func(group map[string]any, tag string) int {
+		n := 0
+		for _, x := range group["outbounds"].([]any) {
+			if x == tag {
+				n++
+			}
+		}
+		return n
+	}
+	if has(auto, tagWG) != 1 {
+		t.Errorf("awg must be in urltest %q exactly once, got %v", tagAuto, auto["outbounds"])
+	}
+	if has(selector, tagWG) != 1 {
+		t.Errorf("awg must stay in the selector exactly once (manual pick), got %v", selector["outbounds"])
+	}
+	if has(auto, tagNaive) != 0 {
+		t.Errorf("naive must stay OUT of auto (TSPU-throttled), got %v", auto["outbounds"])
+	}
+	if selector["default"] != tagAuto {
+		t.Errorf("selector default must remain %q, got %v", tagAuto, selector["default"])
+	}
+	eps, _ := cfg["endpoints"].([]any)
+	var awg map[string]any
+	for _, e := range eps {
+		if m := e.(map[string]any); m["tag"] == tagWG {
+			awg = m
+		}
+	}
+	if awg == nil {
+		t.Fatal("awg endpoint missing")
+	}
+	if awg["type"] != "awg" || awg["mtu"] != float64(1280) {
+		t.Errorf("awg endpoint shape changed: type=%v mtu=%v", awg["type"], awg["mtu"])
+	}
+	// i1 STAYS: older engines handshake with it and use it as DPI cover; 3.1 engines strip it
+	// client-side (app 1.0.169+ WhiteListConfig.stripAwgDecoys). Removing it here would break them.
+	if _, ok := awg["i1"]; !ok {
+		t.Error("i1 must remain in the panel output (older clients depend on it)")
+	}
+}
+
+// Without WG creds nothing about awg leaks into either group (gate: versionCode < MAESTRO_AWG_MIN_VC).
+func TestGenerateSingboxNoAWGWithoutCreds(t *testing.T) {
+	raw, err := GenerateSingbox(sampleCustomer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"awg"`)) {
+		t.Fatalf("awg tag must not appear without WG creds: %s", raw)
+	}
+}

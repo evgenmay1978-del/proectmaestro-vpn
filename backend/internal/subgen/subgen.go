@@ -373,6 +373,22 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if len(autoTags) == 0 { // customer with ONLY naive → keep something auto-selectable
 		autoTags = protoTags
 	}
+	// AmneziaWG joins the "auto" pool (owner's decision 2026-10-17: «сервис сам понимает, каким
+	// протоколом лучше подключиться»). Until now it was selector-only («slow UDP, RU mobile shapes
+	// it»). It is safe in urltest because urltest only ever picks a leaf that ANSWERS its probe:
+	//   • app 1.0.169+ (amneziawg-go v3.1 engine, i1 stripped client-side) handshakes with S4 and
+	//     competes on latency like any other leaf;
+	//   • older engines that can't complete a 3.1 handshake, or can't resolve the probe host
+	//     through the endpoint (pre-169 «cannot marshal DNS message»), simply fail the probe → the
+	//     leaf is never chosen → no change for them;
+	//   • routers: lib/router-transform.jq (0.1.25+) drops `endpoints` and scrubs the awg tag from
+	//     every group, so router configs are unaffected.
+	// It stays in the selector too (selOnly), so manual choice is unchanged. awg is NOT a VLESS
+	// leaf, so it is appended after the TCP protocols: on a latency tie within `tolerance` urltest
+	// keeps the current pick, it does not prefer list order — order here is only for readability.
+	if c.WG != nil {
+		autoTags = append(autoTags, tagWG)
+	}
 	outbounds = append(outbounds,
 		map[string]any{
 			"type": "urltest", "tag": tagAuto, "outbounds": autoTags,
