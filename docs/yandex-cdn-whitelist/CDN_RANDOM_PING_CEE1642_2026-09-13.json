@@ -1,0 +1,48 @@
+{
+  "source_sha": "cee164229318932395fbd853ed2b64ca4d4ae76d",
+  "deployed_at_utc": "2026-09-12T22:22:56Z",
+  "binary_sha256": "0e99ec36c2baaa3535417702dbb9748f3ab0b99a4c9ecee9817abe1c78d3a48a",
+  "github": {
+    "run_id": 34722338575,
+    "attempt": 1,
+    "artifact_id": 10307160441,
+    "build": "success",
+    "tests": "skipped"
+  },
+  "post_install_window": {
+    "start_utc": "2026-09-12T22:24:25Z",
+    "duration_seconds": 95.1,
+    "samples_per_route": 96,
+    "managed_routes": 8,
+    "all_active": true,
+    "minimum_remaining_seconds": 15.15,
+    "maximum_remaining_seconds": 59.56,
+    "expired_samples": 0,
+    "fence_generations_unchanged": true,
+    "used_route_cumulative_deltas": [
+      35271,
+      28777,
+      35866,
+      28251
+    ]
+  },
+  "remaining_controller_error": {
+    "at_utc": "2026-09-12T22:25:08Z",
+    "stage": "use lease authorization origin proofs",
+    "elapsed_seconds": 19.141
+  },
+  "owner_confirmation": {
+    "source": "direct user messages",
+    "new_pages_open_on_same_cdn_with_na_without_reconnect": true,
+    "latency_indicator_fixed": false,
+    "long_term_stability_proven": false
+  },
+  "subsequent_passive_window": {
+    "end_utc": "2026-09-12T22:47:42Z",
+    "duration_seconds": 15.1,
+    "new_counter_bytes": 0,
+    "proves_page_loading": false
+  },
+  "production_xray_restarted": false,
+  "synthetic_traffic_generated": false
+}

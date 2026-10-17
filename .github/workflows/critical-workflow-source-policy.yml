@@ -1,0 +1,270 @@
+name: Critical workflow source policy
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  critical-workflow-source-policy:
+    name: critical-workflow-source-policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify candidate workflow sources from protected base
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+        run: |
+          import base64
+          import binascii
+          import hashlib
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          ALLOWED = {
+              ".github/workflows/ha-control-plane.yml": {
+                  "db5da2254acdadcd11095748fb07848627aa492a5d0094638e62e1602444cfe7",
+              },
+              ".github/workflows/ha-dr-restore-drill.yml": {
+                  "0982b58c98ad8dc56cd6a68fbb19554e4ec3c8a9f237a3860770e225adcfdef9",
+              },
+              ".github/workflows/yandex-cdn-release.yml": {
+                  "54b906858b483dac81cc6e50e0c3c2657d5de5b3d51bd676716bf100dfd24d33",
+              },
+          }
+          MAX_FILE_BYTES = 256 * 1024
+          MAX_RESPONSE_BYTES = 512 * 1024
+          MAX_TREE_RESPONSE_BYTES = 4 * 1024 * 1024
+
+
+          def fail(message):
+              raise SystemExit(f"critical workflow source policy: {message}")
+
+
+          event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+          token = os.environ.get("GH_TOKEN", "")
+          api_url = os.environ.get("GITHUB_API_URL", "").rstrip("/")
+          if not event_path or not os.path.isfile(event_path):
+              fail("GitHub event payload is absent")
+          if os.path.getsize(event_path) > MAX_RESPONSE_BYTES:
+              fail("GitHub event payload is unexpectedly large")
+          if not token:
+              fail("read-only GitHub token is absent")
+
+          try:
+              with open(event_path, "r", encoding="utf-8") as stream:
+                  event = json.load(stream)
+              head = event["pull_request"]["head"]
+              head_sha = head["sha"]
+              full_name = head["repo"]["full_name"]
+          except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+              fail("pull_request_target head identity is malformed")
+
+          if not isinstance(head_sha, str) or re.fullmatch(r"[0-9a-f]{40}", head_sha) is None:
+              fail("head SHA is not canonical lowercase hexadecimal")
+          if not isinstance(full_name, str) or re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", full_name) is None:
+              fail("head repository name is not canonical owner/repository")
+          owner, repository = full_name.split("/", 1)
+
+          parsed_api = urllib.parse.urlsplit(api_url)
+          if (
+              parsed_api.scheme != "https"
+              or not parsed_api.netloc
+              or parsed_api.username is not None
+              or parsed_api.password is not None
+              or parsed_api.query
+              or parsed_api.fragment
+          ):
+              fail("GitHub API URL is not a trusted HTTPS base URL")
+
+          quoted_owner = urllib.parse.quote(owner, safe="")
+          quoted_repository = urllib.parse.quote(repository, safe="")
+
+          commit_url = (
+              f"{api_url}/repos/{quoted_owner}/{quoted_repository}"
+              f"/git/commits/{head_sha}"
+          )
+          commit_request = urllib.request.Request(
+              commit_url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "User-Agent": "MaestroVPN-critical-workflow-source-policy",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+              method="GET",
+          )
+          try:
+              with urllib.request.urlopen(commit_request, timeout=20) as response:
+                  if response.status != 200:
+                      fail("head commit API returned a non-success status")
+                  commit_body = response.read(MAX_RESPONSE_BYTES + 1)
+          except urllib.error.HTTPError as error:
+              fail(f"head commit API returned HTTP {error.code}")
+          except urllib.error.URLError:
+              fail("head commit API request failed")
+
+          if len(commit_body) > MAX_RESPONSE_BYTES:
+              fail("head commit API response is too large")
+          try:
+              commit_payload = json.loads(
+                  commit_body.decode("utf-8", errors="strict")
+              )
+          except (UnicodeDecodeError, json.JSONDecodeError):
+              fail("head commit API response is malformed")
+          if not isinstance(commit_payload, dict):
+              fail("head commit API response is not one commit")
+          if commit_payload.get("sha") != head_sha:
+              fail("head commit API returned a different commit")
+          tree_sha = commit_payload.get("tree", {}).get("sha")
+          if not isinstance(tree_sha, str) or re.fullmatch(
+              r"[0-9a-f]{40}", tree_sha
+          ) is None:
+              fail("head commit tree SHA is malformed")
+
+          tree_url = (
+              f"{api_url}/repos/{quoted_owner}/{quoted_repository}"
+              f"/git/trees/{tree_sha}?recursive=1"
+          )
+          tree_request = urllib.request.Request(
+              tree_url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "User-Agent": "MaestroVPN-critical-workflow-source-policy",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+              method="GET",
+          )
+          try:
+              with urllib.request.urlopen(tree_request, timeout=20) as response:
+                  if response.status != 200:
+                      fail("head tree API returned a non-success status")
+                  tree_body = response.read(MAX_TREE_RESPONSE_BYTES + 1)
+          except urllib.error.HTTPError as error:
+              fail(f"head tree API returned HTTP {error.code}")
+          except urllib.error.URLError:
+              fail("head tree API request failed")
+
+          if len(tree_body) > MAX_TREE_RESPONSE_BYTES:
+              fail("head tree API response is too large")
+          try:
+              tree_payload = json.loads(tree_body.decode("utf-8", errors="strict"))
+          except (UnicodeDecodeError, json.JSONDecodeError):
+              fail("head tree API response is malformed")
+          if not isinstance(tree_payload, dict):
+              fail("head tree API response is not one tree")
+          if tree_payload.get("sha") != tree_sha:
+              fail("head tree API returned a different tree")
+          if tree_payload.get("truncated") is not False:
+              fail("head tree API response is truncated")
+          tree_entries = tree_payload.get("tree")
+          if not isinstance(tree_entries, list):
+              fail("head tree API entries are malformed")
+
+          reviewed_blobs = {}
+          for path in ALLOWED:
+              matches = [
+                  entry
+                  for entry in tree_entries
+                  if isinstance(entry, dict) and entry.get("path") == path
+              ]
+              if len(matches) != 1:
+                  fail(f"{path}: head tree must contain exactly one entry")
+              entry = matches[0]
+              if entry.get("type") != "blob":
+                  fail(f"{path}: head tree entry is not a blob")
+              if entry.get("mode") != "100644":
+                  fail(f"{path}: head tree entry is not a regular non-executable file")
+              blob_sha = entry.get("sha")
+              if not isinstance(blob_sha, str) or re.fullmatch(
+                  r"[0-9a-f]{40}", blob_sha
+              ) is None:
+                  fail(f"{path}: head tree blob SHA is malformed")
+              reviewed_blobs[path] = blob_sha
+
+          for path, allowed_hashes in ALLOWED.items():
+              expected_blob_sha = reviewed_blobs[path]
+              quoted_path = urllib.parse.quote(path, safe="/")
+              query = urllib.parse.urlencode({"ref": head_sha})
+              url = (
+                  f"{api_url}/repos/{quoted_owner}/{quoted_repository}"
+                  f"/contents/{quoted_path}?{query}"
+              )
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "MaestroVPN-critical-workflow-source-policy",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+                  method="GET",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      if response.status != 200:
+                          fail(f"{path}: GitHub API returned a non-success status")
+                      response_body = response.read(MAX_RESPONSE_BYTES + 1)
+              except urllib.error.HTTPError as error:
+                  fail(f"{path}: GitHub API returned HTTP {error.code}")
+              except urllib.error.URLError:
+                  fail(f"{path}: GitHub API request failed")
+
+              if len(response_body) > MAX_RESPONSE_BYTES:
+                  fail(f"{path}: GitHub API response is too large")
+              try:
+                  payload = json.loads(response_body.decode("utf-8", errors="strict"))
+              except (UnicodeDecodeError, json.JSONDecodeError):
+                  fail(f"{path}: GitHub API response is malformed")
+              if not isinstance(payload, dict):
+                  fail(f"{path}: GitHub API response is not one file")
+              if payload.get("type") != "file":
+                  fail(f"{path}: candidate entry is not a regular file")
+              if payload.get("encoding") != "base64":
+                  fail(f"{path}: candidate file is not base64 encoded")
+              if payload.get("path") != path:
+                  fail(f"{path}: GitHub API returned a different path")
+              if payload.get("sha") != expected_blob_sha:
+                  fail(f"{path}: Contents API blob differs from the reviewed tree")
+
+              declared_size = payload.get("size")
+              if (
+                  not isinstance(declared_size, int)
+                  or isinstance(declared_size, bool)
+                  or declared_size < 1
+                  or declared_size > MAX_FILE_BYTES
+              ):
+                  fail(f"{path}: candidate file size is invalid")
+              content = payload.get("content")
+              if not isinstance(content, str):
+                  fail(f"{path}: candidate file content is absent")
+              compact_content = content.replace("\n", "").replace("\r", "")
+              try:
+                  decoded = base64.b64decode(compact_content, validate=True)
+              except (ValueError, binascii.Error):
+                  fail(f"{path}: candidate file base64 is invalid")
+              if len(decoded) != declared_size or len(decoded) > MAX_FILE_BYTES:
+                  fail(f"{path}: decoded candidate file size is invalid")
+              try:
+                  text = decoded.decode("utf-8", errors="strict")
+              except UnicodeDecodeError:
+                  fail(f"{path}: candidate file is not strict UTF-8")
+
+              normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+              digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+              if digest not in allowed_hashes:
+                  fail(f"{path}: source differs from every reviewed version")
+              print(f"verified {path}: {digest}")

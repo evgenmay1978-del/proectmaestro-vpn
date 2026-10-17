@@ -1,0 +1,4950 @@
+# MaestroVPN — актуальный контекст и передача работы
+
+## CURRENT — S4 951DACE AND S2 72975A7 ACTIVE; METERING IN PROGRESS — 05.09.2026
+
+This checkpoint supersedes every older CURRENT/next-action statement below.
+S4 isolated commercial source `951dace559671bc9431605b967f8111963213a71` is now
+installed, release `951dace55967-s4commercial-38c3e87adc03cfcb`, ACTIVE with all
+six shipped operator checks true. Exact sidecar run `33946775734` is SUCCESS;
+artifact `9963583717` was streamed directly to S4 and verified (54,244,163bytes,
+SHA-256 `109c4e474b17277b7d415e6a3176567b08c1207ed7ed47e55b39dff4e3c63b9a`).
+The runtime digest is
+`38c3e87adc03cfcb96491509d530c0ec843c077431bad17d41ccbdc087b3f37b`;
+config remains `5fd67f3bf80fc3a7c0bfae1de32d421b66ee11ac95bff8ea3f851ca71d052f38`.
+Scoped protected backup and retained b441 last-known-good are verified. Locked
+shipped apply exited0; independent retained SSH session survived, and a fresh
+strict login passed. Ordinary/private SSH, x-ui, Hysteria and ingress PIDs and
+firewall hashes are unchanged. No provider console, customer charge, OTA or
+customer/private-subscription traffic probe was used.
+
+Upgrade reconciliation preserved the same isolated synthetic managed identity:
+generation5 POST200 and exact new-boot receipt GET200, no replay. Authenticated
+GET/v1/usage returned200/no-store with the exact receipt, zero available users and
+one explicitly unavailable user. No missing counter was manufactured as zero.
+Do not repeat add/revoke/resume or the completed workflow. Earlier generation4
+was the prior release's resume; the private preparation helper now accepts only
+exact prior add OR resume bytes, not arbitrary/revoke state.
+
+Next existing Task6 work is production accounting, not another server diagnostic
+round. This source checkpoint connects the metering-plan DTO and a separate
+two-second collector to one DurableStore on the same rqlite client, using the
+existing sender map. Startup drains all pending entitlements; real samples use
+the returned bound cursor, while unavailable users create no samples. The
+thirty-second ordinary renewal loop is unchanged. Independent review found one
+partial-pass revoke delay; a persistent reconcile-needed marker now forces
+reconciliation even after a later origin fails and remains set until success.
+One focused regression covers that failure. Collector source `38cdaee` was
+pushed; HA run `33948823926` failed because its ordinary test referenced an
+integration-tag-only confirmed-order helper. Correction `10f729b` inlined that
+fixture. Run `33949619104` then compiled, but exposed invalid sidecar-origin
+fixture parameters at `whitelist_metering_plan_test.go:50`: `testDigest` accepts
+one hex character, not a descriptive label. The one-line fix reuses the ordinary
+valid `testDigest("a")` fixture; the remaining fixture chain was checked against
+the actual validators without weakening them. Both failed runs are terminal:
+do not rerun their unchanged SHAs. Corrected source
+`72975a7a98711c74eac563191610ec6263a79799` now has exact-SHA GitHub HA run
+`33950324098` SUCCESS and sidecar run `33950323822` SUCCESS. Do not repeat these
+completed validations. These passes apply to source, not to commercial readiness.
+The source also removes the accounting model's global timestamp-order rejection:
+independent Origin intervals retain their own timestamps, each debit is applied
+once, and the aggregate balance watermark remains the existing monotonic max.
+The focused reverse-Origin regression covers debit, max watermark and replay.
+These backend changes are not deployed; do not enable the panel collector yet.
+Known remaining accounting gaps: durable first-use admission (a single topup
+timestamp expires in5seconds and is insufficient), first real cumulative billing,
+all-Origin observation freshness distinct from balance's monotonic watermark,
+counter reset/period boundary handling and the approved safety reserve. An empty
+managed set on deployed source951dace still skips the real StatsService query.
+The reviewed source fix removes only that fast path: even empty sets call the
+existing reset=false query, return no invented counters and propagate failure.
+Its exact-SHA sidecar validation passed as recorded above; no new endpoint or
+service was added. Installed S4 remains951dace, not72975a7.
+Default commercial publication
+remains OFF. S1's running panel/bot are unchanged. S2's isolated sidecar is now
+installed as detailed below; customer/CDN integration and S3/S1 rollout remain.
+The current Task6 source slice adds durable authenticated Origin observations
+and boot/route/period-bound first-use admission. An explicit first-cumulative
+adapter now reuses the existing DurableStore transaction/outbox/debit: full
+initial bytes are counted rather than discarded as a generic epoch baseline.
+Its fixture uses the real transaction and debit path, including unknown commit
+response and restart recovery, without handwritten debit/source/interval rows.
+Generic baseline/replay semantics and default-OFF are preserved. Independent
+review of the17 scoped files found no Critical/Important defects; cached gofmt
+parsed/formatted the owned files. Source was committed/pushed as
+`24192c7fed11a849748e0d5332c8ca213edb9d59`; exact HA run `33955605211` FAILED in
+two test fixtures. The interval-count assertion used a nonexistent entitlement
+column; it now joins the actual event/source keys and asserts the exact bound
+event once. The public-subscription positive fixture had no paid period or real
+admission/first-debit proof; it now exercises empty observation, verified reserve,
+managed desired state and actual42-byte debit through the production collector
+and durable SQLite-backed services. HTTP200 and missing-receipt503 assertions
+remain. No production validator or billing behavior was weakened. Only these
+two fixture files were corrected in `4cb5b5a68f4ac761c4e5f9cd7b3bd4d622f5f5c9`.
+Its exact HA run `33957336820` FAILED one order-fixture constraint:
+expires_at must equal created_at+86400. The fixture now retains created=now-100,
+confirmed=now-50 and derives expiry from that same creation time. Other CHECK
+constraints of this INSERT were inspected; no production constraint changed.
+The expiry fix was committed/pushed as
+`7d238e3566cbfa6bdc4f5a495afc5bc5ecb237d1`. Its HA run `33958591359`
+FAILED only `TestReceiptJSONContainsNoBusinessRowsOrSecrets`: the random
+Ed25519 signature contained a case-insensitive `uuid` substring. This was not a
+business-field leak. The receipt test now checks the exact public JSON field set
+instead of scanning signature bytes; production signing and tamper checks are
+unchanged. The real panel publication fixture, controlplane and shadowbilling
+passed in that run; the overall workflow and later gates did not. Do not rerun
+the unchanged failed SHA. The verified reserve provider,
+same-boot reset and strict period rollover remain open; this is not readiness.
+Corrected receipt-schema checkpoint8f77b40 passed ordinary Go tests, race and vet
+in HA33960728853. Its rqlite integration stage then failed only the explicit
+expected-table list, which omitted the two already registered migration0017
+tables: whitelist_first_use_admissions and whitelist_metering_origin_observations.
+Both exact names are now added; strict schema equality, foreign-key and checksum
+checks are preserved. The failed run is terminal, not an artifact/deployment pass.
+An additional actual first-use publication cycle is confirmed in source:
+public readiness requires a first debited sample before issuing client material,
+but a new client cannot produce that sample without the material. Empty desired
+bootstrap alone does not solve it. The next production correction must permit
+only a separately proven awaiting-first admission: paid/admin enabled, adequate
+verified reserve, exact current period/boot, fresh all-Origin health and that
+user in current managed desired with the exact applied receipt. Do not fabricate
+usage freshness or synthetic customer bytes. Once observed, real available
+counters and applied debit remain mandatory; waiting must never rearm.
+That six-file production correction is now implemented and independently
+reviewed: publication readiness returns a separate AdmissionFreshUntilUnix,
+bound to every current managed desired/user, applied receipt, process boot,
+current paid period, verified reserve and authenticated Origin observation.
+Awaiting-first users must explicitly be unavailable in that current generation;
+empty bootstrap/old-generation observations cannot publish. The lease is capped
+by period/reserve/receipt/observation deadlines and primary expiry. No usage or
+balance freshness is invented; after a real observation, missing counters and
+incomplete accounting remain closed across restarts. Both delivery and reconcile
+resolve the exact selected exit, not any credential found during iteration.
+The existing durable lifecycle regression now covers material before the first
+sample, stale-health closure, fresh-poll renewal without zero samples/debits, and
+missing-after-seen closure; the evaluator regression preserves other gates and
+deadline minima. Root and independent six-file review found no Important defects;
+cached gofmt parsed the files. Exact-SHA execution is still pending. No reserve
+provider was invented and no production publication/collector flag was enabled.
+
+Eye source now selects one registered original-tissue candidate: real scleral
+texture and a moist corner replace the flat procedural triangles, sampled strictly
+inside the original ocular edge without its bronze perimeter. Common corners,
+closure seam, true-alpha iris and whole-eye lid shadow remain. Original green and
+CLOSED are preserved. Root inspected the actual-source native-interior preview;
+the eight source files were committed as `238cf99`. Its run `33950964048` selected
+the preview-only task, not compilation: two Python expectations still described
+the old 70/30 closure and pre-registration viewport. They now use an independent
+13-point original-fold oracle and fixed-corner checks with unchanged tolerances.
+The private dispatcher now exposes the explicit `android` task separately from
+its safe preview default. The existing Android workflow's four blind Gradle
+retries are replaced by one attempt; build, unit-test and report steps remain.
+Corrected `62f18c7` preview run `33952079472` is SUCCESS. Its separate normal
+Android run `33952154779` stopped in the deferred WDTT artifact step before
+Gradle; normal libbox downloaded successfully. Do not rebuild/change WDTT or
+OLCRTC to validate an eye edit. The existing workflow now offers the explicit
+`mobile-eye-compile` mode: same SDK/libbox and existing geometry unit test, but
+no deferred-binary downloads, signing, APK build/upload or unrelated test runs.
+The normal Android mode/default remains unchanged. This mode does not prove a
+complete installable APK or final runtime visual acceptance.
+The compile-only workflow correction is pushed as
+`b3072937af4fe339aa437c4b2b42535819eece94`. The owner explicitly requested missing
+eyelashes. Runtime and preview now share29 upper/12 lower authored follicles,
+lid attachment, irregular fan/curl and tapered dark-brown strands. The initially
+over-bright wire-like reflection was rejected and removed from both renderers.
+The prior actual-source preview is `eyelashes-dark-fan-preview`, not either
+older lashless/bright-wire image. Root viewed its enlarged open/closed comparison;
+independent review of the six visual files found no Critical/Important issues.
+This is not anatomical/device acceptance. The existing `mobile-eye-compile`
+mode now also selects the existing Python preview job, so one exact-SHA dispatch
+checks the actual preview and Kotlin together. Eyelash source
+`fe59108444fa2615223cdb1400411564fc43e599` is pushed; exact GitHub run
+`33956214651` is SUCCESS, both Python preview and Kotlin compilation/geometry
+tests passed. No APK was assembled, signed or published. Do not separately
+rerun this completed validation, superseded lashless source or publish test OTA.
+The owner then rejected dark-fan visibility: lashes still disappear at normal
+phone scale. Its previous visual selection is superseded, not accepted. Source
+inspection confirms sparse low-contrast tapered strands mostly fall below one
+phone pixel. The bounded correction keeps original green, aperture, corners and
+lid attachment, increases irregular paired-hair coverage and uses only a narrow
+muted shaft ridge. Verify the actual390dp phone rendering, not enlarged-only
+visibility. The current candidate shares58 upper/18 lower follicles between
+Kotlin and Pillow, with a dark tapered body, short muted shaft ridge and proximal
+curves crossing the ocular edge before curling outward. The dense outside-only
+candidate was rejected at390dp; the latest aperture-crossing candidate remains
+visually UNACCEPTED/WIP. It does not close any all-three visual acceptance gate.
+The preview now uses the owner's unchanged01.09.2026 installed-screen reference
+`design/mobile-4d-references/10-owner-installed-home-2026-09-01.jpg`, replacing
+the old August screenshot with baked deferred-protocol buttons. It remains a
+programmatic preview, not an installed runtime screenshot or released APK.
+
+Owner explicitly required WDTT/OLCRTC to disappear from the application. The
+current nine-file UI patch removes their exact aliases from phone/TV cards,
+Groups and status, and rejects manual/pending hidden selection. A hidden actual
+active transport is not relabelled AUTO. Runtime managers, stored profiles,
+transport binaries and backend are unchanged. Root corrected filtered Groups
+state propagation before CI. The existing compile-only GitHub task now includes
+ProtocolVisibility, PhoneHomeProtocolOrder and PhoneHomeControlDeckContract
+tests alongside geometry; no APK/signing or deferred binary packaging is added.
+This20-file checkpoint is pushed as `8f77b409e577de6b0d17716191ac59588ada6fac`.
+Exact Android run `33960732689` compiled Kotlin and passed the four focused
+classes (job101292058636 SUCCESS). Its Python preview job101292058623 FAILED
+two assertions because the independent reference fixture still named the August
+screenshot. The fixture now binds the actual September file, its SHA-256 and
+1080x2340 dimensions together. The unchanged-outside-mask pixel assertions are
+preserved. Run only corrected preview after this fixture change; do not repeat
+the already-passed unchanged Kotlin job or call the overall Android run GREEN.
+
+Actual Android CDN integration remains missing: WhiteListClientInfo is parsed
+but no screen consumes it; TV parsing and runtime gate/selector are not wired.
+No fake CDN card or balance was added. Required product behavior is explicit
+paid-CDN selection only when enabled for that customer, a separate CDN balance
+in app/bot shared across devices/clients, and no ordinary-VPN debit from that
+balance. Existing links rendering labels CDN with the exit country; richer
+country/protocol labels and actual Happ/Incy display are not yet verified.
+Third-party balance display must use supported subscription statistics without
+misrepresenting the ordinary subscription as a capped CDN plan.
+The actual server commercial balance DTO supplies available_bytes plus separate
+included_remaining_bytes/purchased_remaining_bytes; the old Android /info parser
+expects remaining_limit_bytes. Wire the authoritative commercial balance rather
+than displaying a fabricated zero or silently substituting that legacy field.
+Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
+final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
+spherical candidates are recoverable scratch only, not alternative live assets.
+
+S2 isolated commercial install is ACTIVE on05.09.2026. Reused exact GREEN source
+`72975a7a98711c74eac563191610ec6263a79799`, run `33950323822`, artifact `9964614929`;
+54,244,163-byte ZIP SHA-256
+`09247888ff520aaa4210ff841a014e56b075962d01ce3d42ec53a4ed0fcfe3c2`.
+The archive streamed directly from GitHub to S2, with no workstation archive.
+All nine package members and source/manifest were verified; manifest SHA-256
+`6bcb904c3c1c6118de7ce89cf42c8c35bc349787645b868e3d33dd26c4af7087`.
+S2-specific leaf certificates were signed once from existing commercial trust;
+only the required15 certificate files and byte-identical shared runtime were
+transferred. No shared transport credentials or private test subscription changed.
+Shipped standard-profile plan and locked apply exited0. Installed release
+`72975a7a9871-standard-2aedf96b649fe0e3`, config SHA-256
+`2c5a029bf5347ca03be512759e7ab32910361aeee08c8b249119d7323b711f42`,
+operator runtime-input SHA-256
+`2aedf96b649fe0e38b40f1d52b14ff9f48f77d83c8e40f8b905c8418bdf25cf4`.
+All six shipped checks are true. Only the two commercial units were installed;
+SSH/Caddy/nginx/Hysteria/AnyTLS/vpn_bot retain their original active MainPIDs.
+Protected preinstall-safety backup records the verified commercial ABSENT state,
+ordinary unit files and firewall hashes. Independent retained SSH survived apply;
+fresh strict SSH and post-install comparison passed, then the observer was closed.
+Firewall delta is exactly two new IPv4 TCP rules: relay18084 from the existing
+active S4 Origin only, and agent18443 from the current S1 controller only. All
+previous IPv4 rules, IPv6 rules and other protected files remain unchanged.
+Rollback uses the shipped standard-profile recovery-to-ABSENT plus deletion of
+only those two new exact peer rules, never a whole-firewall restore/reset.
+Do not repeat staging, certificate issuance, plan, apply or completed safety checks.
+S2 is not yet a CDN Origin-group member; authenticated cross-node runtime proof
+and customer integration remain. S4 is still951dace, not72975a7. No interface
+mutation, ordinary VPN restart, real charge, OTA or final traffic cutover occurred.
+
+Owner's global rule reiterated05.09: effectiveness and the shortest safe path to
+a working result. Reuse proven packages/procedures, parallelize only useful
+independent work, and avoid ceremonial checks, repeated research or new stages.
+Heavy builds stay on GitHub; never invent a completion date or percentage.
+
+The owner explicitly instructed: do not enter AdminVPS; continue server setup
+through SSH; fix the eye programmatically. This supersedes the earlier request
+to wait for provider-console access and the unanswered image-processing request.
+Do not reopen AdminVPS or ask for the same image-processing permission again.
+For bounded server configuration, retain strict host verification, the existing
+SSH path, a current scoped backup, an independent management session and a
+verified rollback. No ordinary SSH/firewall reset, private-subscription change,
+real customer charging, OTA/release publication or final traffic cutover follows
+from this instruction. OLCRTC and WDTT remain out of scope.
+
+Usage endpoint, typed client and durable producer source are pushed as
+`fe48ac197e848af48fdae48ec5ab46264bac3352`. Sidecar workflow
+`33944978987` is SUCCESS. Backend HA workflow `33944984282`, job
+`101249330264`, failed only the new two-user fixture because its shared helper
+assigned both customers the globally unique billing-period ID `period-1`.
+The bounded correction gives the second fixture its own period while preserving
+all prior defaults and assertions. Corrected source
+`a51fdcf2ebc29eb6063bf185a1b4656dfca4a4cc` has exact-SHA HA run `33945528212`
+SUCCESS. Do not redispatch the completed run. This is a test-data correction,
+not a change to billing logic. Production collection and paid publication are
+still not enabled by these source commits.
+
+The dedicated sidecar workflow now reuses the existing sealed commercial-bundle
+build and artifact upload after its tests, only on manual dispatch. It produces
+`maestro-xray-cdn-commercial-<exact SHA>` with the same nine members and manifest
+as the existing commercial operator; no Android build or new deployment path.
+The scoped S4 upgrade is now complete as recorded above. The existing package
+and operator will be reused for the other hosts, after their host-specific
+configuration and ordinary-service baseline are established. Do not restart S4
+again merely because handoff-only commits advance the branch.
+
+The existing commercial Task6 is not runtime-complete. Deployed sidecar source
+951dace and the unchanged S1 panel do not implement the newly connected backend
+collector. This source now calls `NewDurableStore`, `ApplyCommercialOrdered` and
+`DrainCommercialDebits`, but the accounting stop gates above remain OPEN. Do not describe this as
+another new task or assume that deploying a flag connects counters to balances.
+The implementation now adds a read-only usage snapshot to the existing mTLS
+sidecar service, then must connect it to the existing durable debit path.
+Xray creates per-user counters lazily; a missing counter is unavailable, not
+zero. One unused managed user must not block metering of all other users.
+
+Earlier RED-only source `348a34096286035157b654656919a5550e0b7003` is retained.
+GitHub run `33943009933`, sidecar job `101243932201`, proves the missing route:
+`TestUsageRouteRejectsMutationAndUnauthenticatedReads` received 404 instead of
+405 and 401. Policy and release-template jobs passed. This is expected RED,
+not a production-ready build; no repeat dispatch is needed for this SHA.
+
+Fresh SSH observations: S4 commercial agent, commercial Xray and isolated
+ingress are ACTIVE with PIDs 644257, 644242 and 646960; SSH is ACTIVE. S1 panel
+and primary bot are ACTIVE. Panel unit uses `/etc/maestro-panel.env`; its running
+environment has neither `MAESTRO_CONTROL_PLANE` nor
+`MAESTRO_WHITELIST_SIDECAR_ENABLE`. Panel binary SHA-256 is
+`867df76e07a4e1ca753c0cc3940d5d4da43c97c353e47c049efe9fa1f6ded83a`.
+No service, customer subscription or payment was changed by these observations.
+
+## 0. CURRENT — TASK 15 S4 B441 AND ISOLATED INGRESS ACTIVE (05.09.2026)
+
+This section supersedes earlier status and next-step statements below. The sole
+canonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package
+checkpoint is `b4415daa90c95a38f9a7b9adea7642c66e63a420`; a later documentation
+HEAD does not replace that package identity or the installed release identity.
+
+- Installed S4 commercial source is now
+  `b4415daa90c95a38f9a7b9adea7642c66e63a420`, release
+  `b4415daa90c9-s4commercial-bc65f9447a8e945a`, `ACTIVE` with all six shipped
+  status checks true after the locked shipped operator apply exited `0`.
+  Config SHA-256 is
+  `5fd67f3bf80fc3a7c0bfae1de32d421b66ee11ac95bff8ea3f851ca71d052f38`.
+  Previous package/release `3603f11bbc35a4a9d708c41db1bc13f0d2907805` /
+  `3603f11bbc35-s4commercial-afb832ce9e32f3a4` is retained.
+  The reviewed source-restricted relay/agent firewall delta is retained after
+  strict SSH and independent-observer PASS. Ordinary services and the private
+  working canary remain unchanged; no public commercial ingress/CDN switch ran.
+- Previous `3603f11...` synthetic generation 1 was persisted with no proven
+  receipt: the one delivered
+  POST returned HTTP `503` in `6240 ms`, and exact-action receipt GET returned
+  `404`. It must never be replayed. Recovery of that action is GET-only. The
+  preceding curl `56`/HTTP `000` failed before HTTP because its TLS client sent
+  an extra CA; the explicit leaf-only unsent-transport correction was used once
+  and is exhausted. This historical failed attempt is retained as evidence,
+  superseded by the b441 proofs below.
+- Two confirmed source defects are corrected in b441: readiness validation now
+  probes only the selected exit within the action budget while retaining full
+  runtime/configuration/credential/firewall validation; inventory still checks
+  all four exits. The exact Xray `26.5.9` freedom exception permits only TCP
+  loopback health port `18444`. A separate same-binary authenticated VLESS
+  diagnostic changed from private-target blocking to HTTP `204`; diagnostic
+  processes stopped without restarting installed services. Scoped reviews PASS.
+- Exact b441 Yandex run `33928873964` now has all six jobs terminal GREEN:
+  format `101203186261`, race/vet `101204020725`, rqlite `101204020765`, offline
+  `101204020770`, commercial `101204020803`, Android `101204799664`. The Android
+  completion was refreshed directly from GitHub on 05.09.2026. HA immutable run
+  `33928874093`/job `101203186787` and network run `33928874014` are GREEN.
+  No workflow was rerun to obtain this checkpoint.
+- Artifact `9957942956`, `54141763` bytes, archive SHA-256
+  `7a74ff26f181c44456493958577005f938b417cd2eca501dab60376989736b7b`,
+  is downloaded directly to S4 and staged with all nine members verified.
+  Manifest SHA-256 is
+  `a687657c43a20d77512a26ac73821c161513ddaebdb4dda6af466bde2855add5`.
+  The shipped upgrade `plan` passed, binding release
+  `b4415daa90c9-s4commercial-bc65f9447a8e945a`, config SHA-256
+  `5fd67f3bf80fc3a7c0bfae1de32d421b66ee11ac95bff8ea3f851ca71d052f38`,
+  and runtime-input SHA-256
+  `bc65f9447a8e945a4b7b8686859f54e7f05408f6477b2171047724ed3dde3f34`.
+  The exact locked shipped apply and synthetic receipts below now bind these
+  identities. The initial connector download URL failed
+  with HTTPError/zero bytes and was not retried; authenticated GitHub redirect
+  download succeeded with the credential sent only to GitHub.
+- The recovery console was restored and verified connected/encrypted for the
+  completed apply/install gates. The
+  earlier AdminVPS session expired (login CAPTCHA; direct VNC `Unauthorized`).
+  The owner has now authorized continuation and the authenticated product
+  panel was available with no CAPTCHA. The official QEMU console showed the
+  Ubuntu 24.04 tty1 login prompt. Fresh strict SSH, shipped previous-release
+  status, ordinary hashes/units/PIDs and exact firewall baseline passed before
+  apply. Post-upgrade ordinary/private saved hashes, unit/PID comparison and
+  strict SSH also passed.
+  At the latest browser inventory, IAB has no tabs, the earlier AdminVPS tab
+  handles no longer exist, and Microsoft Edge is not connected. Current console
+  access is therefore not confirmed. The owner was asked to connect Edge/open
+  Yandex for the next CDN read-only configuration/rollback capture; do not
+  bypass authentication or change CDN configuration without restored access.
+- The exact protected upgrade change sheet was transferred before apply.
+  Reviewed local generation helpers preserve the byte-identical previous
+  `3603f11...` add proof and require explicit previous-commit binding. They passed
+  syntax/scoped review, then executed on S4 after ACTIVE/baseline proof. Nine
+  protected files were transferred to S1. Generations `2/3/4` bind b441 and
+  previous commit `3603f11bbc35a4a9d708c41db1bc13f0d2907805` without changing
+  the previous proof.
+- Synthetic add generation 2: POST `200`/`263 ms`, receipt GET `200`/`146 ms`;
+  revoke generation 3: POST `200`/`290 ms`, GET `200`/`149 ms`; resume generation
+  4: POST `200`/`232 ms`, GET `200`/`152 ms`. All receipts matched the exact
+  release/config/boot/generation/managed-set digest and freshness at most 30 s.
+  A separate GET-only resume recovery returned `200`/`198 ms`, with no POST sent
+  and zero replayed requests. This proves read-only receipt recovery; no lost
+  response was simulated and fault-injection recovery remains unproven.
+  Current desired generation 4 is resumed. Old generation 1 remains retained
+  and was never replayed. No real customer or private-canary identity changed.
+- Ingress source `aad63b52c74aedd2c568f0ed4a6a9f912e31e262` and its sealed
+  workflow correction `26895992db384d8275c36720a622d96862505f69` are ancestors
+  of b441. Isolated `maestro-cdn-ingress.service` is now ACTIVE/enabled, PID
+  `646960`, owning TCP `28080`; the unknown local path returned `404`. The exact
+  parser/config SHA-256 is
+  `43291883decf99bcdc1bffbb2172a44fbc37a1f585da2371fa722e0953e2e739`,
+  unit SHA-256 `3fda8a55077918cd7e0e78a214df8b4c14d025ffdc0732f621534c16d02fd68d`,
+  and installed nginx SHA-256
+  `1f16b72bea2f44e5d04fe6cf9e3e4b0dec53a82c50c7c1533c302a8ecaeccacf`.
+  Official `nginx`/`nginx-common` `1.24.0-2ubuntu7.17` were installed once from
+  verified local packages after exact dependency simulation; no reinstallation
+  occurred. The default nginx unit remains administrator-masked/inactive.
+- The first ingress attempt installed the packages/custom unit and passed
+  unknown-path `404`, then a raw `ss` padding difference falsely failed the web
+  listener comparison. Its owned-unit rollback stopped both newly owned nginx
+  units and verified the mask; ordinary/private files, unit/PIDs, SSH and actual
+  TCP/UDP `443` owners were unchanged. A separate resume preflight then stopped
+  before any start because even stateless nft output retains changing fail2ban
+  SSH ban members. Both failed attempts and their protected evidence are retained;
+  the installer was not replayed.
+- The separately reviewed correction compares socket identity without padding
+  or queue occupancy and normalizes only IPv4 members of the exact
+  `table inet f2b-table` / `set addr-set-sshd` / `type ipv4_addr` set. Its name,
+  type, all other rules/static sets and commercial source restrictions remain
+  exact. fail2ban is active with PID `594973` and the sshd jail active. The fresh
+  exclusive resume completed EXIT `0`; ordinary/private hashes, unit/PIDs,
+  `443` owners and static firewall policy PASS. Never disable fail2ban or restore
+  an old ban list to satisfy the comparison. No public `28080` allowance, CDN
+  change, or private subscription probe occurred. Deliberate ingress rollback
+  and CDN proof remain open; one existing paid CDN resource remains the approved
+  design.
+- Direct authenticated commercial ingress traffic now PASS: the existing
+  synthetic generation 4 identity traversed loopback SOCKS -> ingress `28080`
+  -> commercial XHTTP/ML-KEM `28081` -> `exit-s4` relay -> HTTPS egress-check
+  service (ipify).
+  Curl exited `0` in `468 ms`; the returned egress matched S4. The owned test
+  client stopped, and ordinary/private files and the service baseline remained
+  unchanged. No desired POST, private-subscription probe, service/config/firewall
+  or CDN mutation occurred. That first request is isolated direct-ingress evidence, not CDN,
+  public-edge, counters, or general device proof.
+  The original traffic preflight failed before client startup because saved
+  checksum paths were root-relative but SSH started in `/root`; it did not
+  prove content drift or send traffic. Its evidence is retained. The corrected
+  helper used checksum subprocess `cwd='/'` and fresh exclusive evidence;
+  bounded independent review and syntax validation passed before this proof.
+- A separate metered direct-ingress proof now PASS: curl `0`/`343 ms`, S4
+  egress match, per-user uplink `+799` bytes and downlink `+3564` bytes.
+  Both samples required exactly the same two synthetic counter names through
+  existing mTLS API `28082`, with reset false. Official portable grpcurl `1.9.3`
+  and Xray `26.5.9` command proto were hash-bound; TLS authority was
+  `maestro-xray-api`, with neither insecure TLS nor reflection. The tool lives
+  only in the protected backup: no system install, new service or TLS bridge.
+  The owned client stopped; ordinary/private files and service baseline stayed
+  unchanged. No desired POST, private probe, counter reset, billing mutation,
+  firewall or CDN change ran. The missing-before-counter zero fallback was
+  removed in review before the first live query; syntax and bounded review PASS.
+  This closes only point-in-time exact per-user counters/delta proof, not a
+  continuous collector, GB debit, commercial billing or 48-hour accounting.
+- Read-only bot identity discovery is complete: current S1
+  `@MaestroSecureVPN_bot` uses `vpnbot.service`; S2 `@MaestroSecureNaive_bot`
+  uses `vpn_bot.service`. Each was active with one process, webhook absent and
+  pending count zero. `@maestrovpn` is configuration-backed; publishing rights
+  and commercial delivery/refresh flows are not proven. No messages were sent.
+
+Next: finish CDN/public-edge proof, unknown-outcome fault injection,
+deliberate rollback
+and same-release re-apply before S2 → S3 → S1. Full client/bot/channel/panel
+refresh, last-known-good recovery and continuous 48-hour accounting remain open.
+The private subscription/credential stays active and unprobed. Customer traffic
+cutover, real charges, release/signing/OTA, OLCRTC and WDTT remain outside scope;
+production Android remains ordinary-only `1.0.157`.
+
+Eye side-task while CDN UI access is unconfirmed: the
+[05.09 source diagnosis and registered open-eye candidate](docs/design/mobile-eye-natural/2026-09-05-registered-open-candidate.md)
+were archived at `279e34f16c24326bb416e7ff8c801282f0279f90`, with the unchanged
+PNG and exact prompt.
+The candidate is PREVIEW ONLY, not accepted or integrated; all three visual
+criteria remain open. That artwork checkpoint changed no APK or runtime source.
+A separate [bounded glow-edge correction](docs/design/mobile-eye-natural/2026-09-05-glow-outer-edge-taper.md)
+is now source-implemented, not installed: Kotlin preserves the original ramp
+through radius `0.98`, then tapers to transparent; the lightweight preview
+mirrors it. One boundary test observed RED (`39 != 0`), then two focused tests
+passed, including closed-material invariance; independent source review CLEAN.
+The new manual `mobile-eye-state-preview` task runs only Pillow tests/render
+and uploads exact-SHA OFF/ON images. Run `33940310334` and focused job
+`101236295752` succeeded on source `7dff0773b217f7a634db304147020b1ed0537f02`;
+the ring/runtime/Android build jobs were all SKIPPED, not GREEN. Artifact
+`9961583414` is `6545629` bytes, with verified ZIP SHA-256
+`28bdfd1f47ef6892d70207d51fc15b5063dd37263e2c6058d5a0a870d75cf2a5`.
+Its three unchanged PNGs are durable under
+`docs/design/mobile-eye-natural/preview-7dff077/`; exact PNG hashes are in the
+glow note. Visual review found the OFF fold extends much farther than the ON
+eye and the legacy gold/brown inner rim remains visible. All three visual
+criteria remain open; scripted states/static buttons are not runtime evidence.
+Further artwork attempts were not integrated: full-master edit altered green,
+iris was RGB without alpha, and sclera generation returned HTTP 400
+`moderation_blocked` without an artifact or retry. No failed artwork was copied
+into the repository; native crop/clip is only an unvalidated idea.
+Keep `[skip ci]` on this and later post-preview documentation commits to prevent
+automatic APK builds; no Kotlin compilation, APK or device proof occurred.
+No animation, aperture, atlas, TV or installed app change occurred. After the image gate,
+the artwork step remains one anatomy-only composite registered to the original
+closed material, preserving blink/gaze and the single ring placement owner;
+no aperture numeric fix is confirmed. Commercial b441/private state and the
+priority and CDN/public-edge gates above remain unchanged.
+
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 13 DELIVERY GREEN; TASK 14 NEXT (04.09.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Проверенный Task 13 delivery code
+  checkpoint — exact SHA `080793acd7a25ddf3cae6f3ebe2b9b16bc96f691`;
+  отчётный checkpoint — `3fb23f9cc494e1a14826a3b90ef51e4f0ddc2328`.
+  Local и remote refs совпадают. Все шесть применимых exact-SHA workflow на
+  code SHA завершены GREEN: control-plane `33829503605`, DR `33829503652`,
+  immutable artifact `33829503606`, S4 package `33829503622`, Yandex CDN
+  `33829503596`, isolated sidecar `33829567545`. Три scoped fix/re-review
+  round закрыли все найденные Critical/Important; итоговый минимальный
+  re-review вернул `CLEAN`.
+- Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
+  `3033d4069af5199c50f4912c43314972d961ae1b` и
+  `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
+  immutable periods/journal/usage applications и CAS projection; независимый
+  final re-review вернул `SPEC: APPROVED`, `QUALITY: APPROVED` без findings.
+- Task 5 реализовал zero-grant prepaid balance и rqlite service; Task 6 —
+  exactly-once списание `UPLINK_PLUS_DOWNLINK` интервалов и fail-closed
+  publication verdict; Task 7 — immutable GB catalog, exactly-once
+  create/claim/confirm/reject top-up lifecycle и отдельный default-OFF
+  publication control. Главные checkpoints: `19ad65a`, `d2a2ff0`, `3538c22`,
+  `72e7b24`, CI/schema correction `21ddf86` и итоговый rqlite correction
+  `670e19d`.
+- Task 8 добавил единый backward-compatible commercial API: catalog, access и
+  GB orders, durable paid-claim, admin confirm/reject с dispatch по сохранённому
+  product family, account-bound balance, idempotent publication enable/disable
+  и authenticated delivery descriptor. Legacy `/order/tariffs`, access-order
+  JSON и admin callbacks сохранены. Реализация зафиксирована commits `d6d1b40`,
+  `801ee6e`, `6615668`; regression assertion исправлен в `cd8a7cf`.
+- Task 9 добавил официальный pinned
+  `github.com/INCY-DEV/incy-link-encoder/go v1.3.0`: Incy получает one-tap
+  `INCY_ONE_TAP` со случайным IV и фиксированным именем `MaestroVPN`, а Happ —
+  безопасный `COPY_HTTPS_URL_AND_QR` с исходным HTTPS URL без выдуманного
+  wrapper. Строгая fail-closed валидация принимает только приватный Maestro
+  `/sub/<token>` URL без userinfo/fragment и без query либо ровно с
+  `format=links`; ошибки не раскрывают URL/token. Основная реализация —
+  `cd7f3c1`, финальный URL edge-case fix — `eba97d7`.
+- Task 10 добавил пятикомандный customer flow Telegram, durable привязку чата
+  только после bearer-проверки, ordinary renewal за 400 ₽, четыре GB-пакета,
+  login-only комментарий к ручной оплате, Incy one-tap и Happ fallback.
+  Legacy `moconf` оставлен на статическом ordinary-access callback; отдельные
+  opaque `mwcf`/`mwrj` callbacks направляют GB top-up на canonical dynamic
+  admin routes с устойчивой idempotency key. RED evidence — workflow
+  `33724618385`; итоговый GREEN — `6b7c148`. Локально GREEN 16 customer/orders
+  тестов и syntax compile. Реальный outbox sender/poller и producers
+  deduplicated 50/80/90/100%, suspension/resume/stale/failed-provisioning
+  alerts ещё должны быть подключены в следующих integration tasks; наличие
+  producer/handler contract не считается live Telegram delivery. Production
+  integration должна охватить оба существующих Telegram-бота и существующий
+  клиентский канал; их реальные identities/configuration сначала извлекаются
+  из live deployment, а не придумываются по repository naming. До этого
+  checkpoint никаких сообщений в канал не отправлялось.
+- На реальном rqlite v10.1.0 устранена нестабильность stored triggers: в них
+  больше нет clock expressions, которые rqlite переписывал и замораживал.
+  Expiry clock остаётся атомарным в DML-предикатах service/sweeper. Официальный
+  трёхузловой Apply/VerifyIdentity gate, семь whitelist real-rqlite тестов и
+  focused migrations GREEN. Независимый final review не нашёл P0/P1; один
+  необязательный P2 о дополнительной полноте regression не расширял scope.
+- Владелец 02.09.2026 уточнил коммерческую политику: ordinary VPN и его
+  продление остаются без изменений; CDN/LTE entitlement и CDN-узлы по умолчанию
+  скрыты/OFF. Включить их может только подтверждённая покупка GB либо явное
+  действие администратора. Admin disable скрывает CDN/LTE и отзывает только
+  управляемые `wl:` identities, но не удаляет purchased balance, ledger/history
+  и не меняет ordinary VPN.
+- Продление основного доступа за 400 ₽ не начисляет автоматические 2 GB и само
+  по себе не включает CDN/LTE. Пакеты остаются 5 GB/100 ₽, 20 GB/300 ₽,
+  50 GB/600 ₽, 100 GB/1 000 ₽. CDN/LTE trial/bonus отложен; если его утвердят
+  позднее, это будет отдельный явный идемпотентный grant/product. Owner planning
+  input: около 40 клиентов, около 3 текущих пользователей white-list; это не
+  server-verified runtime count.
+- Письменный интегрированный дизайн обновлён в
+  `docs/superpowers/specs/2026-09-01-maestrovpn-whitelist-commercial-delivery-design.md`.
+  После override подтверждены `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие
+  отрицательного расчётного баланса, default-hidden CDN/LTE, one-subscription UX и rollout
+  S4 → S2 → S3 → S1. Исполнимый RED/GREEN план сохранён в
+  `docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md`.
+- Один Yandex CDN resource использует одинаковые active Origin-реплики.
+  Управляемая route identity `wl:<entitlementID>:<exitID>` на любом Origin
+  статическим Xray `user regexp` направляется через отдельный TLS VLESS relay
+  на тот же выбранный exit S1/S2/S3/S4. Публикация разрешается только после
+  свежих receipts всех active Origins и health выбранного exit. Xray API
+  остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
+  3x-ui/Xray и ordinary VPN не затрагиваются.
+- Независимые design/plan и Task 1–13 reviews закрыты в реализованной части.
+  Task 11 добавил immutable migration `0015`, защищённые route credentials,
+  канонические monotonic desired generations, durable current-state readiness
+  по полному набору active Origins и точные unexpired receipts, привязанные к
+  текущим boot/config/generation/action identities. Unknown outcome остаётся
+  read-only и не вызывает blind resend. Task 12 добавил отдельный Go 1.26
+  mTLS node agent, exact HandlerService reconciliation по email+VLESS account,
+  durable short-lived receipts, Xray PID/start identity, fail-closed relay/TLS
+  health и строгую проверку ровно четырёх разрешённых nftables firewall rules.
+  Task 13 добавил read-only exact-action receipt lookup, bounded mTLS sender,
+  безопасное различение before-send/after-send outcome, существующий runtime
+  poller для whitelist intents и fail-closed target set по полному publication
+  verdict. Revoke сначала закрывает публикацию и затем удаляет identities даже
+  при unhealthy/missing exit; enable/resume по-прежнему требует healthy exit и
+  точные свежие receipts всех active Origins. Следующий repository step —
+  Task 14 compatibility/accounting/rollback CI. Task 15 начинается только
+  после его exact-SHA review/CI и выполняет inventory/backup/canary/rollout
+  S4 → S2 → S3 → S1.
+- Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
+  платежи, balances, Android/TV, release/signing или OTA. Real charging,
+  production DB cutover и final customer traffic cutover остаются отдельными
+  stop gates. Приватная рабочая Incy subscription и временный canary credential
+  остаются включены по указанию владельца и не проверяются/не удаляются.
+  Тяжёлые Go/race/vet/rqlite/Android проверки выполняются только в GitHub;
+  Android artifact является test-only и не устанавливался. OLCRTC и WDTT
+  заморожены.
+
+## 0. XHTTP FIRST-CANARY — MOBILE WHITE-LIST PASS (01.09.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Repository/runtime/CI реализация
+  первого изолированного canary зафиксирована последовательностью exact SHA:
+  lifecycle/recovery `819e11ada7f14f4aa6b3bcdbf8cf8cc2e2fd746b`, operator CLI
+  `713eb7e0724cd075bfab72420742ffc18dc389a7`, exact-SHA CI policy
+  `445b8fa682d128cabd03576050be936b33e658ec`, итоговые Linux CI corrections
+  `fcde1cd35c5e96ea99c8afe98ea41c74437c6bac`. Финальные независимые reviews
+  каждого актуального code scope завершены с `0 Critical / 0 Important`.
+  Exact-SHA GitHub evidence для `fcde1cd35c5e96ea99c8afe98ea41c74437c6bac`
+  завершён со статусом `success`: `HA immutable panel artifact` run
+  `33464964316`, `Yandex CDN isolated release checks` run `33464964334`,
+  `HA DR restore drill` run `33464964361`, `HA control-plane checks` run
+  `33464964363`, `HA S4 network change package` run `33464964368`. Это закрывает
+  только repository/CI gate. Отдельный реальный mobile white-list client test
+  теперь имеет **OWNER-REPORTED CLIENT PASS**; готовность customer product этим
+  не заявляется.
+- На S4 работает только отдельный тестовый Xray `26.7.28` sidecar; обычный
+  x-ui/Xray и его TCP/UDP `443` не изменялись. Direct tunnel и tunnel через
+  тестовый Yandex CDN прошли server-side smoke. После владельческого теста в
+  современном Xray-клиенте per-user uplink/downlink counter вырос на `5844`
+  bytes (`8704 -> 14548`), поэтому unrestricted client path имеет **PASS**.
+  Защищённый evidence run: `20260831T213659Z`; SHA-256 клиентского validation
+  log: `23842965f2b14df2c0185636d5699ce83e31d8fb8755692f4058657d4c1119ce`.
+- 01.09.2026 владелец сообщил итог семейного client test: дочь проверила
+  one-tap Incy full-JSON subscription при активном операторском mobile
+  white-list и подтвердила: «работает всё замечательно». Результат
+  классифицируется строго как **OWNER-REPORTED CLIENT PASS**. До выдачи endpoint
+  был отдельно проверен по TLS/HTTP (`200`, `application/json`, byte/hash
+  match), а официальный Incy `crypt1` wrapper прошёл encode/decode round trip.
+  Full JSON содержал явный UDP/443 blackhole и тот же S4 canary/XHTTP path.
+  Приватный URL, credentials и клиентские секреты в Git не записываются.
+- По прямому указанию владельца приватная тестовая subscription и временный
+  credential остаются активны до полного завершения сервиса. Не выполнять их
+  status-probe, rollback, rotation или удаление без отдельного указания
+  владельца либо подтверждённого safety incident.
+- Прямой test URI совместим с современным Xray-клиентом, но **не** с production
+  MaestroVPN Android/TV `1.0.157`: приложение использует pinned sing-box/libbox
+  без XHTTP и ML-KEM VLESS Encryption. One-tap Incy wrapper приватной HTTPS
+  full-JSON subscription импортировался и прошёл пользовательский тест; это не
+  доказывает совместимость transport с MaestroVPN `1.0.157` и не заменяет
+  обновление runtime приложения.
+- Task 2 recovery сохраняет fail-closed порядок: сначала оператор отдельно
+  возвращает Yandex CDN на диагностический origin, затем CLI `rollback`
+  проверяет этот внешний restore и только после этого снимает sidecar/local
+  state. Сам CLI не изменяет Yandex Cloud.
+- Это не готовый customer product. Repository уже содержит durable entitlement
+  identity `wl:<entitlementID>` и additive white-list renderer. Не реализованы
+  их production wiring в `/sub/<token>`, durable profile/preset/release/edge
+  credential binding, production stats collector, durable GB ledger/runtime
+  metering/billing, panel/private projections, Telegram UX, fleet rollout и
+  customer cutover; эти контуры остаются **NOT IMPLEMENTED / NOT TESTED**.
+  Android/TV production baseline остаётся `1.0.157`; OLCRTC и WDTT вне scope.
+
+## 0. HISTORICAL — XHTTP FIRST-CANARY TASK 1 LOCAL GREEN (31.08.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Исполняемый runtime plan имеет base
+  `ef9d8330ab42c9961befd02f9d638198cff8f2ba`; Task 1 code после review-fix
+  зафиксирован exact SHA `0048d3c6186d3262fb40734dbf0abe4583fcaf29`.
+- Добавлен только pure pre-candidate boundary
+  `backend/internal/canary/{pins,snapshot,config}.go` и его focused tests.
+  Он строго проверяет canonical snapshot, роли server/client VLESS Encryption,
+  canonical RawURL base64, один UUID/counter identity, безопасный XHTTP path,
+  pinned Xray `26.7.28`/binary SHA-256 и материализует совпадающую пару
+  server/direct/CDN/URI без записи секретов в Git.
+- Focused `go test -count=1 ./internal/canary` завершён GREEN. Повторный
+  независимый formal review exact diff `ef9d833..0048d3c` завершён
+  `0 Critical / 0 Important`; три прежних Important исправлены. Оставшееся
+  Minor касается только сокращения диагностик тестовых failure-сообщений и не
+  блокирует Task 1.
+- На этом историческом Task 1 checkpoint полные Linux race/vet/regression и
+  exact-SHA GitHub checks ещё оставались обязательным Task 4 gate; локальный
+  результат их не заменял. Реальный VLESS/XHTTP tunnel, Yandex CDN tunnel,
+  операторский white-list, per-user stats, subscription, metering и billing на
+  том checkpoint ещё **NOT TESTED**. Актуальный результат приведён выше.
+- Следующим repository этапом был Task 2: защищённая Linux stage/lifecycle
+  `ABSENT -> PREPARED -> ROLLBACK_REQUIRED -> CANARY_ACTIVE -> ABSENT` с
+  отдельным systemd sidecar, проверкой pinned binary/config и гарантированным
+  восстановлением diagnostic origin. S1-S4, ordinary x-ui/Xray, CDN origin,
+  клиенты, Telegram, платежи и Android/TV `1.0.157` этим Task 1 не изменялись;
+  OLCRTC и WDTT остаются вне scope.
+
+## 0. HISTORICAL — YANDEX CDN DIAGNOSTIC TRANSPORT (31.08.2026)
+
+- Read-only проверка Yandex Cloud на этом checkpoint подтвердила один активный тестовый ресурс
+  для owner-authoritative public hostname из MASTER section 4: сертификат
+  был выпущен, origin тогда указывал на S1 probe `18080` по HTTP, client access
+  был разрешён, CDN/browser cache выключены, разрешены только `GET`, `HEAD`,
+  `OPTIONS`; за 30 дней у ресурса `0` ответов из cache и `0` ответов 5xx.
+- Два независимых live-path дали GREEN. В свежем bounded evidence run
+  `2026-08-31T18:14:56Z..18:15:09Z` оператор Codex выполнил тесты
+  `T-CDN-LOCAL-GET`, `T-CDN-LOCAL-OPTIONS`, `T-CDN-S4-H2-GET`,
+  `T-CDN-S4-H2-OPTIONS` и `T-CDN-S4-LITERAL-EDGE`. С локального оператора GET
+  body длиной 34 bytes дошёл через Yandex CDN до probe byte-exact:
+  origin-reported SHA-256 совпал с sender SHA-256; `OPTIONS` с телом 4 bytes
+  вернул `204`. С S4 отдельный HTTP/2 GET body длиной 31 bytes также совпал
+  byte-exact, HTTP/2 `OPTIONS` вернул `204`, а literal-edge `--resolve` с тем же
+  SNI/Host вернул HTTP/2 `200`. Origin видел `Via: Yandex-CDN`,
+  `CDN-Loop: yandex` и корректные forwarded headers.
+- Защищённый raw bundle привязан к repository checkpoint
+  `d31c36d546ef4e15da6a6a5c829092a3f2f7c981`; SHA-256 его детерминированного
+  `EVIDENCE_MANIFEST.json` —
+  `f50546782b1a548a7d156ed33fada9c0dbd9888f63a3ee2873183c7ee9558416`.
+  В Git сохраняются только test IDs, UTC, оператор, результаты и digest; raw
+  hostname/IP остаются вне репозитория.
+- Этот исторический тест доказал живой Yandex CDN diagnostic transport,
+  GET/OPTIONS body path, HTTP/2 client leg и literal shared edge. Сам по себе он
+  **не** доказывал VLESS/XHTTP
+  tunnel, работу MaestroVPN через операторский white-list, subscription import,
+  per-user stats или billing.
+- На том checkpoint candidate sidecar ports `18081/18082` не принимали
+  соединение. S1 management port `22` принимал TCP, но не отдавал SSH identification ни
+  локальному оператору, ни S4; альтернативный документированный/common SSH
+  port и отдельный S1 provider console не были найдены. Поэтому на том этапе
+  sidecar не устанавливался, origin не переключался и обычный VPN не менялся.
+  Последующий first-canary PASS и текущее активное тестовое окно зафиксированы
+  в верхнем разделе и supersede этот исторический current-state snapshot.
+- Repository checkpoint для завершённого S4 результата — exact SHA
+  `ab68710419acfcd99069da3422e5b6312669bff6`; применимые workflows GREEN:
+  `33417902008`, `33417902015`, `33417902032`.
+
+## 0. S4 NARROW NETWORK REPAIR — LIVE GREEN (31.08.2026)
+
+- Repository authority перед окном: exact SHA
+  `535c18d13f8c9b597e4ee38da0c4af2325ecd7e2`; все пять обязательных
+  canonical-branch workflows GREEN: `33411330259`, `33411330286`,
+  `33411330280`, `33411330262`, `33411330298`. Независимое review осталось
+  `0 Critical / 0 Important / 0 Minor`.
+- Свежий защищённый raw capture был отдельно просмотрен; canonical inventory
+  получил `EVIDENCE_COMPLETE` без blockers. Package SHA-256:
+  `f6b5bce761b6744d835759c36bcd0c412b6ca6d85215646d5967ec186c7f24e6`.
+  Две независимые UTC-проверки, encrypted console, второй оператор,
+  exclusive change lock, protected backup и executable rollback были GREEN
+  до единственной S4 mutation.
+- В bounded S4-only окне удалено только конфликтующее ifupdown-владение
+  primary interface/default route и отключено его boot ownership; два старых
+  failed-state сброшены. `systemd-networkd` не перезапускался и остался active
+  с прежним default route; x-ui и Hysteria остались active, ожидаемые TCP/UDP
+  listeners сохранились. Новый независимый SSH-сеанс и encrypted console
+  подтвердили доступность; после изменения failed units отсутствуют.
+- Backup SHA-256:
+  `0d322c0003f9f359f5934e4fac88eec02109a30db63719f442747a552104f4ce`;
+  rollback-sheet SHA-256:
+  `7668f48e8789b2d723d5abf7333c946d864e7eb00f5ee0f8ac0e1b6ee16a6885`;
+  protected result-record SHA-256:
+  `35c765ce1216d7278aeaed888e530a734defbf18e47d22fb9c888657305b18e8`.
+  Raw bytes, concrete paths, addresses и command sheet остаются вне Git.
+- Это завершает только узкий S4 network repair. S3 identity/east-west proof,
+  HA shadow deployment, backup/restore, CDN, Telegram/billing и customer
+  cutover остаются отдельными gates. Android/TV остаётся `1.0.157`; OLCRTC,
+  WDTT, реальные списания, release/signing/OTA и final traffic cutover не
+  затрагивались.
+
+## 0. S4 NETWORK REPAIR PACKAGE — REPOSITORY HANDOFF (31.08.2026)
+
+- Единственная рабочая ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Последовательность S4 зафиксирована
+  точными коммитами: Task 0 `6edcb1791318d22dc46ee6eb1819963ba2608596`,
+  Task 1 `5a2eed80e93a758341a05530a2420bcd728d0439`, Task 2 code
+  `03f293df130f10873208918e44e058d079b19843` и POSIX evidence
+  `4c0383fdc1d46f9b68717a898c1d9372e00f5c04`, Task 3
+  `b1b04ef69a1334a08fdde055941d8c21d906ccfc`, Task 4
+  `caf5fe1b65410f369a5da801da5fdfdcc46dbafb`.
+- Task 4 добавляет только inert GitHub workflow и его self-policy:
+  `.github/workflows/ha-s4-network-change-package.yml`,
+  `ops/ha/tests/test_s4_network_change_package.py` и
+  `ops/ha/tests/test_s4_network_workflow_policy.py`. Workflow не содержит
+  production credentials, сетевых команд, artifact upload или права на
+  изменение S4.
+- На exact Task 4 SHA локальный scoped suite завершён: 86 tests `OK`, 21
+  ожидаемый Windows skip для POSIX-only проверок; четыре Python-файла прошли
+  `py_compile`, scoped/cumulative `git diff --check` чист. Независимое bounded
+  review завершено с Critical/Important/Minor `0/0/0`, verdict `Ready: Yes`.
+  Ранее Task 2 POSIX gate был GREEN в GitHub run `33376269552`, job
+  `99438342540`, с 56 tests `OK` без skip.
+- Это готовность repository package, а не live-готовность S4. Exact-SHA push и
+  GitHub GREEN для текущего Task 4/Task 5 commit выполняются в Task 6; старые
+  workflow runs не заменяют этот gate. Сервер, сеть, DNS/CDN, клиенты, платежи,
+  Telegram-боты и customer traffic на этом этапе не изменялись.
+- Следующий production шаг после Task 5 и exact-SHA GitHub GREEN — только свежий
+  защищённый read-only S4 inventory, его отдельный raw review и генерация inert
+  package. Любая S4 mutation остаётся **PRODUCTION NO-GO**, пока inventory,
+  trusted UTC, console recovery, second operator, backup/rollback и before-state
+  health не подтверждены одновременно. Android/TV остаётся `1.0.157`; OLCRTC,
+  WDTT, реальные списания, release/signing/OTA и финальный traffic cutover не
+  входят в это разрешение.
+
+## 0. S4 STANDING AUTHORIZATION RECONCILED — REPOSITORY-ONLY BASELINE (31.08.2026)
+
+- Durable amendment:
+  `docs/superpowers/specs/2026-08-31-maestrovpn-s4-production-authorization-amendment.md`.
+  The owner's later standing instruction removes only the extra chat-reply
+  pause after every applicable gate is GREEN; it does not replace the approved
+  design, package, evidence, trusted-time, console, second-operator, rollback,
+  stop-gate, exact-SHA CI, or independent-review requirements.
+- Before an S4 mutation, the pre-mutation declaration must bind exact `S4`,
+  package digest, operator, UTC window, impact, preconditions, protected
+  rollback-sheet identity, and every stop gate. Two independent trusted-UTC
+  comparisons, fresh unchanged inventory, independent console, second operator,
+  no concurrent work, protected backups, before-state health, fresh management
+  session, and immediate rollback remain mandatory.
+- Standing authorization is external owner authority only. It does not turn an
+  S4 artifact into embedded authority: the package remains
+  `apply_supported: false` and `mutation_authorized: false`. It does not
+  authorize OLCRTC, WDTT, real charges, OTA/release publication or signing,
+  destructive actions, or final customer cutover.
+- **PRODUCTION NO-GO** remains in force until the amendment, implementation,
+  handoff, exact-SHA GitHub CI, independent review, and all Task 6 gates are
+  GREEN. This checkpoint changes no server, DNS/CDN, customer, payment,
+  release, secret, or production configuration.
+
+## 0. TASK15B OFFLINE PKI/SERVICE PLAN EXACT-SHA ACCEPTED (31.08.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Принятый Task15B code SHA —
+  `968680c4c50a52b1b8bfafee5cc02b36113c4f23`, tree
+  `c1c7c9561016c9032c15cdaf0288e76a998ed446`; local и GitHub refs
+  совпадают. Изменения ограничены workflow policy, Linux exact-SHA gates и
+  документацией offline PKI/service/deploy-plan контура.
+- Независимые финальные reviews Task 5 code scope завершены с Critical/Important/Minor
+  `0/0/0`. Все затронутые exact-SHA workflow run attempt `1` GREEN:
+  `HA immutable panel artifact` run `33347673768`, job `99354835735`;
+  `HA control-plane checks` run `33347673755`, job `99354835639`;
+  `HA DR restore drill` run `33347673753`, job `99354835554`;
+  `Yandex CDN isolated release checks` run `33347673733`, jobs
+  `99354835423`, `99355150766`, `99355150775`, `99355150817` и
+  `99355596537`.
+- Linux gate на exact SHA доказал focused Python suites, panel runtime
+  contract, pinned rqlite `v10.1.0` flag/help surface, wrapper syntax и
+  изолированный `systemd-analyze verify`. Нормализованная версия из job log:
+  `OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)`.
+- Task15B build-run создал CI-only artifact ID `9742646404`, name
+  `maestro-panel-968680c4c50a52b1b8bfafee5cc02b36113c4f23`, GitHub archive
+  digest `sha256:f47369cf113f9bbd0af7592bcc684ff1b8bf96f9b11e2ada982dab64b4faa31f`.
+  В нём ровно `maestro-panel` и `manifest.json`; binary SHA-256/size —
+  `2e3e219982bf9d59882a88a6164f626fd87c2c66ad4ac99f67de4bfb1ee7fc6b` /
+  `10649784`, manifest SHA-256/size —
+  `5c82b1d316a682a828c0b67e50e279e4d96c6893b02548b5967afba360b18789` /
+  `530`. Этот новый CI artifact не заменяет independently reviewed planner
+  trust anchor.
+- Planner по-прежнему fail-closed привязан к принятому Task15A artifact source
+  `f577c67ad229fe89278430d35a3ec65f6ce454e5`: run `33327019392`, attempt `1`,
+  job `99298854016`, artifact ID `9736614530`, name
+  `maestro-panel-f577c67ad229fe89278430d35a3ec65f6ce454e5`, GitHub archive
+  SHA-256 `104ea083f3c590533574a3c3d09f2569129e006597a6e057ce15276c15d49828`.
+  Exact members — только `maestro-panel` и `manifest.json`; binary
+  SHA-256/size —
+  `8f67bde5d720e17e04b5b2de0147f2c2502fafa54a5e675471f1a160866a3990` /
+  `10649784`, manifest SHA-256/size —
+  `853282de28d13627f0660a0c233e9d3e653c174f28d34062d8c1d3e93797fa9f` /
+  `530`. Archive digest независимо совпал с GitHub-reported digest.
+- На synthetic offline `s2` inventory, bounded reviewed transport evidence,
+  synthetic redacted PKI evidence и exact six-template root planner CLI был
+  выполнен дважды без исполнения binary. Stdout byte-exact детерминирован:
+  canonical plan size `3808`, SHA-256
+  `d80470c94fc24c1236445398a7c35b06f81c9d593ce80dd8706a1b28e63ba67d`.
+  Результат `maestro-ha-deploy-plan-v1` остаётся `NO_GO`, `authorized:false`,
+  содержит 6 desired files и 6 template digests; template source anchor —
+  `8289ce78be8dcb2c00829d6b9781d4b52a18cb73`.
+- Статус остаётся **PRODUCTION NO-GO**. Не закрыты authoritative S3 identity,
+  S4 network/east-west proof, authenticated/versioned empty-cluster restore,
+  independent artifact attestation/rulesets, real PKI issuance/private material,
+  reviewed bootstrap/join, target runtime smoke, owner-approved private shadow,
+  canary и cutover. Никакие серверы, клиенты,
+  customer data, DNS/TLS/CDN, оба Telegram-бота, оплаты, release/signing или OTA
+  не изменялись. Android/TV production baseline остаётся `1.0.157`; OLCRTC и
+  WDTT заморожены.
+
+## 0. HA PLAN 02 TASK 8 — FINDING 9 ACCEPTED EXACT-SHA (30.08.2026)
+
+- Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
+  Принятый independently reviewed code SHA —
+  `d7cfec12eb8656ea821d855bdb552a172cbf5fd6`; remote branch совпадает.
+- Finding 9 закрыт: production panel/API/SPA сохраняет legacy HTTP-контракт,
+  различает 401/403, fail-closed проверяет credential/CSRF, использует
+  constant-time comparison и не раскрывает секреты в URL/log-safe ошибках.
+- До разбора JSON action выполняются bounded cluster-backed IP/session rate
+  limits, authentication, CSRF, idempotency и базовая authorization. Повторная
+  action-specific authorization выполняется ровно один раз после decode.
+- Panel pagination теперь cursor-based; cursor зашифрован AES-256-GCM со
+  случайным nonce, versioned envelope и kind-bound AAD. Ключ детерминированно
+  выводится из стабильной общей panel-конфигурации, поэтому одинаковые HA-ноды
+  принимают cursor друг друга, а tamper/different-config отклоняются fail-closed.
+- Customer reset возвращает повторно прочитанное committed состояние; delete
+  возвращает только `{"ok":true}` и не выдаёт фиктивную zero-value запись.
+  Operational status использует реальные cluster/runtime данные. Durable
+  rate-limit schema добавлена migration v9.
+- Независимые финальные reviews: Critical/Important/Minor — `0/0/0`, verdict
+  `ready`. Три исправленных legacy auth fixture tests локально GREEN. Полный
+  Windows-прогон не повторять: старый Python SQLite `CombinedOutput` harness
+  блокируется на pipe; авторитетный полный Linux gate выполнен GitHub Actions.
+- Exact-SHA GitHub evidence полностью GREEN:
+  [Yandex CDN isolated release checks 33309742322](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742322),
+  [HA control-plane checks 33309742346](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742346),
+  [HA DR restore drill 33309742401](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742401).
+- Redacted read-only S1-S4 inventory и legacy backup verification завершены;
+  durable audit: `docs/operations/ha-readiness-audit-2026-08-30.md`. Статус
+  `PRODUCTION NO-GO`. Следующие gates: authoritative S3 identity, воспроизводимые
+  S1 exact-SHA artifacts, reviewed HA runbooks/tooling, isolated empty-cluster
+  restore, S4 network maintenance и полный east-west proof. Shadow deploy/restart,
+  rqlite import/write, DNS/TLS/CDN, bot/payment/customer mutation, canary и
+  cutover требуют соответствующих owner-approved gates; финальный traffic
+  cutover остаётся отдельным явным approval.
+- Android/TV production baseline остаётся `1.0.157`. Findings 3/11 (OLCRTC) и
+  WDTT заморожены. Защищённые `task-4-report.md` и `normalize.patch` не stage и
+  не изменять. Akonit/Telegram decisions сохранены в
+  `docs/research/2026-08-30-akonit-telegram-product-notes.md`.
+
+## 0. HA PLAN 02 TASK 8 — FINDING 5 ACCEPTED EXACT-SHA (30.08.2026)
+
+- Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
+  Принятый F5 code SHA —
+  `bc4c9defc7158e3e2d9a9cc567e58ba25e9c2e7f`; local и remote refs
+  byte-exact совпадают.
+- Public `/sub/<token>` boundary теперь читает один coherent strong rqlite
+  snapshot: customer/status/exact expiry, customer/token/settings/schema
+  generations, sealed token и credentials, committed-device state, active
+  restore epoch и DB time. Raw token/device identity не становятся SQL- или
+  cache-ключами; для lookup/audit используются domain-separated HMAC.
+- Admission нового и повторного устройства атомарно связан с тем же exact
+  authorization state и DB-time expiry. Device mutation, dirty backup-RPO
+  generation и audit event имеют строгую result cardinality и одну transaction;
+  audit collision/неполный result откатывает claim fail-closed. Текущий HTTP
+  request после успешного claim рендерится во время admission; следующий request
+  после expiry уже получает expired response.
+- Cache разделён по token/device/variant, имеет независимые token/device fences,
+  restore-first ordering и corruption/drift invalidation. Last-known-good
+  разрешён только для уже committed identity при временной недоступности;
+  неизвестное шестое устройство не может использовать чужой cache. `/info` не
+  записывает device, `/helpers` не требует credentials, основной subscription
+  требует полный canonical credential envelope.
+- Сохранена клиентская совместимость: query device имеет приоритет над header,
+  поддержаны `/info`, `/helpers`, links variant и malformed suffix старого TV
+  `1.0.74`; отсутствующий/невалидный device сохраняет legacy read behavior и не
+  регистрируется.
+- Production policy едина для legacy provisioning и rqlite runtime:
+  `MAESTRO_DEVICE_LIMIT=off` (trim/case-insensitive) отключает admission без
+  записи; `0` означает unlimited с записью; default `5`, owner logins `0`,
+  `strogino` `9`. Re-run deploy сохраняет уже заданный switch.
+- Независимые security/design reviews: **APPROVE**. Fresh canonical local
+  regression GREEN: API `0.768s`, controlplane `462.742s`, panel `0.095s`,
+  device policy `0.044s`, provision `0.374s`. Exact-SHA GitHub runs GREEN:
+  HA control-plane `33288345852`, HA DR restore `33288345857`, Yandex isolated
+  release `33288345848`; Linux race-vet job `99195676585` GREEN.
+- Findings 2/4/5/6/7/8/10/12/13/14/15 приняты. Единственный следующий
+  nonfrozen finding — **F9** (production panel/API/SPA compatibility and RBAC).
+  Findings 3/11 (OLCRTC) и WDTT заморожены по указанию владельца.
+- Production остаётся **NO-GO**. Runtime по умолчанию остаётся legacy до
+  отдельного owner-approved rqlite cutover; S1-S4, systemd, DNS/TLS, CDN,
+  панели, Telegram-боты, клиенты, реальные оплаты/списания, release/signing и
+  OTA не изменялись. Android/TV baseline `1.0.157` неизменяем. Защищённые
+  `task-4-report.md` и `normalize.patch` остаются unstaged.
+
+## 0. AUTHORITATIVE S1 IDENTITY CHECKPOINT (29.08.2026)
+
+- Владелец подтвердил: прежний S1 окончательно выведен из эксплуатации и не
+  является допустимой целью инвентаризации, recovery, deploy или DNS-шага.
+  Единственный актуальный S1 — owner-authoritative `CURRENT_S1`, hostname
+  `ubuntu24`; SSH host-key fingerprint: `SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`.
+- Это только refresh repository references: серверных/сетевых действий,
+  подключений, deploy, DNS/TLS mutation, OLCRTC и WDTT не выполнялось.
+- Все будущие executable S1 references в runbook/deploy/HA plans должны
+  использовать этот checkpoint. Исторические evidence snapshots не являются
+  разрешением на обращение к прежнему узлу.
+
+## 0. HA PLAN 02 TASK 8 — FINDING 6 ACCEPTED EXACT-SHA (29.08.2026)
+
+- Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
+  Принятый F6 code SHA — `4a6f3a9c87e424c433821162dcd992b47d888bdc`;
+  local и remote refs byte-exact совпадают.
+- Finding 6 принят: legacy Android/TV `1.0.157` `/order` принимает
+  `sub_token`/`login`, известные active/expired identity продлеваются, unknown
+  identity сохраняет first-time fallback, token имеет приоритет над login.
+  `suspended` намеренно является admin-ban: HTTP 403 до любых мутаций.
+- First-time purchase атомарно создаёт inert expired customer, sealed token,
+  четыре canonical credentials и order. До оплаты нет desired/outbox. Explicit
+  `Idempotency-Key` хранится byte-for-byte и durable связывается с mode,
+  customer, tariff и HMAC supplied identity; keyless taps остаются независимыми.
+  Saved replay пересчитывает request hash и fail-closed отвергает подмену.
+- Public order остаётся pending до receipt-gated provisioning; paid view выдаёт
+  тот же или новый `/sub/<token>`. `paid-claim` возвращает точный
+  `{"status":"awaiting_confirm"}`. DB-time, missing-singleton rollback и
+  committed-unknown exact-read/no-write-retry границы сохранены.
+- Независимые Spec и Quality reviews вернули APPROVED. Финальный fresh full
+  regression GREEN: API `1.506s`, controlplane `253.279s`, panel `0.185s`.
+  Root повторно проверил пять критических binding/race тестов: GREEN `37.087s`.
+  Реальный SQLite gate доказал, что исчезновение customer перед keyless Request
+  даёт non-200, одну write-попытку и byte-exact нулевую durable mutation.
+- Перед exact-SHA gate исправлены только старые HA/rqlite fixtures: они теперь
+  создают sealed subscription token и четыре canonical credentials
+  (`anytls`, `hysteria2`, `naive`, `vless`) с корректными scopes/AAD/HMAC.
+  Production `ConfirmPayment` остаётся fail-closed и не генерирует access.
+- Три exact-SHA workflow на `4a6f3a9c87e424c433821162dcd992b47d888bdc`
+  GREEN: HA control-plane `33267058716`, HA DR restore `33267058720`,
+  Yandex isolated release `33267058711`.
+- Findings 2/4/6/7/8/12/13/14/15 приняты. Открытый nonfrozen порядок:
+  **F10 -> F5 -> F9**. Findings 3/11 (OLCRTC) и WDTT заморожены по указанию
+  владельца.
+- Production остаётся **NO-GO**; Android/TV baseline **1.0.157** неизменяем.
+  S1-S4, CDN/DNS/TLS, боты, реальные оплаты, deploy, release/signing и OTA
+  этим repository-only этапом не изменялись. Защищённые owner-файлы
+  `task-4-report.md` и `normalize.patch` не stage/не изменять.
+
+## 0AAAAAAAAAAAAAA. HA PLAN 02 TASK 7 ACCEPTED AFTER REVIEW + RE-REVIEW (28.08.2026)
+
+- Единственная каноническая рабочая и push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`; один writer владеет branch и
+  repetition ledger. Точный принятый и независимо перепроверенный **code SHA** —
+  `6b46af934280c99f822cfda42d7915c487264134`. Последующий docs-only handoff
+  commit не является новым проверенным code SHA; это точная база Task 8.
+- Plan 02 Task 7 завершён и принят после независимого review и повторного
+  re-review: exactly-once create/claim/confirm/cancel, protected durable replay,
+  active-order guards и fenced order/customer expiry transitions доказаны на
+  реальном трёхузловом rqlite контуре.
+- Review fixes закрыли пять подтверждённых границ: новая epoch/fence при
+  same-ID lease reacquisition; единый канонический confirmation timestamp;
+  canonical importer states при legacy shadow compatibility на export boundary;
+  стабильный полный cancellation replay result; детерминированный
+  per-customer expiry operation identity без ослабления unique guard.
+- Exact-SHA GitHub evidence на `6b46af934280c99f822cfda42d7915c487264134`
+  полностью GREEN: HA run `33132197198`, job `98724058478`; DR run
+  `33132197220`; Yandex run `33132197199`, jobs `98724058315`, `98724175475`,
+  `98724175481`, `98724175511`, `98724401569`.
+- Production остаётся **NO-GO** и не затрагивалась: S1-S4, systemd, DNS/TLS,
+  CDN, панели, оба Telegram-бота, клиенты, реальные платежи/списания, release,
+  signing и OTA не изменялись. Неизменяемый Android/TV production baseline —
+  `1.0.157`.
+- Следующий точный repository-only этап — Plan 02 Task 8: composition-root,
+  runtime/API/panel wiring методов Task 7, exclusive rqlite runtime mode,
+  отключение legacy reconciler и legacy hard-delete paths в rqlite mode.
+  Эти runtime-границы намеренно не относятся к Task 7 и не должны исправляться
+  задним числом в его accepted code SHA.
+- Защищённые owner-файлы
+  `.superpowers/sdd/2026-08-20-yandex-cdn-whitelist/task-4-report.md` и
+  `normalize.patch` должны оставаться неизменёнными и unstaged.
+
+## 0AAAAAAAAAAAAA. TASK 11 HOURLY BACKUP RPO REFRESH EXACT-SHA GREEN (27.08.2026)
+
+- Единственная каноническая ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`. Точный проверенный code SHA —
+  `cb7aa40cf3e37602830c33b593b939baac38dc8b`. Более поздний docs-only
+  commit не должен объявляться новым проверенным code SHA.
+- Закрыт P1 разрыв RPO: clean verified generation больше не остаётся без новой
+  резервной копии неограниченно. При DB-age `3599` секунд worker делает NOOP,
+  при `3600+` атомарно создаёт same-generation attempt с sequence `+1`, новым
+  backup ID/object и полным immutable readback/ack циклом.
+- Решение использует только время rqlite `unixepoch()`, а не локальные часы
+  worker. SQL register/ack сохраняют точные lease/fence/capability/restore
+  проверки, не сжигают sequence до границы и fail-closed при конкурентном
+  повышении dirty generation.
+- Missing/future verified timestamp и несогласованные phase/generation теперь
+  дают `invalid-transition` до любого локального cleanup. Независимые security
+  и exact-head quality reviews подтвердили закрытие найденного P1 и отсутствие
+  оставшихся P0/P1/P2.
+- Добавлен deterministic real-rqlite integration proof границ `3599/3600`,
+  same-generation sequence increment, обновлённых object metadata/timestamp и
+  конкурентного dirty bump. Python backup-worker contract содержит ту же
+  точную часовую границу.
+- GitHub HA DR restore drill
+  [33056785828](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33056785828),
+  job `98465448408`, завершён `success`: 16/16 steps.
+- GitHub HA control-plane checks
+  [33056785893](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33056785893),
+  job `98465448697`, завершён `success`: 27/27 steps.
+- Yandex isolated release checks
+  [33056785862](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33056785862)
+  на том же exact SHA завершены `success`: `format-unit` `98465448288`,
+  `offline-replay` `98465703213`, `rqlite-purge` `98465703336`, `race-vet`
+  `98465703378`, `android-test-apk` `98465991985`; все 50/50 steps успешны.
+- Test-only artifact: ID `9640260473`, имя
+  `maestrovpn-task7-test-cb7aa40cf3e37602830c33b593b939baac38dc8b`,
+  размер `146160957` bytes, срок хранения до `2026-09-03T09:13:20Z`.
+  Production Android/TV baseline остаётся `1.0.157`; artifact не является
+  release, signing, OTA или production APK.
+- Production по-прежнему **NO-GO**: deploy, systemd, S1-S4, DNS/TLS, CDN,
+  панель, оба Telegram-бота, реальные платежи/списания, canary, cutover и OTA
+  не изменялись. Новая HA/Yandex-конфигурация серверов: `0/4`.
+- Оценка готовности: repository/code+CI примерно `60–70%`; полностью
+  настроенный пользовательский production-сервис примерно `30–40%`.
+- Следующий repository-only этап — Plan 02 Task 7: exactly-once
+  order/payment claim-confirm-cancel и fenced expiry. Затем Task 8/9
+  trial/compat/subscription/RBAC, Plan 03 Task 12/13 server drivers/runtime и
+  единый crash-safe engine двух Telegram-ботов, после чего Task 15–18
+  node artifacts, SpaceWeb DNS failover, DNS-01 TLS, fault/cutover/rollback.
+- До live rollout обязательны восстановленные и проверенные credentials/state
+  обоих ботов, подтверждённые host keys, Yandex/SpaceWeb/signing access,
+  коммерческие правила GB/GiB/цены/лимитов и отдельные owner approvals на
+  mutation, canary, real charging и OTA. После canary обязателен 48-часовой
+  observation gate; ordinary VPN и rollback `<5m` должны остаться GREEN.
+- Слабый Windows-компьютер используется только для узких правок; тяжёлые
+  Go/race/vet/rqlite/Android проверки выполняются на GitHub. Защищённые
+  `normalize.patch` и пользовательский `task-4-report.md` не изменялись и не
+  входят в commits.
+
+## 0AAAAAAAAAAAA. TASK 8 PRODUCTION BACKUP WORKER EXACT-SHA GREEN (26.08.2026)
+
+- Единственная каноническая ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`. Точный independently reviewed и
+  проверенный code SHA — `8cd34f28e4d71156b41aaf97d821313ec1fbe7e2`.
+  Более поздний docs-only commit не является новым проверенным code SHA.
+- Task 8 focused production-adapters plan завершён: one-shot worker выполняет
+  bounded capability/lease/resume/create/mark-before-PUT/exact-readback/offline
+  auth/ack цикл; unknown outcomes остаются dirty и не вызывают blind retry
+  mutating rqlite request или начатого object PUT.
+- Strict versioned config не принимает inline secrets, unknown keys, public или
+  insecure endpoints/files, unsafe prefixes и unbounded limits. Manifest-v2
+  worker mode создаёт ровно один encrypted candidate; drill behavior сохранён.
+- Bundle descriptor pinning и Linux runtime fail-closed проверяют owner/mode,
+  link count, device/inode, replacement, ожидаемый file set, size, verifier
+  identity и redacted output. Verified cleanup выполняет no-clobber tombstone,
+  ordered durable unlink/rmdir/root sync и безопасно повторяет final root sync
+  после crash/error без reupload.
+- Независимый exact-head review: specification `PASS`, code quality/security
+  `APPROVED`, actionable findings `0`.
+- GitHub HA run
+  [32999753382](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32999753382),
+  job `98278165821`, завершён `success` на exact SHA: 26/26 steps.
+- Yandex isolated validation run
+  [33000187245](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33000187245)
+  на том же SHA завершён `success`: `format-unit` `98279679095`,
+  `rqlite-purge` `98280283126`, `offline-replay` `98280283155`, `race-vet`
+  `98280283167`, `android-test-apk` `98281234848`; все 50/50 steps успешны.
+- Production Android/TV baseline остаётся `1.0.157`. Workflow dispatch был
+  только isolated repository validation: merge, tag, signing, release, OTA,
+  production backup/upload, systemd, deploy, S1-S4 и cutover не выполнялись.
+- Следующий repository-only этап — Task 9: inert HA/legacy systemd templates и
+  policy tests для bidirectional exclusivity и безопасного legacy early exit.
+  Запрещены `systemctl`, запись в `/etc`, credentials, enablement и deployment.
+- Слабый Windows-компьютер используется только для узких проверок и правок;
+  тяжёлые Linux/race/vet/rqlite/Android проверки выполняются в GitHub Actions.
+  Защищённые `normalize.patch` и пользовательский `task-4-report.md` не
+  изменялись и не входят в commits.
+
+## 0AAAAAAAAAAA. TASK 14 BACKUP WORKER / DR EXACT-SHA GREEN (23.08.2026)
+
+- Единственная каноническая ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`. Точный проверенный code SHA —
+  `0438aef3249acdca1b5f1db0ddb9cd47a9fbdee0`; локальная ветка и GitHub
+  синхронизированы. Более поздний docs-only commit не должен объявляться
+  протестированным code SHA.
+- Repository-safe Task 14 завершён: offline `backup_worker` использует fenced
+  lease, восстанавливается после crash, проверяет свежий versioned object
+  readback и выполняет безопасный cleanup. Manifest v2 подписывает identity
+  попытки, captured generation, lease fence и object key. `verified_generation`
+  может продвигаться только после exact key/version readback с совпавшими
+  ciphertext digest и подписанными полями активной fenced-попытки. Manifest v1
+  остаётся доступен только для исторической restore-проверки и не RPO-eligible.
+- HA control-plane GitHub Actions
+  [run `32633866437`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32633866437),
+  job `97180587425`, завершён `success` на exact SHA `0438aef...`: `75` Python
+  tests, DR policy, backup/restore shell contracts, Go tests, `-race`, `vet`,
+  isolated rqlite, importer parity и трёхузловой production-importer mTLS proof
+  прошли. В логе подтверждены `Ran 75 tests`, `DR workflow policy passed`,
+  `backup-rqlite contract passed`, `restore-rqlite contract passed` и
+  `ci-rqlite contract passed`.
+- Отдельный ручной HA DR restore drill
+  [run `32633958121`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32633958121),
+  job `97180810443`, завершён `success` на том же exact SHA: materialized agent
+  boundary, formatting/shell syntax, Go/race/vet, DR workflow policy,
+  authenticated backup/tamper matrix, fresh restore fencing/parity/quorum и
+  unconditional cleanup прошли.
+- Полностью GREEN Yandex isolated release workflow
+  [run `32633866431`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32633866431)
+  на том же exact SHA. Успешны все пять jobs: `format-unit` `97180587329`,
+  `offline-replay` `97180678263`, `race-vet` `97180678269`, `rqlite-purge`
+  `97180678315`, `android-test-apk` `97180818513`. Android job установил pinned
+  toolchain, получил и проверил exact libbox artifact, собрал отдельную Task 7
+  версию, проверил APK metadata/signer и загрузил только тестовый artifact.
+- Test-only artifact: ID `9491880939`, имя
+  `maestrovpn-task7-test-0438aef3249acdca1b5f1db0ddb9cd47a9fbdee0`, размер
+  `146160969` bytes, срок хранения до `2026-08-30T10:38:45Z`. Production
+  Android/TV baseline остаётся неизменяемой версией `1.0.157`; этот artifact не
+  является release, signing, OTA или заменой production APK.
+- Linux CI последовательно закрыл обнаруженные расхождения: POSIX capability
+  detection теперь кэшируется под syscall wrappers; DR сохраняет стабильное имя
+  authenticated-backup шага; restore явно принимает legacy manifest-v1 status;
+  stale DR materialized-agent gofmt allowlist удалён и защищён ordered parity
+  regression; загрузка pinned rqlite release получила ограниченные timeout/retry
+  при сохранённых HTTPS pin и SHA-256 verification.
+- Слабый локальный Windows-компьютер использовался только для узких contract,
+  Python, diff и Git проверок. Полные Linux, Go, race/vet, real-rqlite, DR и
+  Android проверки выполнены в GitHub Actions на exact pushed SHA.
+- Production durable watermark store и versioned Yandex Object Storage adapter
+  ещё не реализованы; repository-only worker proof их не заменяет. Следующий
+  Task 15: durable `BackupRPOStore`, транзакционные dirty/verified generation,
+  lease/fence, versioned storage adapter и systemd exclusivity. Read-only
+  production inventory и любая работа с production выполняются только после
+  отдельного явного разрешения владельца.
+- Production остаётся **NO-GO**. S1-S4, customer/bot/billing, обычные VPN
+  пользователи, Android/TV release, OTA, DNS, deploy, backup, canary и cutover не
+  изменялись. Локальные `normalize.patch` и пользовательский `task-4-report.md`
+  защищены и не входят ни в один commit.
+
+## 0AAAAAAAAAA. TASK 8 FIRST PRODUCTION-READINESS GATE GREEN — INVENTORY/DR FIXTURE PROOF (23.08.2026)
+
+- Единственная каноническая ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`; точный проверенный code SHA —
+  `87e8a71bd0494d01c88178e412d2a479dc9d17fd`. Локальная ветка и GitHub
+  синхронизированы; GitHub App использовался только для файлов workflow, после
+  чего идентичные деревья были объединены no-content merge и опубликованы в ту
+  же каноническую ветку.
+- Первый repository-safe slice Task 8 завершён. `ops/ha/inventory.sh` — только
+  offline fixture gate: обязательны `--fixture-root` и no-clobber `--output`,
+  принимаются ровно `legacy-backup.json` и `ha-backup.json`, выбирается ровно
+  одна реализация backup. Выход всегда маркирован `evidence_class=FIXTURE` и
+  `release_readiness=NO_GO`; live discovery, SSH, сеть и production credentials
+  отсутствуют; embedded Python не запускает external/live дочерние процессы.
+- Gate fail-closed: строгие exact-key/type/version JSON contracts, предел 4096
+  bytes, duplicate/UTF-8/trailing-data rejection, non-regular/symlink rejection,
+  pinned POSIX root descriptor, source/root identity checks, полный metadata
+  fingerprint до/после чтения, `O_EXCL` output и сохранение безопасного
+  owner-created `0600` partial при write failure. Linux CI обнаружил реальный
+  inode-reuse race; проверка `(device,inode)` заменена полным fingerprint и
+  regression теперь проходит.
+- GitHub Actions HA run
+  [32610785994](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32610785994),
+  job `97123407802`, завершён `success`: `34` Python contracts, shell backup/
+  restore contracts, full Go tests, `-race`, `vet`, isolated rqlite integration,
+  importer parity и production importer mTLS proof прошли.
+- На том же exact SHA повторно GREEN весь Yandex isolated release workflow:
+  [run `32610785955`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32610785955).
+  Успешны все пять jobs: `format-unit` `97123407693`, `rqlite-purge`
+  `97123499870`, `race-vet` `97123499886`, `offline-replay` `97123499901`,
+  `android-test-apk` `97123628498`. Production Android/TV baseline остаётся
+  неизменяемой версией `1.0.157`; это тестовый CI rebuild, не release/OTA.
+- CI последовательно закрыл три найденных рассинхрона: stale gofmt debt list,
+  Linux inode reuse при замене fixture и exact rqlite table expectation без
+  migration-v4 таблицы `whitelist_entitlement_identities`. Исправления
+  минимальны и получили независимые review без Critical/Important замечаний.
+- Слабый локальный Windows-компьютер использовался только для узких Python/
+  diff/Git проверок (`19` inventory tests, `10` platform skips). Все Linux,
+  rqlite, race/vet и Android проверки выполнены в GitHub Actions.
+- Это не live production inventory и не backup/restore drill. Следующий
+  repository-safe шаг — продолжить Task 8 по утверждённому HA operations/
+  cutover plan: подготовить redacted read-only production inventory и
+  backup/restore readiness tooling. Любое подключение к S1-S4, получение
+  production evidence, backup, deploy или cutover требует отдельного явного
+  разрешения владельца.
+- Production остаётся **NO-GO**. Merge в main, tag, release/signing, OTA,
+  серверные/клиентские/billing изменения и cutover не выполнялись. Локальные
+  `normalize.patch` и пользовательский `task-4-report.md` защищены и не входят
+  ни в один commit.
+
+## 0AAAAAAAAA. YANDEX CDN WHITE-LIST TASK 7 CI GREEN — CANONICAL GITHUB-FIRST EVIDENCE (23.08.2026)
+
+- Единственная каноническая рабочая и push-ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`; ею владеет один writer. Любые
+  другие ветки/worktree допускаются только для read-only review и не могут
+  становиться источником handoff или push.
+- Неизменяемый production baseline Android/TV: версия `1.0.157`, tag
+  `tv-v1.0.157`, commit
+  `9653636863cb65cc2ac95545d953d9c5e06db8bb`, APK SHA-256
+  `0c51d1036c76b2d9a7347b59b9f967942159ec27738a2d6bcae099529695a148`.
+- Task 3 repository implementation зафиксирован коммитом `203278d`; Task 4
+  workflow publication — `045cdbd94fa42197705a07da531a07f8ecfd3fa8`.
+  Неизменяемый exact-SHA CI checkpoint —
+  `48fc85c7b5aa71665d5925afcf58335a5778f481`. GitHub Actions
+  [run `32599906234`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32599906234)
+  завершён `success`; все пять обязательных jobs прошли:
+  `format-unit` `97096515108`, `offline-replay` `97096610878`,
+  `rqlite-purge` `97096610879`, `race-vet` `97096610902`,
+  `android-test-apk` `97096743461`.
+- Test-only artifact: ID `9482712886`, имя
+  `maestrovpn-task7-test-48fc85c7b5aa71665d5925afcf58335a5778f481`,
+  размер `146160979` bytes, срок хранения до `2026-08-29T21:42:58Z`,
+  ZIP SHA-256
+  `4c12b6faa0ac98049d3a5e3ed2f98b9cc4125c6b544804c416ae93fed104e355`.
+- Проверенный APK
+  `MaestroVPN-TV-1.0.158-task7-test-debug.apk`: SHA-256
+  `737b9e07b6266354847dfecf2bab1a951dd8307a6288eadf9ad5a0c0d001b211`,
+  `applicationId=com.maestrovpn.tv`, `versionName=1.0.158-task7-test`,
+  `versionCode=1015800`, `debuggable=false`. APK Signature Scheme v1/v2
+  подтверждены; signer — Android Debug, certificate SHA-256
+  `b7d7e5ec836a4db0bed76acb466d3dbdfb6a8aea2c3ba0025a3a038802a94c5c`.
+  Debug signer означает только тестовый артефакт: это не production release/OTA
+  и не замена подписанной версии `1.0.157`.
+- Task 7 Android identity — test-only:
+  `versionName 1.0.158-task7-test`, `versionCode 1015800`. Она не является
+  production release/tag/OTA и не должна публиковаться пользователям.
+- Слабый локальный Windows-компьютер используется только для правок,
+  repetition guard и узких Git/diff/static/unit checks. Полные, тяжёлые,
+  `-race`, `vet`, real-rqlite и Android APK проверки выполняются в GitHub
+  Actions на exact pushed SHA.
+- Task 7 repository/CI evidence GREEN на неизменяемом SHA
+  `48fc85c7b5aa71665d5925afcf58335a5778f481`.
+  Любой более поздний docs-only checkpoint только фиксирует эти доказательства
+  и не может объявляться протестированным code SHA. Следующая продуктовая фаза —
+  отдельно контролируемые read-only production inventory и backup/restore
+  readiness; deploy и cutover остаются NO-GO.
+- Production остаётся **NO-GO**. Текущее разрешение владельца охватывает только
+  non-production push канонической ветки и GitHub Actions. Merge, tag,
+  release/publish/signing, OTA, production deploy, серверные/клиентские/billing
+  изменения и cutover требуют нового явного разрешения владельца.
+- Все нижние ссылки на `codex/yandex-cdn-whitelist`, draft PR #91 и любые
+  другие старые ветки/PR являются историческими и не задают текущую точку
+  продолжения.
+
+## 0AAAAAAAA. YANDEX CDN WHITE-LIST TASK 3 FINAL GREEN (22.08.2026)
+
+- Authoritative review surface: ветка `codex/yandex-cdn-whitelist`, draft PR #91.
+  Финальный implementation/security SHA Task 3 —
+  `97e152674c3cfae3b767c464f0aa2e1368df35e5`.
+- Exact-SHA GitHub Actions run `32537644147`, job `96941437676`, завершён
+  `success`: pinned checkout/setup-go, Bash/PowerShell syntax, `gofmt`, focused
+  release tests, Linux `-race` и `go vet` прошли. Локально также прошли focused
+  release/control-plane integration tests, vet, gofmt и full-range diff check.
+- Task 3 добавляет только изолированный release-контур: подписанный 12-gate
+  evidence/trust contract, transport/runtime commitments, exact catalog
+  predecessor, подписанный transaction journal, Linux sealed atomic
+  activation/rollback/recovery, стабильный CLI, wrappers, systemd units и
+  exact-SHA CI.
+- Финальная trust-rotation правка разделяет active admission trust и bounded
+  immutable historical registry. Новые publish принимаются только активным
+  trust, а rollback/recovery выбирают ровно тот trust, SHA которого зафиксирован
+  в manifest/intent. Fallback/merge запрещены; при неизвестном historical trust
+  операция fail-closed, а cleanup не начинается до разрешения trust.
+- Независимые full-range spec и security review дали `READY`; незакрытых
+  Critical/Important замечаний нет. Документирующий коммит разрешён только после
+  повторной генерации baseline manifest и зелёных docs tests/validator.
+- Production остаётся **NO-GO**. Deploy, S1-S4, CDN/origin, firewall, базы,
+  billing, Android/TV, OTA, панели, боты, клиенты и запрещённые подсистемы не
+  подключались и не изменялись. Реальные evidence/key custody, client matrix,
+  metering/billing gates и rollout требуют отдельных owner-approved фаз.
+- Следующий безопасный шаг — только явно одобренная production-readiness фаза.
+  Локальный `normalize.patch` не читался, не изменялся и не должен попадать в
+  индекс или коммит.
+
+## 0AAAAAAA. YANDEX CDN WHITE-LIST TASK 2 FINAL GREEN (21.08.2026)
+
+- Ветка `codex/yandex-cdn-whitelist`; implementation/security SHA Task 2 —
+  `e05b52104d805855a749b393b43a79db8fbf9f83`; regression SHA —
+  `d1310f29f6199a82dc0f28f0f99e907b89e25142`; proof-binding GREEN SHA —
+  `cd87f29279233e6741072990ee3b78e9e713ef38`. Exact-SHA GitHub Actions run
+  `32437296183` завершён `success`: formatting, backend, race, vet и изолированный
+  rqlite/importer контур прошли.
+- RED `ed9fb596c771ad54bf01f0411097e1a7873e6af4` доказал отклонение nil/none/
+  opaque/server-role encryption material, пустого/неполного XHTTP metadata,
+  percent escapes и raw invalid UTF-8. RED `151172e` отдельно доказал, что
+  изменение material при сохранённом proof и поддельный digest должны отклоняться.
+- ACTIVE entitlement требует client-side VLESS Encryption material с ролью
+  `CLIENT` и versioned proof `xray-vlessenc-client-v1:sha256:<digest>`. Digest
+  вычисляется по каноническим source/version, роли и material и сравнивается
+  constant-time; несовпадающий, поддельный, server-role и `none` proof закрывают
+  публикацию fail-closed. В subscription не попадает server-decryption material.
+- MAESTRO_ADVANCED требует непустые session/sequence query metadata; secret path
+  проходит bounded decode и строгую URL-safe ASCII/UTF-8 validation.
+- Renderer остаётся additive: при OFF/ошибке ordinary output сохраняется, CDN
+  nodes не публикуются; при ACTIVE выдаются канонические approved edges и domain
+  fallback с полным typed contract. Persistence migration, live panel/API,
+  S1-S4, CDN origin, firewall, Android/TV, WDTT/CSQTT/olcRTC, billing и OTA не
+  изменялись. Production остаётся **NO-GO**.
+
+## 0AAAAAA. YANDEX CDN WHITE-LIST TASK 1 FINAL LOCAL GREEN (20.08.2026)
+
+- Ветка `codex/yandex-cdn-whitelist`; финальный implementation/security SHA Task 1 —
+  `018ac708f8274a7bb767788d333c4b411246b683`, отдельный plan commit — `2a5cbb4`.
+- Локальные gates: `python -m unittest scripts.tests.test_yandex_cdn_docs` —
+  `15/15 OK`; `python scripts/validate_yandex_cdn_docs.py` — `OK: docs policy`;
+  `python -m py_compile` для renderer/validator/tests — exit `0`.
+- Production, network и push остаются **NO-GO**. Серверы/CDN/GitHub не менялись;
+  owner endpoints, credentials и secrets в derivative docs не переносились.
+
+## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY FINAL GREEN; TASK 12 DRIVERS NEXT (13.08.2026)
+
+- Authoritative review surface remains draft PR #82 on branch
+  `codex/ha-rqlite-task2`. The node-service payload-isolation subplan is GREEN
+  through exact SHA `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`.
+- Task 1 final GREEN is `4572c7f2efb7e9ca7ed179d54164d01757d840e1`:
+  HA control-plane run `31623192987` and HA DR run `31623228487` succeeded.
+  Task 2 final GREEN is `efe6d6f40b9d2020c2aaee3c58f34eb5b358eed8`:
+  control-plane run `31630333917` and DR run `31630333923` succeeded.
+- Task 3 policy RED is `5ce1447ce467b384d54103ff09b589011d29562c`:
+  control-plane run `31632212354` / job `94233541343` and DR run
+  `31632212414` / job `94233541741` failed only because the new deterministic
+  materialized-agent gate was not yet wired. Final Task 3 GREEN is
+  `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`: control-plane run
+  `31665206563` / job `94338175192` and DR run `31665206661` / job
+  `94338175568` succeeded, including the hardened structural boundary policy,
+  complete sorted formatting/test scope, full backend, race, vet,
+  rqlite/importer/mTLS and DR restore/fencing/parity/quorum gates.
+- CI now rejects legacy `Driver.Inspect/Prepare(... DesiredSnapshot)`
+  signatures and direct or propagated apply-agent production
+  logging/serialization/error sinks for `MaterializedEntry.Body`, including
+  `fmt.Errorf`, `log`/`slog` receivers, helpers, aggregates and inline JSON
+  encoders. Its scanner first rejects an in-memory synthetic forbidden fixture.
+  Both HA workflows deterministically sort and format every Go file under
+  `internal/applyagent` and `internal/controlplane`, then test both packages.
+- Task 12 drivers consume only `MaterializedSnapshot`, select exactly their
+  configured local service, and return actual observed hashes. A driver must
+  never open another `(node_id, service_id)` key ring, cache/log plaintext or
+  expose raw dependency errors; only fixed safe errors may cross the boundary.
+  Plaintext ownership remains bounded and best-effort wiping is not a physical
+  memory-erasure guarantee.
+- `backend/cmd/maestro-agent` remains deliberately absent. Do not create a no-op
+  or dead production runtime. Add concrete runtime wiring only after at least one
+  real local Task 12 driver exists and its local-only/observed-hash contracts are
+  GREEN.
+- Scope/secrecy audit from pre-design base `ca27e26` through Task 3 found only
+  controlplane/applyagent tests and source, the two HA workflows, payload plan/
+  spec, `AGENTS.md` and repository policy. No app, deploy, server, customer,
+  bot, payment, DNS, OTA or protocol-policy mutation; no production address,
+  TLS verification bypass, authenticated URL or secret material was introduced.
+  Added URL data is synthetic only and no artifact upload was added.
+- Production remains **NO-GO (repository implementation only)**. Next authorized
+  repository work is Task 12 real local drivers, followed by concrete agent
+  runtime wiring, then a separately approved staged deployment. S1-S4, panels,
+  bots, customers, VPN services/protocols, Android/TV, Release, OTA and DNS were
+  not accessed or changed.
+
+## 0AAAA. HA DR TASK 4 GREEN; RESTORE FENCING/PARITY NEXT (12.08.2026)
+
+- Task 4 is complete on exact SHA
+  `11798300efd9781dd4ea62c66dfe9808e287f013`. GitHub Actions run
+  `31579056320`, job `94057725391`, passed every Python, shell, Go, race,
+  vet, rqlite, importer and mTLS step.
+- Exact RED workflow commit was
+  `d496a382ce9452522785271187b42f4107af9f52`; run `31578174830`, job
+  `94055155511`, failed only because `ops.ha.restore_api` did not exist.
+- The real shell E2E creates a populated source mTLS cluster, creates and
+  authenticates an encrypted backup, destroys the source, creates a different
+  empty three-node mTLS cluster, restores exactly once, and rejects a repeated
+  restore. The loader persists a no-clobber attempt marker before the one load.
+- Restore API requires exact S2/S3/S4 loopback HTTPS voters, CA and client
+  certificate/key, strong empty reads on all voters, one POST /db/load with no
+  retry, fixed unknown-outcome handling, and exact strong migration/table-count
+  readback on all three voters.
+- Next is Task 5 RED/GREEN real restored-cluster epoch fencing and importer
+  parity. Production remains NO-GO; no S1-S4, panel, bot, customer, VPN, DNS,
+  Android/TV, Release or OTA state was accessed or changed.
+
+## 0AAA. HA DR TASK 3 GREEN; FRESH-CLUSTER RESTORE NEXT (12.08.2026)
+
+- Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
+  `codex/ha-rqlite-task2`, draft PR #82. Work remains GitHub-first.
+- Task 3 is complete on exact SHA
+  `cc3bc341488ebd633f7190b981998806d083e393`. GitHub Actions run
+  `31577613693`, job `94053179993`, passed all steps, including the
+  `Test HA Python contracts` step that executes the real encrypted-backup
+  shell E2E.
+- `ops/ha/backup-rqlite.sh` now fetches a bounded DELETE-mode SQLite image
+  only over mandatory mTLS, creates canonical metadata/manifest, detached-signs
+  it, builds a deterministic exact-member tar, encrypts it, independently
+  decrypts and verifies it, then publishes by same-filesystem no-clobber
+  hardlink. Synthetic tests use only a private ephemeral GPG home.
+- The verifier was corrected to accept an exact 40-character Git SHA-1 and to
+  derive the backup watermark from the real migration column
+  `backup_watermarks.created_at_unix`; local RED was exact, then all 9 Python
+  tests passed.
+- Next exact step is Task 4 RED: strict restore API and shell orchestration into
+  a new empty three-node mTLS drill cluster. Do not deploy or connect to
+  production before Tasks 4-7 pass and a separate read-only S2/S3/S4 audit.
+- Production remains NO-GO: S1-S4, panels, Telegram bots, customers, VPN
+  services/protocols, DNS, Android/TV, Release and OTA were not changed.
+
+## 0AA. HA DR TASKS 1-2 GREEN; ENCRYPTED BACKUP CREATOR NEXT (12.08.2026)
+
+- Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
+  `codex/ha-rqlite-task2`, draft PR #82. Work remains GitHub-first.
+- Task 1 is complete on exact SHA
+  `e8f1e62e72af3a75ea557bba4e7138f2c442f941`.
+  GitHub Actions run `31573726939` passed every step: formatting, backend,
+  race, vet, rqlite integration, importer parity and production importer mTLS
+  proof. Ordered immutable migrations v1->v2 now upgrade an existing v1 prefix;
+  migration 2 seeds `cluster_restore_state`; restore advancement atomically
+  increments epoch, invalidates node/job leases and clears/increments Telegram
+  poller leases/fences. Exact RED evidence before GREEN:
+  `8f26cccea0fab1680ec00fa60e12b61174c2e768`, run `31571127021`,
+  job `94033164385`; ordered-upgrade RED `e1f5ccd930321bdcaac38a24aee51bb771d25188`,
+  run `31573100794`, job `94039113230`.
+- Task 2 is complete on exact SHA
+  `bb8b84b2cd22b35d07116c749fff1624a64668fd`.
+  GitHub Actions run `31574573939`, job `94043700861`, passed all Python,
+  Go/race/vet, rqlite/importer/mTLS steps. `ops/ha/verify_backup.py` verifies
+  canonical JSON, exact members, SQLite integrity/FKs, ordered schema identity,
+  restore epoch, table counts, receipt/watermark high-watermarks, image/key
+  hashes and exactly one trusted GPG `VALIDSIG`, using only fixed redacted
+  errors. Exact RED: tests `310d5a2f112df0675f69e86d911c0f003da09e66`;
+  workflow gate `74c6f9aa3cc243953bd1f03809f9a32fe96ea6e5`, run
+  `31574300317`, job `94042844652`, failed only because
+  `ops.ha.verify_backup` was absent.
+- The workflow update had to use the GitHub connector because local Git OAuth
+  lacks `workflow` scope. Do not retry that failed push family. The equivalent
+  local commit was cleanly skipped during rebase; local and remote head were
+  aligned at `74c6f9aa...` before Task 2 GREEN.
+- Next exact step is Task 3 RED in
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`:
+  add shell contracts for `backup-rqlite.sh`, synthetic DR identity and
+  `describe-mtls --output FILE`, then a separate GREEN encrypted backup
+  creator. Tasks 3-7, read-only S2/S3/S4 audit and all live rollout remain.
+- Production is still **NO-GO**. S1-S4, panels, Telegram bots, customers, VPN
+  services/protocols, DNS, Android/TV, Release and OTA were not connected to or
+  changed during Tasks 1-2.
+
+## 0Z. HA DR RESTORE DRILL TDD PLAN READY, code not started (12.08.2026)
+
+- Written spec approved by owner; detailed sequential TDD plan:
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`.
+- Seven tasks / 34 steps: migration 2 + restore epoch; strict manifest
+  verifier; authenticated encrypted backup; fresh-cluster loader; real
+  fencing/parity; exact-SHA workflow; scope/handoff.
+- Baseline: `ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf`.
+- Execution is GitHub-first and sequential with separate RED/GREEN checkpoints.
+- This is documentation only. S1-S4, panels, bots, customers, VPN protocols,
+  DNS, Android/TV, Release and OTA remain unchanged.
+- Server work starts only after exact GREEN and read-only S2/S3/S4 audit.
+
+## 0Y. HA DR RESTORE DRILL DESIGN APPROVED, implementation not started (12.08.2026)
+
+- Владелец утвердил безопасный порядок: сначала полностью synthetic
+  GitHub Actions backup/restore/fencing proof; затем отдельный read-only аудит
+  S2/S3/S4; только после отчёта и отдельного разрешения — live deployment.
+- Утверждённая спецификация:
+  `docs/superpowers/specs/2026-08-12-maestrovpn-ha-dr-restore-drill-design.md`.
+- Focused scope: authenticated encrypted rqlite SQLite backup, strict offline
+  manifest verification, restore only into fresh empty three-node mandatory-mTLS
+  cluster, new monotonic restore epoch, invalidation of restored node/job/bot
+  leases, fake old-epoch consumer rejection, digest/shadow parity and failure
+  matrix. Все данные/PKI/GPG keys synthetic and ephemeral.
+- Официальный rqlite контракт подтверждает `GET /db/backup?fmt=delete` и
+  SQLite load into a freshly deployed cluster with no concurrent writes.
+- Этот checkpoint является design-only. DR code и server rollout ещё не
+  начаты. S1-S4, панели, Telegram-боты, клиенты, VPN-протоколы, DNS,
+  Android/TV, Release и OTA не изменялись.
+- Следующий обязательный gate по навыку brainstorming: владелец просматривает
+  committed spec; после явного подтверждения создаётся отдельный TDD
+  implementation plan. Production остаётся NO-GO.
+
+## 0X. HA PRODUCTION IMPORT FACTORY: Tasks 1–8 GREEN, production untouched (12.08.2026)
+
+- Рабочая ветка: `codex/ha-rqlite-task2`, draft PR #82. Работа ведётся
+  GitHub-first. Правильная локальная контрольная копия:
+  `C:\Users\User\Documents\Codex\2026-08-05\new-chat\mvpn-ha-task2`.
+  Перед любой локальной Git-командой сначала проверять `git rev-parse
+  --show-toplevel`: каталог `new-chat` сам по себе не является этой копией.
+  Слабый Windows-компьютер используется только для repetition guard, узких Git
+  metadata/diff-проверок и документации; локальные Go build/test запрещены.
+- Исполняемый план:
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
+  Tasks 1–8 завершены TDD и exact-SHA GitHub Actions evidence.
+- Task 1 final GREEN: `97a0382362ba6a0b6540f486231a70c991c1fb16`,
+  run `31561449224`, job `94004424897`. Task 2 final GREEN:
+  `9cda13006450522fa5bf294d1879a9a6d8a5e0f3`, run `31561746986`, job
+  `94005317388`. Task 3 final GREEN:
+  `0417c5ae6d93336a6e218dd990dca90775033bba`, run `31562039927`, successful
+  rerun job `94006475476`.
+- Task 4 final GREEN: `3af348be54de434e72d428249159c793dc789e68`.
+  Production runtime допускает ровно HTTPS voters S2/S3/S4, проверяет
+  CA/clientAuth mTLS, immutable schema identity, versioned AES/HMAC bundle,
+  encrypted envelopes и все referenced key versions до первой мутации.
+- Task 5 final GREEN: `e08a47ca7c5db46bc3621a51490c8ed64bab658a`.
+  Applied-run evidence перечитывается linearizable и подписывается
+  канонической Ed25519-квитанцией без business/secret payload.
+- Task 6 final GREEN: `68cab97b42d165a1463a0ddea79161de7b87c699`,
+  run `31565041932`, job `94015025861`, все 17 шагов success. Боевой CLI
+  использует apply-only config/receipt/signing inputs; dry-run не читает их и
+  не открывает сеть. Receipt сохраняется resumable и atomically только после
+  точного перечитывания completed run.
+- Task 7 harness RED: `0bda98bdd76b04fb4e28260c9d4767036e3cee43`,
+  run `31565272610`, job `94015836417` упал только потому, что
+  `start-mtls` ещё отсутствовал. Первый полный real-binary GREEN:
+  `cbd441a411dbefac1142a14d643f0bd56307f09e`, run `31566361849`, job
+  `94018868088`, все 21 шага success.
+- Финальный усиленный exact code GREEN:
+  `153e5648d32f770a15bd5c9646c6e4d0031c384d`; Actions run `31566792857`,
+  job `94020137397`. Все 21 шага success: format, unit, race, vet, harness,
+  обычный real-rqlite, full+delta/fresh-full digest parity, shadow parity,
+  трёхузловой mandatory-mTLS, schema prep, сборка точного production binary,
+  отрицательные zero-write cases, valid apply, signed receipt, exact rerun и
+  cleanup. Self-review дополнительно обеспечил zeroing signer/key copies на
+  всех ошибках factory и атомарный no-clobber receipt (`RENAME_NOREPLACE` на
+  Linux, hard-link fallback на других ОС).
+- Task 8 scope/secrecy gate: compare от pre-Task-1 SHA
+  `c179e3e5b0e86e067217d65c0ba3a1105b16c07f` содержит 27 файлов только в
+  workflow/backend/tests/docs/HA harness; `app/**` и `deploy/**` отсутствуют,
+  `git diff --check` чист. Нет production IP/password, bot token, private key,
+  `InsecureSkipVerify`, production HTTP, SSH/DNS/OTA кода или production
+  `Migrator.Apply`. Единственный added HTTP — намеренно неверный
+  `synthetic.invalid` в отрицательном тесте; schema Apply существует только в
+  build-tagged подготовке изолированного mTLS test cluster.
+- Не повторять исправленные ошибки: regex с literal `$` формировать без JS
+  replacement expansion и после mutation перечитывать exact workflow;
+  форматирование проверять точным GitHub log/ограниченным gate, а не broad
+  локальным scan; tree SHA получать через `git fetch` и
+  `git show -s --format=%T FETCH_HEAD`; перед любой GitHub mutation/retry/долгой
+  операцией выполнять `python ops/maestro-repetition-guard.py check ...`.
+
+NO-GO (repository implementation only)
+
+S1-S4, panels, bots, customers, Android/TV, Release and OTA unchanged.
+
+Next gate: separate backup/restore design and empty-cluster restore drill.
+
+До отдельного GREEN backup/restore/fencing drill запрещены production import,
+deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока не
+трогать. После drill серверная реализация должна идти по отдельному плану,
+сначала S2/S3/S4, а S1 возвращается позднее только через controlled catch-up.
+
+## 0W. INCIDENT: восстановление replacement S1 (10.08.2026)
+
+- Replacement S1 подтверждён как Litnets `srv_142257` / `<redacted-endpoint>`.
+  После переустановки и переноса провайдером в Испанию VPS имеет статус `On`.
+  10.08.2026 новый root-пароль проверен прямым SSH-входом; сам пароль нигде в
+  репозитории не хранится. Новый host key после переустановки ожидаемо отличается
+  от старого и закреплён как
+  `ssh-ed25519 255 SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`.
+  Повторная переустановка запрещена.
+- Read-only inventory: hostname `ubuntu24`, Ubuntu 24.04, корневой диск 39 GiB
+  (около 8% занято), RAM 1.9 GiB, swap 499 MiB, failed units нет; наружу слушает
+  только SSH/22. `/var/lib/maestro`, `/etc/maestro-panel.env`, panel binary и unit
+  отсутствуют. Неожиданно существует `/etc/x-ui/x-ui.db`, но x-ui unit/listener
+  отсутствует: файл не трогать до read-only проверки происхождения и целостности.
+- Публичный проектный ED25519-ключ установлен в `/root/.ssh/authorized_keys`:
+  одна валидная строка, mode 600, server-side fingerprint
+  `SHA256:57ign2x5fN7LW6PptrJ6iWbUqSxB6MklgZoO/5WPEzk`; root password и public-key
+  authentication разрешены. Парольный root-вход подтверждён. Key-only вход с
+  owner's Windows ещё **не подтверждён**: локальный private key имеет новый
+  OpenSSH format, который `plink` напрямую не читает.
+- На S2 штатный `maestro-restore.sh` подтвердил свежую расшифровываемую off-site
+  копию customer/order/panel/x-ui state; x-ui SQLite integrity check проходит.
+  Данные на replacement S1 ещё не переносились, DNS/боты/OTA не менялись.
+- Повторная переустановка и запуск пустых panel/x-ui запрещены. Следующий
+  серверный шаг — только read-only provenance/integrity audit существующего
+  `/etc/x-ui/x-ui.db`, затем проверенный restore-before-first-start plan.
+
+- 11.08.2026 владелец сообщил, что самостоятельно установил Hysteria на новый S1
+  и разрешил удалить её, если это потребуется. Факт установки ещё не проверен
+  независимо: до любых изменений сначала снять read-only inventory точных unit,
+  binary, config и listener, затем сохранить конфигурацию и определить rollback.
+  Не удалять Hysteria только ради приведения сервера к предполагаемому шаблону.
+- Durable repetition guard установлен в репозитории как
+  `ops/maestro-repetition-guard.py` с тестом
+  `ops/test_maestro_repetition_guard.py` и локально в постоянном навыке
+  `project-master`. Перед внешним/долгим/изменяющим действием обязателен `check`;
+  первый сбой или замечание владельца требует `fail` и остановки; продолжение
+  допускается только после `correct` с доказанной причиной и иным способом.
+  Exit 42/43 означает STOP. Журнал `.maestro-state/` не коммитится и не хранит
+  команды или секреты.
+- Проверка guard от 11.08.2026: 6/6 unit-тестов проходят, включая повторный
+  сбой уже исправленного способа. Официальный `quick_validate.py` требует
+  отдельный PyYAML и на Windows должен запускаться как `python -X utf8`; иначе
+  системная CP1251 ломает чтение UTF-8 `SKILL.md`. Системный proxy Windows
+  включён и ломает старый pip (`check_hostname requires server_hostname`);
+  настройки proxy не менять. Для единственной установки PyYAML сработал только
+  процесс-локальный `NO_PROXY=*`, после чего official validator вернул
+  `Skill is valid!`.
+
+### Запрещённые повторы и правильные команды
+
+- Не передавать многострочный shell напрямую аргументом `plink`: Windows/PuTTY
+  quoting уже разбил одну public-key строку на три. Для любой сложной команды
+  использовать только доказанный transport: весь remote script кодируется
+  UTF-8/base64, а удалённая команда строго
+  `printf %s '<base64>' | base64 -d | bash`.
+- После записи `authorized_keys` всегда проверять до объявления успеха:
+  `wc -l /root/.ssh/authorized_keys`, права `stat`, затем
+  `ssh-keygen -lf /root/.ssh/authorized_keys`. Исправленный файл прошёл эти
+  проверки; malformed-вариант сохранён на S1 как rollback-copy.
+- Не запускать GUI `puttygen` для автоматической конвертации этого ключа. Три
+  попытки зависли на скрытом интерактивном запросе и были завершены; временный
+  PPK не создан. Key-only probe делать только заранее подготовленным проверенным
+  PPK либо совместимым OpenSSH-клиентом с явно закреплённым host key. Никогда не
+  отключать host-key verification.
+- После первого необъяснённого сбоя не повторять ту же операцию. Сначала
+  установить причину и проверить очистку побочных процессов/файлов; затем
+  записать рабочий способ сюда и только после этого продолжать.
+- Безопасная граница сейчас: password root access работает, public key на сервере
+  валиден, но client-side key-only probe не завершён; MaestroVPN/x-ui/bot state
+  не восстанавливался; службы не запускались; DNS, S2/S3/S4, Telegram и OTA не
+  менялись.
+## 0V. DESIGN: единый отказоустойчивый control plane без потери подписок
+
+Этот раздел от **09.08.2026** фиксирует новую приоритетную задачу владельца и
+дополняет 0U. Раздел 0U остаётся источником правды по OTA/Android, а 0V — точкой
+входа для проектирования высокой доступности backend и панели.
+
+### Утверждено владельцем 09.08.2026
+
+- Трёхузловой `rqlite`-кворум на живых S2/S3/S4 утверждён как основа
+  единого control plane. S1 сейчас недоступен; после восстановления он должен
+  безопасно догнать состояние без дублей и не быть обязательным для кворума.
+- В scope добавлены Telegram-боты: один бот сейчас не работает, а ботами ранее
+  выдавалась неправильная subscription URL с параметром наподобие `app=karing`.
+  Перед изменением нужен полный read-only аудит обоих ботов, их live/source
+  ownership и всех потребителей ссылок; точный дефект пока не считается доказанным.
+- Требование безопасности владельца: работать с повторными проверками и не
+  допустить поломки действующих клиентов, VPN-узлов, TV-интерфейса или OTA.
+- Критический сценарий оплаты должен одинаково работать в обоих Telegram-ботах:
+  клиент нажимает «Я оплатил», владелец вручную проверяет поступление и нажимает
+  «Подтвердить», после чего подписка продлевается ровно один раз. Повторный
+  callback Telegram, двойной клик владельца, одновременное подтверждение через
+  разные панели или перезапуск после уже выполненного commit не должны повторно
+  прибавлять срок, создавать второго клиента или второй платёж.
+- Новые платные серверы, балансировщики или подписки на внешние сервисы запрещены.
+  HA должна использовать только уже оплаченные S1–S4, существующие SpaceWeb и
+  Yandex; предложение дополнительных Yandex VM/NLB владельцем отклонено.
+
+
+
+### Обязательный результат владельца
+
+- Падение S1 не должно останавливать `/claim`, `/sub`, создание новых клиентов,
+  продления или административное управление.
+- Несколько панелей должны работать как **один организм**: принятая любой живой
+  панелью операция записывается один раз и получает стабильный идентификатор.
+- Желаемое состояние клиента автоматически применяется на всех доступных VPN-
+  узлах. Недоступный узел сохраняет невыполненную операцию и догоняет состояние
+  после восстановления.
+- Когда S1 возвращается, он автоматически получает все пропущенные создания,
+  продления и изменения без повторных клиентов, двойных списаний, разных сроков
+  или конфликтующих реквизитов.
+- Старые установленные приложения должны продолжать использовать существующий
+  публичный адрес `<REDACTED>`; аварийное переключение не должно
+  требовать ручной перенастройки каждого клиента.
+- Нужны резервные панели управления, внешняя проверка здоровья, понятный статус
+  синхронизации и безопасный возврат после аварии.
+
+### Подтверждённое текущее ограничение
+
+- S1 сейчас является control-plane SPOF: на нём `maestro-panel`, основной
+  `customers.json`/`orders.json`, 3x-ui и nginx для `<REDACTED>`.
+- Зашифрованные on-change/hourly backups и recovery runbook защищают от потери
+  данных, но это восстановление с RTO/RPO, а не работающий multi-panel HA.
+- Android сохраняет last-good конфигурацию при неудачном `/sub`, поэтому уже
+  активированный туннель обычно продолжает работу. После удаления приложения
+  локальная remote-profile привязка не восстанавливается, и без живого `/claim`
+  повторная активация невозможна.
+- Текущие file stores и прямое provisioning нескольких внешних панелей не дают
+  безопасных multi-writer семантик: для нового требования нужны единый
+  транзакционный источник правды, идемпотентные операции, outbox/reconciliation,
+  leader/fencing или эквивалентная защита от split-brain.
+
+### Выбранный ingress/failover без новых расходов
+
+- На S2/S3/S4 должны работать одинаковые stateless-панели с публичным TLS на
+  `:8911`; установленный парк продолжает обращаться к
+  `<REDACTED>`.
+- Публичная A-запись должна содержать только активный и полностью готовый узел.
+  Слепой multi-A запрещён. Переключение выполняет сериализованный workflow в уже
+  используемом GitHub Actions через SpaceWeb API после независимых повторных
+  проверок. SpaceWeb credentials хранятся только в encrypted GitHub Secrets, не
+  в репозитории и не размножаются по S2/S3/S4.
+- До первого DNS cutover адрес S1 VLESS отделяется на
+  `<REDACTED>`; иначе изменение apex одновременно направит старый
+  VLESS `:443` на чужой сервис S2/S3/S4. Новая subscription truth использует
+  отдельное имя, а старые last-good конфигурации проверяются на безопасный
+  fallback к остальным протоколам.
+- Существующий `/healthz` сохраняется для совместимости. Для маршрутизации нужны
+  отдельные `/livez` и закрытый `/readyz`, а также внешние проверки TLS/SNI,
+  тарифов, OTA manifest и секретной canary-подписки.
+- Текущий DNS TTL равен 600 секундам. Перед плановым cutover его нужно снизить до
+  минимально поддерживаемого SpaceWeb и выждать старый TTL; уже закэшированные
+  ответы ускорить задним числом нельзя.
+
+### Обязательные GO/NO-GO условия production cutover
+
+- До production нужен повторяемый dry-run importer и полный backup с хешами:
+  S1 JSON/orders/trials/settings и x-ui, S2 bot SQLite, S3/S4 x-ui. Неразрешённая
+  коллизия login/token/UUID/subId/expiry означает `NO-GO`.
+- До первой rqlite-записи старые S1 panel/bot/reconciler и старые bot pollers
+  должны быть hard-fenced. Вернувшийся S1 стартует изолированно, не импортирует
+  старый JSON обратно и получает новое incarnation перед catch-up.
+- Confirm/cancel оплаты конкурируют одной CAS-транзакцией. `confirm:<order_id>`
+  атомарно сохраняет payment, абсолютную expiry, generation и outbox; повтор
+  возвращает сохранённый результат и не прибавляет срок.
+- Cutover выполняется через короткий общий write-freeze, final delta import и
+  digest-сверку. После первой принятой rqlite-write откат к старым JSON/SQLite
+  запрещён: допускается только предыдущий binary поверх той же rqlite либо
+  проверенный export при новом write-freeze.
+- До `GO` обязательны fault-тесты кворума, crash до/после commit, повторных
+  Telegram updates/callbacks, confirm-vs-cancel, stale fencing, S1 catch-up,
+  restore drill и владельческий canary-платёж с ровно одним продлением.
+- Старый expiry reconciler после cutover становится audit-only и не может
+  поднимать даты из stale x-ui или локальной bot DB.
+
+### Текущий этап и границы
+
+- Владелец утвердил design и трёхузловой rqlite на S2/S3/S4. Подготовлен
+  исполняемый TDD/rollout/rollback-пакет: master-plan, Plans 01–04 и матрица
+  покрытия в `docs/superpowers/plans/2026-08-09-maestrovpn-ha-*`.
+- Итоговый независимый аудит пакета: `Critical 0 / Important 0`. Он остаётся
+  **production NO-GO** до прохождения всех доказательных gates самих планов.
+- В этой работе изменялась только документация репозитория. Код, production,
+  DNS, nginx, systemd, базы, VPN-узлы, GitHub Release, OTA и TV не изменялись.
+- Точка продолжения: Plan 01, Task 1, TDD в отдельной рабочей ветке. Затем задачи
+  выполняются строго по порядку 01 -> 02 -> 03 -> 04 с проверками и review.
+- Live-переключение ботов запрещено до точной инвентаризации их источников,
+  финального импорта состояния и подписанных hard-fence proofs. TV-интерфейс и
+  TV-ассеты во всей HA-работе остаются без изменений.
+
+## 0U. LIVE: OTA race fixes GREEN на GitHub; новый production OTA не выпускался
+
+Этот раздел от **09.08.2026** заменяет 0T как единственная текущая точка входа.
+Владелец подтвердил, что production 1.0.154 установилась на телефоне после
+первого зависания/`Session files in use` и задержанного повторного предложения.
+Ни один новый release/OTA после этого подтверждения не запускался.
+
+### Текущее точное состояние
+
+- Единственная тестовая ветка: `codex/mobile-4d-deck`.
+- Exact GREEN HEAD:
+  `db490082d03191630ab985586debe072b02ef3ec`.
+- Production fix commit: `162047f` (`fix(update): serialize observable
+  projection`); сверху только двухстрочный test type-pin `db49008`.
+- GitHub Actions run `31292439105`, build job `93191813232`: checkout, Android
+  build, `:app:assembleOtherDebug`, artifact upload, все unit tests и test-report
+  upload — **success**.
+- Artifact `maestrovpn-tv-test-apk`: ID `9031883529`, ZIP `176596754` bytes,
+  ZIP SHA-256
+  `94b46a9f4dd39903678b320ca40a152bf5a15c411be90a4a922a0c43a405e6f8`.
+- Извлечённый test APK: `179282417` bytes, SHA-256
+  `90a852d9324a3a58c9e8d3f4b5299fc9c1a507f84bc89078260cb6ef36e9e970`.
+- Focused post-GREEN re-review: Critical `0`, Important `0`, Minor `0`.
+- Финальный full-branch audit exact `db490082...`: Critical `0`, Important `0`,
+  Minor `0`; verdict **release-code GO**. Device/OTA gates отдельно не пройдены.
+- Worktree clean, local HEAD совпадает с `origin/codex/mobile-4d-deck`,
+  `git diff --check e3bfadd..HEAD` — PASS.
+
+### Что теперь исправлено
+
+1. System install confirmation доставляется ровно одним путём: receiver либо
+   запускает Intent при реально resumed Activity, либо паркует его для
+   `MainActivity`; failed launch снова безопасно паркуется.
+2. Одна `PackageInstaller.Session` больше не получает два параллельных confirm
+   прохода — устранён согласующийся с AOSP механизм `Session files in use`.
+3. `lastShownUpdateVersion` записывается только после явного отказа; failed
+   install/download остаётся повторно предлагаемым.
+4. UI и WorkManager используют одну immutable attempt-модель; stale/lower/
+   mismatched результаты проверки не меняют активный verifier.
+5. Последняя найденная race закрыта `UpdateStateProjectionGate`: coordinator
+   mutation и derived observable/cache projection теперь выполняются одной
+   короткой транзакцией. Старый VC154 projection не может перезаписать новый
+   attempt VC155.
+6. Gate не держится на network/download/install/suspend. Acquire rollback
+   заканчивается до входа следующей транзакции; исходная ошибка сохраняется, а
+   rollback failure остаётся suppressed.
+7. Ранее найденные production-инварианты сохранены: `6d7692d` восстанавливает
+   VPN после failed/cancelled install; `cb59434` показывает `Status.Starting`
+   как «Подключение», не как «Подключён».
+
+### TDD/CI цепочка последнего finding
+
+- Test-only RED: `a464b47`; expected RED run `31291406913`, job `93189109755`:
+  app assemble и artifact upload success, unit compile failure на отсутствующем
+  `UpdateStateProjectionGate`.
+- Первый GREEN attempt: run `31292160785`, job `93191063455`; production APK
+  собрался, но unit compile выявил только generic inference в новом тесте.
+- Test-only correction `db49008` явно закрепил `ProjectionSnapshot`; production
+  код не менялся.
+- Финальный GREEN: `31292439105` на exact `db490082...`, все шаги success.
+
+### TV, release и mirror границы
+
+- В diff
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe..db490082d03191630ab985586debe072b02ef3ec`
+  нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV geometry/assets,
+  D-pad/focus/Back и `ops/tv-*`.
+- Universal APK обновит общий binary/OTA-код TV-боксов, но TV-specific UI/assets
+  остаются без изменений.
+- Production 1.0.154 (`bede79ac...`, run `31279484939`) не содержит этих новых
+  race fixes. Её APK: `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`.
+- Последняя read-only проверка: GitHub latest/main — 1.0.154; public Yandex
+  manifest — 1.0.153 и public APK 1.0.154 — 404; panel/S1 недоступны по timeout.
+  Перед публикацией значения нужно проверить заново.
+- Не выполнялись merge в `main`, production workflow, Release, panel/S1/Yandex
+  mutation или новый OTA.
+
+### Следующий безопасный шаг
+
+1. В GitHub Actions собрать подписанный artifact-only production-кандидат с
+   `versionCode > 154`, без Release и OTA.
+2. На телефоне поверх 1.0.154 проверить: foreground/background confirmation,
+   cancel, ошибка → OK → повтор той же версии, Activity recreation, VPN restore
+   и успешное повышение версии без потери данных.
+3. Только после device acceptance опубликовать **тот же проверенный APK** и
+   единым gate сверить GitHub Release, panel и Yandex по versionName/versionCode,
+   размеру и SHA-256. TV-визуал не менять.
+
+Текущий GitHub test APK имеет высокий test `versionCode=90295`; его нельзя
+устанавливать на основной телефон, иначе обычный production-кандидат станет для
+Android downgrade. Локальный Gradle/APK не запускать: тяжёлые действия только
+через сохранённые `ops/`-скрипты GitHub Actions.
+
+## 0T. BLOCKED: 1.0.154 установилась; перед следующим OTA закрывается observable projection race
+
+Этот раздел от **09.08.2026** заменяет и уточняет 0S как единственная текущая
+точка входа. Новый production release/OTA после подтверждённой владельцем
+установки 1.0.154 не запускался.
+
+### Подтверждённые факты
+
+- Владелец подтвердил успешное обновление телефона до production `1.0.154`
+  (`versionCode=154`) после первого зависания, ошибки
+  `INSTALL_FAILED_INTERNAL_ERROR: Session files in use` и задержанного повторного
+  предложения. Это не устраняет выявленные в коде гонки.
+- Production 1.0.154: source/tag
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe`, run `31279484939`, APK
+  `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`,
+  certificate SHA-256
+  `17b958458a6c52d9062b333625503b0125663844540ac24e0de4862592d59ff7`.
+- 1.0.154 не содержит исправления duplicate confirmation и prompt/download
+  coordination; они разрабатываются только в `codex/mobile-4d-deck`.
+- Последняя read-only проверка: GitHub latest/main — 1.0.154; public Yandex
+  manifest — 1.0.153, public APK 1.0.154 — 404; panel и <REDACTED> недоступны по
+  timeout. Перед следующим OTA всё проверить заново.
+
+### Уже проверенные исправления
+
+- Task 1 (confirm-Intent доставляется ровно один раз): финальный commit
+  `a2b5738d1bbb49699c572b58635cbc122cf51921`, GREEN run `31284217408`,
+  artifact ZIP SHA-256
+  `95155bcdd034d1bd0ad5906654fe969afd451da8a775e1f8b577691ed84c2b0b`.
+  Scoped re-review закрыл все исходные findings; новых Critical/Important нет.
+- Task 2 (retry/persistence и единый UI/worker attempt-lock): commit
+  `f07e5b3f042497e2e4cc80cfb921ac04531fab2c`, GREEN run `31289799022`, job
+  `93184933116`, artifact ID `9031040290`, size `176596815`, ZIP SHA-256
+  `aa5707fa830ecd4cdf0d29644f5dffa9b3a7f96865dcb7660132c098bab70df2`.
+  Сфокусированный re-review Task 2: Critical `0`, Important `0`, Minor `0`.
+- Предыдущие production findings также исправлены и находятся в текущей истории:
+  `6d7692d` восстанавливает VPN после failed/cancelled install, `cb59434` не
+  показывает `Status.Starting` как уже подключённое состояние. Их regression
+  tests входят в successful run `31289799022`.
+
+### Новый Important release-blocker после полного branch-review
+
+Coordinator mutation была защищена monitor, но `UpdateState.syncPromptState()`
+публиковала observable/cache уже после выхода из него. Детерминированный
+interleaving:
+
+1. старый поток считывает candidate VC154 и приостанавливается до projection;
+2. новый поток публикует и захватывает background attempt VC155;
+3. старый поток поверх него записывает `updateInfo`/cache VC154;
+4. worker использует URL из immutable VC155, а `ApkDownloader` может взять
+   verifier size/SHA из глобального VC154 — download получает mismatch.
+
+Test-only RED commit `a464b47` добавляет
+`UpdateStateProjectionRaceTest` с управляемыми latch. До expected RED, minimal
+production fix, нового exact GREEN и повторного review ветка **не готова к
+merge/release/OTA**.
+
+### TV и дисциплина ветки
+
+- В functional diff
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe..f07e5b3f042497e2e4cc80cfb921ac04531fab2c`
+  нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV geometry/assets,
+  D-pad/focus/Back и `ops/tv-*`.
+- Universal APK обновит общий binary/OTA-код TV-боксов, но TV-specific UI/assets
+  менять запрещено.
+- Оставлена ровно одна локальная/remote тестовая ветка
+  `codex/mobile-4d-deck`; дополнительная локальная history-ветка удалена.
+- Локальный Gradle/APK не запускать. Все сборки и тяжёлые тесты — только GitHub
+  Actions через `ops/github-actions-artifact.py --task android`.
+- GitHub test APK имеет высокий test versionCode и не предназначен для основного
+  телефона: он заблокирует обычный production OTA как downgrade.
+
+### Следующий безопасный порядок
+
+1. Получить expected RED на `a464b47`.
+2. Сериализовать coordinator mutation + observable/cache projection, получить
+   exact GREEN GitHub run и независимый re-review без findings.
+3. Собрать в GitHub Actions подписанный artifact-only кандидат с
+   `versionCode > 154`, без Release/OTA, и провести device acceptance.
+4. Только после приёмки опубликовать именно проверенный APK и единым gate
+   синхронизировать GitHub Release, panel и Yandex. TV-визуал не менять.
+
+## 0S. LIVE: 1.0.154 установилась; гонка OTA исправлена в тестовой ветке, новый OTA ещё не выпускался
+
+Этот раздел от **09.08.2026** заменяет 0R как единственная текущая точка
+входа. Владелец разрешил общий universal OTA при обязательном условии: TV-боксы
+могут получить новый APK, но TV-интерфейс, TV-ассеты, геометрия, D-pad/focus и
+Back-поведение должны остаться без изменений.
+
+### Что произошло на телефоне
+
+- Production `1.0.154` (`versionCode=154`) сначала зависала при установке; затем
+  Android показал `INSTALL_FAILED_INTERNAL_ERROR: Session files in use`.
+- После долгого ожидания предложение появилось повторно, и **09.08.2026 владелец
+  подтвердил, что приложение обновилось**. Это подтверждает успешную установку
+  1.0.154 на его телефоне, но не устраняет воспроизводимую гонку в её коде.
+- Production 1.0.154 собрана из
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe`, run `31279484939`;
+  APK `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`,
+  signing certificate SHA-256
+  `17b958458a6c52d9062b333625503b0125663844540ac24e0de4862592d59ff7`.
+- **В 1.0.154 нет описанного ниже исправления.** Оно находится только в
+  `codex/mobile-4d-deck`; следующий production-кандидат должен получить новый
+  возрастающий versionCode и пройти отдельную проверку.
+
+### Подтверждённая причина
+
+1. `InstallResultReceiver` одновременно сохранял системный confirmation
+   `Intent` и сразу запускал его.
+2. `MainActivity.onResume()` мог запустить тот же `Intent` второй раз. Два
+   прохода по одной `PackageInstaller.Session` соответствуют ошибке Android
+   `Session files in use`.
+3. `Vendor.checkUpdate()` заранее записывал `lastShownUpdateVersion`, ещё до
+   согласия, загрузки и результата установки. Поэтому после сбоя та же версия
+   могла долго не предлагаться повторно.
+4. Дополнительная трассировка выявила конкуренцию UI/worker за общий
+   `update.apk`, устаревшие результаты проверки и потерю retry при пересоздании
+   Activity. Они также закрыты до следующего выпуска.
+
+### Исправление и доказательства
+
+- Task 1, однократная доставка system-confirmation:
+  - RED: run `31281615496` / `72755f2`, затем regression RED
+    `31283067786` / `74ebb1a` и `31283942034` / `4e917ce`;
+  - финальный GREEN: commit
+    `a2b5738d1bbb49699c572b58635cbc122cf51921`, run `31284217408`,
+    artifact ZIP SHA-256
+    `95155bcdd034d1bd0ad5906654fe969afd451da8a775e1f8b577691ed84c2b0b`;
+  - receiver запускает confirmation только при реально resumed Activity;
+    иначе Intent остаётся ровно один раз отложенным. Ошибка запуска снова
+    безопасно паркует Intent.
+- Task 2, повтор после ошибки и сериализация OTA:
+  - RED: run `31285264085` / `5e2088d`, затем `31287179150` / `c1d1444`,
+    `31288148916` / `a475e5b`, `31288902870` / `3557f19`;
+  - финальный код: `f07e5b3f042497e2e4cc80cfb921ac04531fab2c`
+    (`fix(update): serialize OTA prompt and download attempts`);
+  - точный GREEN: run `31289799022`, build job `93184933116`, все build,
+    unit-test и artifact-upload шаги successful;
+  - artifact ID `9031040290`, GitHub size `176596815` bytes, ZIP SHA-256
+    `aa5707fa830ecd4cdf0d29644f5dffa9b3a7f96865dcb7660132c098bab70df2`;
+  - UI и worker теперь получают единый immutable attempt-lock до обращения к
+    общему APK; stale/lower/mismatched результаты отвергаются; cancel/error,
+    Activity recreation и exception rollback покрыты тестами;
+  - `lastShownUpdateVersion` записывается только после явного «Отказаться», а
+    ошибка установки создаёт повторное предложение той же версии.
+- Свежий сфокусированный re-review Task 1 и Task 2: Critical `0`, Important
+  `0`, Minor `0`. Полное branch-review дополнительно проверяет старые
+  production-инварианты перед любым выпуском.
+
+### TV и границы изменений
+
+- Единственная актуальная ветка: `codex/mobile-4d-deck`; дополнительные тестовые
+  ветки/worktree не создавать.
+- В diff нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV-геометрии,
+  D-pad/focus/Back и `ops/tv-*`. Мобильный экран и его ассеты остаются отдельной
+  веткой исполнения.
+- Следующий universal APK обновит бинарник и общий OTA-код на TV-боксах, но
+  TV-specific интерфейс/ассеты должны остаться без изменений.
+
+### Что сейчас намеренно не сделано
+
+- После подтверждения установки 1.0.154 **не запускались** новый release,
+  production workflow, merge в `main`, изменение panel manifest, S1 или Yandex.
+- Последняя read-only проверка видела публичный Yandex manifest ещё на 1.0.153,
+  а публичный APK 1.0.154 был недоступен; S1/panel из текущей среды недоступны.
+  Перед следующим OTA необходимо заново сверить GitHub Release, panel и Yandex:
+  versionCode/versionName, размер APK и SHA-256 должны совпасть.
+- Локальный Gradle/APK не запускать: компьютер владельца слабый. Сборка и тяжёлые
+  тесты выполняются только GitHub Actions через сохранённые `ops/`-скрипты.
+- Exact GREEN test APK имеет высокий test versionCode; его нельзя предлагать как
+  обычную установку на основной телефон, иначе последующий production OTA станет
+  downgrade.
+
+### Следующий безопасный шаг
+
+1. Завершить полное независимое branch-review и устранить любой доказанный
+   Critical/Important/Minor finding с новым RED/GREEN run.
+2. На физическом телефоне проверить следующий подписанный production-кандидат:
+   foreground/background system confirmation, отмену, ошибку → OK → повтор той
+   же версии, пересоздание Activity и восстановление VPN после неуспеха.
+3. Только после device acceptance собрать возрастающую production-версию и
+   единым gate сверить GitHub/panel/Yandex до публикации OTA. TV-визуал не менять.
+
+## 0R. BLOCKED: mobile OTA разрешена, но текущий канал неизбежно обновляет TV
+
+Этот раздел от **08.08.2026** заменяет раздел 0Q как текущая точка входа.
+
+Владелец явно разрешил запуск обновления и синхронизацию Яндекса, но поставил
+обязательное условие: **TV-версию не затрагивать**. Production mutation не
+выполнена, потому что проверка исходников доказала несовместимость этих двух
+условий в текущей архитектуре.
+
+### Подтверждённый блокер
+
+- Телефон и TV используют один `applicationId=com.maestrovpn.tv`, один flavor
+  `other` и один universal APK; ABI splits выключены.
+- `Application.onCreate()` планирует `UpdateWorker` на любом form factor.
+- `PanelUpdateChecker` запрашивает единый `/update/update.json`; общий
+  `HTTPClient.userAgent` передаёт версию/libbox/язык, но не `mobile|tv`.
+- Backend `handleUpdate` выбирает manifest только по `versionCode` и обязательным
+  waypoint; platform-gate отсутствует.
+- GitHub Release и Yandex Object Storage публикуют один APK, один
+  `update.json` и один `latest.apk` всему флоту.
+
+Следовательно, штатный release + Yandex sync неизбежно предложит новый APK и
+телефонам, и телевизорам. Явные TV-арт/геометрия (`TvEskiz*`, `tvm_*`, D-pad)
+в mobile-ветке не менялись, но universal APK всё равно обновит TV, а общие
+`UpdateDialog`/installer-пути также входят в branch diff.
+
+### VersionCode-блокер тестового телефона
+
+- Установленный exact test build из run `31275136685` имеет workflow
+  `run_number=275`, следовательно `versionCode=90000+275=90275`.
+- Live production и Yandex сейчас: `1.0.153`, `versionCode=153`.
+- Следующий обычный production run: `1.0.154`, `versionCode=154`.
+- Android не установит `154` поверх `90275`; обычная OTA не обновит телефон с
+  проверенной test-сборкой. Повышение production code выше `90275` потребует
+  постоянного изменения versioning всей fleet-линейки и затронет TV.
+
+### Проверенное release-состояние
+
+- mobile branch: `codex/mobile-4d-deck`, HEAD
+  `c58811228bf0c42d1ea6e0f1b07b9cff94bbe063`;
+- `origin/main`: `54b90eff9abe2a3a2b253863644e264eab193cd4`;
+- merge-base: `5e16c001ba99fe8bdb227e95c071b46845739c68`;
+- mobile branch: 149 commits ahead и 4 commits behind current main;
+- read-only `git merge-tree` не обнаружил конфликтов, но main нельзя заменять
+  или force-push: четыре новых S4/backend/docs-коммита нужно сохранить;
+- live Yandex manifest: `1.0.153`, APK `116383427` bytes, SHA-256
+  `f20fed193a9291ce4abed8f23fa63d797c73d3b817a6115930e7eb4a45212999`;
+- latest GitHub Release: `tv-v1.0.153`, те же APK/размер.
+
+«Яндекс» в проекте означает public Yandex Object Storage bucket
+`maestro-apk`, не магазин приложений. Штатный sync выполняется на S1 сервисом
+`maestro-update-mirror.service`; repeatable gate — `ops/verify-ota.sh --sync`,
+затем `ops/verify-ota.sh`. Из текущей среды <REDACTED> и panel `:8911` недоступны по
+таймауту; публичный Yandex manifest прочитан успешно.
+
+### Следующее обязательное решение владельца
+
+До publication нужно выбрать ровно одно:
+
+1. Разрешить общий universal OTA: TV тоже получит новую версию, хотя TV-арт и
+   TV-геометрия не меняются.
+2. Оставить TV полностью нетронутым: не делать OTA; собрать подписанный APK с
+   `versionCode > 90275` и установить вручную только на телефон.
+3. Отдельной задачей спроектировать mobile-only OTA channel/versioning. Старые
+   клиенты не передают form factor, поэтому безопасный bootstrap также нужен.
+
+До этого решения запрещено merge в `main`, dispatch `android.yml`, создание
+latest Release, запуск `maestro-update-mirror.service` и изменение Yandex
+`update.json`. Rollback после fleet-установки возможен только roll-forward
+новым большим `versionCode`; публикация старого `153` обратно не откатит Android.
+
+## 0Q. LIVE: плашки возвращены поверх бокового орнамента; старые UI-ветки удалены
+
+Этот раздел от **08.08.2026** заменяет раздел 0P как текущая точка входа.
+
+### Что исправлено и что запрещено менять
+
+- Владелец отдельно подтвердил, что изумрудный живой глаз уже решён. В этой
+  задаче глаз, его состояния, анимация, геометрия и шесть atlas-страниц
+  **не менялись**.
+- Фактический дефект был не в исчезновении семи нижних плашек: runtime сначала
+  рисовал `console` и `contacts`, а затем перекрывал их фиксированными
+  `frame`, `cartouche` и `vines`. Дуга оставалась видна, потому что `arc`
+  рисовался позже.
+- Старый неправильный runtime-порядок:
+  `wood → console → contacts → frame → cartouche → vines → arc → ring`.
+- Новый обязательный runtime-порядок:
+  `wood → frame → cartouche → vines → console → contacts → arc → ring`.
+  Поэтому плашки и их резной кант лежат поверх бокового орнамента, остаются
+  единой выпуклой дугой и прокручиваются вместе с `arc`.
+- Manifest/atlas packing order намеренно не менялся: inventory-порядок и
+  визуальный z-order теперь проверяются отдельно. Atlas перегенерировать из-за
+  этого исправления не требуется.
+
+### Точная реализация и проверки
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- единственная актуальная тестовая ветка: `codex/mobile-4d-deck`;
+- функциональный HEAD: `dcc3d59717f21caff74c77ddb70472cfddcf3906`;
+- `bec4430` — контрактный тест foreground-порядка и полного inventory;
+- `f00baf0` — минимальная перестановка двух пар строк runtime-слоёв;
+- `dcc3d59` — тот же порядок закреплён в `ops/phone-screen-sim.py`.
+- `python -m unittest ops.test_mobile_eye_state_preview` — **9/9 PASS**;
+- `python -m py_compile ops/phone-screen-sim.py
+  ops/mobile-eye-state-preview.py` — **PASS**;
+- `git diff --check` — **PASS**.
+
+Тяжёлая визуальная проверка выполнена только на GitHub сохранённым безопасным
+скриптом `python ops/github-actions-artifact.py --task
+mobile-eye-runtime-assets`:
+
+- Actions run: `31274629481`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31274629481`;
+- workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
+- exact run HEAD: `dcc3d59717f21caff74c77ddb70472cfddcf3906`;
+- result: **PASS**;
+- artifact:
+  `mobile-eye-runtime-assets-dcc3d59717f21caff74c77ddb70472cfddcf3906`;
+- artifact ZIP SHA-256:
+  `f091c53024b883c3195383afc30bdb6c47e5a61277c2319dc6e3c0bbe7643c48`;
+- локальная проверенная копия:
+  `build/github-artifacts/run-31274629481/`.
+
+На `owner-home-comparison` из этого exact run видны все семь плашек; они
+образуют непрерывную выпуклую дугу, а боковые завитки находятся позади канта.
+
+### Итоговый test APK после исправления плашек
+
+Сборка выполнена один раз на GitHub из точного HEAD, включающего исправление и
+актуальную память проекта. Release/OTA не запускались.
+
+- Actions run: `31275136685`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31275136685`;
+- workflow/task: `android-test.yml` / `android`;
+- exact run HEAD: `10ee9b71c68c51423b500231ca2df0bcff9f709f`;
+- result: `completed / success`;
+- artifact: `maestrovpn-tv-test-apk`, ID `9026832301`;
+- artifact ZIP: `176590647` bytes, SHA-256
+  `b41e417e930a3b96f8424c2dc9bb8128d9a228e9da5765416c1d6b9b274f8322`;
+- APK: `MaestroVPN-TV-1.0.92-test-debug.apk`, `179273510` bytes, SHA-256
+  `9cc18d373eeadd9542511eab9fa2c44b9e79b79697e05e94ca1cc52296cc029b`;
+- локальная проверенная копия:
+  `build/github-artifacts/run-31275136685/extracted/MaestroVPN-TV-1.0.92-test-debug.apk`.
+
+### Очистка старых тестовых версий
+
+Перед удалением выполнен read-only аудит ancestry, уникальных коммитов и PR.
+PR `#73` и `#74` закрыты как устаревшие. На GitHub удалены ровно пять старых
+mobile/UI-веток:
+
+- `codex/mobile-4d-interface`;
+- `codex/mobile-4d-reference-pack`;
+- `codex/mobile-deck-layer-order`;
+- `feat/mobile-4d-redesign`;
+- `fix/eye-size-restore`.
+
+Исправление из старой `codex/mobile-deck-layer-order` не потеряно: stable
+patch-id всей RED/GREEN/parity-тройки совпал с перенесёнными коммитами
+`bec4430` / `f00baf0` / `dcc3d59`. Старые eye/redesign-ветки относились к
+удалённой flat-scene-модели и полностью заменены текущими 4D atlas и
+изумрудным глазом. Локальные stale remote-tracking refs также удалены.
+
+После удаления `git ls-remote --heads origin` подтверждает: из mobile/UI
+тестовых веток осталась только `codex/mobile-4d-deck`. `main`, AWG, backend,
+security, telemetry и WDTT-ветки намеренно сохранены как нетестовая работа и
+не относятся к этой очистке.
+
+TV, backend, API, VPN runtime, GitHub Release, production signing и OTA не
+менялись. OTA по-прежнему запрещена без отдельного явного разрешения владельца.
+
+## 0P. FINAL: вариант утверждён, atlas интегрированы, test APK собран
+
+Этот раздел от **08.08.2026** заменяет раздел 0O как текущая точка входа.
+
+- Владелец визуально утвердил показанные OFF/ON и фазы из GitHub run
+  `31272014651`: «фиксируйся все хорошо и заканчиваем с этим».
+- repository: `evgenmay1978-del/proectmaestro-vpn`; branch:
+  `codex/mobile-4d-deck`; проверенный функциональный HEAD:
+  `db94ee0884f244f81c3e7cf7d7b332018e72e8c0`.
+- Коммит `db94ee0` интегрирует ровно шесть atlas
+  `atlas_{l,c,r}_{07,08}.webp` из проверенного artifact run `31272014651`.
+  Каждый источник до копирования и каждый target после копирования сверены с
+  `runtime-assets-report.txt` по SHA-256 и размеру; других runtime/TV файлов
+  в asset-коммите нет.
+- Лёгкие проверки после интеграции: `ops.test_mobile_eye_state_preview` —
+  **9/9 PASS**; Python compile — **PASS**; `git diff --check` — **PASS**;
+  TV/`tvm_*` diff отсутствует.
+
+### Актуальный тестовый APK
+
+- GitHub Actions run: `31273024061`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31273024061`;
+- workflow/task: `android-test.yml` / `android`;
+- exact HEAD: `db94ee0884f244f81c3e7cf7d7b332018e72e8c0`;
+- result: `completed / success`; блокирующие `:app:assembleOtherDebug` и
+  `:app:testOtherDebugUnitTest` завершились успешно;
+- artifact: `maestrovpn-tv-test-apk`, ID `9026232602`;
+- artifact ZIP: `176590422` bytes, SHA-256
+  `baa3e9d6bb42833d8c0dacc63750a8ecb483b1a70dd7975d1c2b80f8dc110c7d`;
+- APK: `MaestroVPN-TV-1.0.92-test-debug.apk`, `179273514` bytes, SHA-256
+  `29bd5628801eaafc0cdc0941a7b744606d2c0fd26fbb512c4c395b302c1bec07`;
+- локальная проверенная копия:
+  `build/github-artifacts/run-31273024061/extracted/MaestroVPN-TV-1.0.92-test-debug.apk`.
+
+Эта задача по замене мозаики и единому изумрудному живому глазу завершена.
+Рабочая ветка сохраняется как есть; `main`, TV, backend, API, VPN runtime,
+GitHub Release, production signing и OTA не менялись. Следующий внешний шаг —
+только ручная установка именно указанного test APK на физический телефон.
+OTA по-прежнему требует отдельного явного разрешения владельца.
+
+## 0O. LIVE: веко объединено с изумрудным окружением; GitHub proof готов
+
+Этот раздел от **08.08.2026** заменяет противоречащие ему сведения раздела
+0N и всех более старых разделов.
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- branch: `codex/mobile-4d-deck`;
+- точный функциональный HEAD: `8bbcce6332a4721615de4573a1055a636da295d9`;
+- единственный full-layout baseline:
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`;
+- требование владельца: глаз и веки являются **единым изумрудным объектом**.
+  Бронзовое, золотое, красное или отдельное текстурное веко запрещено.
+
+### Исправленная runtime-модель
+
+- Старые `mobile_eye_squint` и `mobile_eye_closed` больше не рисуются поверх
+  окружения ни в `LivingEyeMedallion`, ни в обоих Python-рендерах.
+- `home_ring` один раз рисует зарегистрированный изумрудный eye-surround.
+  Живая анатомия видна только внутри движущейся апертуры 70/30. При закрытии
+  апертура уменьшается и открывает тот же рельеф под ней; новый слой века не
+  создаётся.
+- OFF: апертура, анатомия, glow и временный контактный shadow полностью
+  исчезают; остаётся естественная закрытая складка того же изумрудного
+  материала.
+- ON: глаз открыт; blink, gaze, touch, pupil и catchlight продолжают работать.
+  Это одна анимированная runtime-модель, а не переключение статичных кадров.
+
+### Коммиты, тесты и воспроизводимые доказательства
+
+- `025b7d1` — design/spec/plan изумрудной непрерывности;
+- `05dcebf` — RED-контракт: full close обязан раскрывать зарегистрированный
+  surround и оставлять нулевую alpha у eye/seam overlay;
+- `8bbcce6` — GREEN: удалено отдельное покрытие века из Kotlin,
+  `mobile-eye-state-preview.py` и `phone-screen-sim.py`;
+- `python -m unittest ops.test_mobile_eye_state_preview` — **9/9 PASS**;
+- `python -m py_compile ops/mobile-eye-state-preview.py
+  ops/phone-screen-sim.py` — **PASS**;
+- `python ops/mobile-eye-state-preview.py --check` — **PASS**;
+- `git diff --check` — **PASS**;
+- независимое review GREEN — **PASS**, блокирующих и существенных замечаний нет.
+
+Тяжёлый контроль выполнен только на GitHub:
+
+- Actions run: `31272014651`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31272014651`;
+- workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
+- result: `completed / success`;
+- exact run HEAD: `8bbcce6332a4721615de4573a1055a636da295d9`;
+- artifact:
+  `mobile-eye-runtime-assets-8bbcce6332a4721615de4573a1055a636da295d9`;
+- artifact ZIP SHA-256:
+  `4411a5065ed2030af99962e618d9a2e14850732eedd4e9f93803faeb2d79042b`;
+- скачанный exact artifact:
+  `build/github-artifacts/run-31272014651/`;
+- приёмочные изображения:
+  `extracted/build/phone-screen-sim/phone-screens-qa.jpg`,
+  `owner-home-comparison-qa.jpg`,
+  `owner-eye-blink-phases-qa.jpg`;
+- artifact также содержит полноразмерные PNG, отчёт и ровно шесть новых atlas
+  WebP.
+
+Текущий gate: показать владельцу OFF, ON и пять фаз из run `31272014651` и
+получить его визуальное решение. **Шесть atlas из artifact ещё не
+интегрированы, Android APK ещё не собирался, OTA не выполнялась и не
+разрешена.** После явного одобрения изображений: интегрировать точные шесть
+atlas, затем запустить GitHub task `android`, передать APK на ручной тест.
+OTA — только после отдельного явного разрешения владельца.
+
+## 0N. LIVE: вариант 2 реализован и проверен на GitHub, ждёт решения владельца
+
+Этот раздел от **08.08.2026** заменяет противоречащие ему сведения ниже.
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- branch: `codex/mobile-4d-deck`;
+- точный опубликованный HEAD: `5dae79eca07f0a590cb9c348d489201d4eeae22b`;
+- full-layout baseline остаётся только
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`;
+- выбранный владельцем **вариант 2**: закрытие непрерывными непрозрачными
+  верхним и нижним веками, которые сходятся по прежней пропорции хода 70/30;
+- OFF: исходная апертура полностью закрыта, анатомия, радужка, зрачок и
+  свечение не видны;
+- ON: глаз полностью открыт и сохраняет одну runtime-модель blink, gaze,
+  touch, pupil и catchlight. Это не переключение статичных кадров;
+- `home_ring` владеет зарегистрированным статичным бронзово-изумрудным
+  окружением вместо мозаики. `LivingEyeMedallion` владеет динамической
+  анатомией, контактным швом и движущимся покрытием век, используя
+  `mobile_eye_squint` + `mobile_eye_closed` только как текстуру покрытия, а не
+  как полноэкранные state-swap изображения.
+
+### Действительные коммиты и проверки
+
+- `62fbde1` — RED-контракт непрозрачного полного закрытия;
+- `7e100ac` — GREEN: динамические текстурированные веки в Kotlin и лёгком
+  scripted-preview;
+- `5dae79e` — та же модель перенесена в полный phone simulator и baseline `08`;
+- `9424dd7`, `efa0876` — повторяемый безопасный GitHub Actions
+  dispatch/wait/download helper с лимитами и защитой redirect/ZIP;
+- `python -m unittest ops.test_mobile_eye_state_preview` — **9/9 PASS**;
+- helper tests — **25/25 PASS**; `py_compile` и `git diff --check` — **PASS**;
+- локально тяжёлые Gradle/atlas/simulator не запускались.
+
+Полный тяжёлый рендер выполнен только на GitHub:
+
+- Actions run: `31261067414`;
+- workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
+- result: `completed / success`;
+- artifact ID: `9022816420`;
+- artifact ZIP SHA-256:
+  `9b6a5399763dd3dc7e397c0b501ae539b2f1f9b3640670321bb8f699d314986e`;
+- скачанные QA-файлы находятся в
+  `build/github-artifacts/run-31261067414/extracted/build/phone-screen-sim/`;
+- артефакт содержит полноразмерные и QA-версии `phone-screens`,
+  `owner-home-comparison`, `owner-eye-blink-phases`, отчёт и ровно шесть
+  сгенерированных atlas WebP.
+
+Текущий gate: владельцу показаны реальные OFF/ON кадры этого GitHub run;
+требуется его визуальное решение. **Android APK ещё не собирался, atlas из
+artifact ещё не интегрировались, OTA не выполнялась и не разрешена.** После
+одобрения сначала интегрировать точные шесть atlas, затем запустить GitHub task
+`android`; APK передать на тест, OTA делать только по отдельному явному
+разрешению.
+
+## 0M. LIVE: установленный Home закреплён как единственный layout-baseline
+
+Проверенный GitHub checkpoint от **08.08.2026**. Этот раздел заменяет прежнюю
+версию 0M и исправляет ключевую ошибку: работа и показ владельцу должны
+начинаться от реально установленной тестовой сборки, а не от старого концепт-макета.
+
+### Неподвижный источник правды
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- branch: `codex/mobile-4d-deck`;
+- функциональный checkpoint до этого docs-обновления:
+  `a384f971d961332f996851bc985b2af82d427ef1`;
+- единственный full-layout baseline:
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`;
+- baseline имеет ровно `591×1280`, SHA-256
+  `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`;
+- `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` — только
+  история eye/eye-surround art direction. Он никогда не является источником
+  full-layout, title/status, contacts, protocol arc или lower-deck geometry и
+  не должен показываться как текущая установленная сборка.
+
+Решение владельца остаётся прежним: центральная радиальная мозаика физически
+удаляется из `home_ring_{l,c,r}`; всё её пространство занимает единый
+тёмно-изумрудный рельеф век с трещинами и бронзовыми прожилками. Глаз крупнее
+одним uniform transform `1.10`, не статичен и сохраняет blink, gaze, touch,
+pupil, catchlight и VPN-state. Запрещён overlay поверх старой мозаики:
+`home_ring` владеет static bronze + eye-surround, а `LivingEyeMedallion` —
+только динамической анатомией и контактным швом.
+
+### Что произошло и какие preview-коммиты действительны
+
+- `cdeae9f` (первый preview RED) и `20ac882` (первая реализация preview)
+  использовали неверный полный baseline `04`. Эти результаты признаны
+  недействительными: их нельзя показывать как приёмочное доказательство и нельзя
+  переносить их layout/status/deck geometry в runtime.
+- `98c5763` добавил corrective RED, требующий установленный Home `08`;
+  `ed81c57` перевёл scripted-preview на точный baseline и сохранил остальной
+  экран.
+- `eb2850d` и `adb28f8` усилили независимый RED: owner-owned change mask,
+  runtime alpha контактного шва и отсутствие красного ghost
+  `ОТКЛЮЧЕНО` в connected-status.
+- `a384f97` устранил красный ghost, использует чистый status-background и
+  runtime seam alpha `0.18`.
+- Финальное независимое scoped-review для `a384f97` — **PASS**, замечаний не осталось.
+- Текущий лёгкий checkpoint: `python -m unittest
+  ops.test_mobile_eye_state_preview` — **9/9 PASS**; `py_compile`, render
+  scale 1, `--check` и `git diff --check` — **PASS**. Визуально connected
+  status осмотрен: старых красных букв/ореола нет.
+- Repeatable commands:
+  ```powershell
+  python ops/mobile-eye-state-preview.py
+  python ops/mobile-eye-state-preview.py --output-dir build/mobile-eye-state-preview-qa --scale 1
+  python ops/mobile-eye-state-preview.py --check
+  ```
+  Exact outputs: `home-disconnected.png`, `home-connected.png`,
+  `home-eye-states-comparison.png`. Это scripted preview, а не runtime/Android
+  screenshot и не готовый APK.
+
+### Production Task 2 — ещё не GREEN
+
+- `fd510f0` добавил tests; `60b60a4` добавил master и детерминированный
+  generator.
+- Review вернул **REQUEST CHANGES**: в branch отсутствуют шесть сгенерированных
+  ring PNG, `--check` остаётся самореферентным, а mismatch/read-only
+  integration coverage недостаточна. Task 2 не считается завершённой.
+- `227d8cc` добавил manual GitHub Actions job
+  `task=mobile-eye-ring-assets` в `.github/workflows/android-test.yml`.
+  Job существует, но ещё не был dispatch/подтверждён; generated artifact не
+  интегрирован.
+- Старые runtime ring/atlas и старые APK из исторических разделов не содержат
+  новую принятую замену eye-surround.
+
+### Ресурсная и release-политика
+
+Компьютер владельца слабый. Локально допустимы чтение, Git, правки
+кода/документов, лёгкие Python preview/tests и просмотр скачанных artifacts.
+Не запускать локально Gradle/APK, тяжёлую full-size ring generation, atlas
+rebuild или полный simulator: это выполняется на GitHub runner.
+
+**Нового APK с этой заменой ещё нет. OTA не выполнялась и сейчас не разрешена.**
+Не передавать старый APK как результат текущей задачи.
+
+Следующие обязательные gates строго по порядку:
+
+1. Владелец визуально одобряет точные OFF/ON кадры scripted-preview на baseline
+   `08`.
+2. Task 2 исправляется и завершается на GitHub runner; шесть ring PNG и
+   digest-report проходят независимый review и интегрируются.
+3. Runtime Kotlin/geometry, atlas и полный visual simulator проверяются на
+   GitHub; затем GitHub Actions собирает новый test APK.
+4. Владелец устанавливает именно этот artifact и проверяет его на физическом
+   телефоне.
+5. Только после отдельного явного разрешения владельца можно планировать OTA.
+   Одобрение preview или APK само по себе не является разрешением OTA.
+
+Scope не расширять: TV, `tvm_*`, D-pad/focus/Back, backend, API, VPN runtime,
+production signing/release/OTA и `main` не менять.
+
+## 0L. LIVE: единая мозаика глаза; логотип и семь подписей сохранены
+
+Финальный GitHub-handoff от **02.08.2026** после повторного production-review:
+
+- передавать только APK из run `30764526376`, artifact `8838559790`; старые artifacts
+  `8832259523`, `8836764415` и промежуточный `8838290105` больше не использовать;
+- RED commit `51de6b0a88d5c3ed9195f7ec59214b6323a7f323`, run `30762345257`:
+  `assembleOtherDebug` прошёл, а три новые geometry-проверки ожидаемо упали;
+- основной single-mosaic renderer сделан в `55e9ced9c2e07765cdd4a08347be73e6d5983ea7`;
+  финальное ревью дополнительно выявило, что connected glow менял мозаику при полном
+  моргании, а runtime-шов не совпадал с QA-рендером;
+- окончательное исправление и протестированный SHA:
+  `120fb816f4fd8be6c05f328d33d36089af9fbe54`;
+- GREEN run `30764526376` завершён `completed / success`: `:app:assembleOtherDebug`,
+  загрузка APK, unit tests и загрузка test report прошли;
+- APK `maestrovpn-tv-test-apk`, id `8838559790`, размер `177365255` байт,
+  digest `sha256:64aadd731303732a1def8c5fb01db95510197ef730eb2514db10cf377100ac25`,
+  хранится до `2026-10-31T19:57:38Z`;
+- единственная актуальная ссылка:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30764526376/artifacts/8838559790`;
+- runtime теперь рисует зарегистрированную emerald-мозаику ровно один раз, живую анатомию
+  глаза — только внутри общей 70/30 апертуры, а при полном закрытии оставляет ту же мозаику
+  и единый шов `3 px / 0.18`; отдельные bronze squint/closed frames, повторная mosaic paint
+  и glow поверх закрытого диска отсутствуют;
+- полный `phone-screen-sim.py`, `py_compile`, five-phase eye QA и `git diff --check` прошли.
+  Контракты full-window/top registration не менялись; титул остаётся в bounds
+  `69,54–323,88`, дуга сохраняет семь подписей: `АВТО`, `VLESS`, `HYSTERIA2`, `ANYTLS`,
+  `NAIVE PROXY`, `WDTT`, `WEBRTC`;
+- CI-only draft PR `#79` закрыт, **не смержен**. `main`, TV, backend, VPN-runtime,
+  workflows, Release, signing и OTA не менялись.
+
+Следующий gate — только визуальная проверка этого точного APK на физическом телефоне.
+
+## 0K. LIVE: исправлена пустая дуга протоколов; передавать только новый APK
+
+Проверенный handoff от **02.08.2026** после скриншота владельца 19:40:
+
+- владельцу по ошибке была передана старая ссылка на run `30743893059`, artifact
+  `8832259523`, SHA `6dcae22019274aac71ad10237460e14ff161b178`. Этот APK предшествует
+  исправлениям посадки Home и мозаичных век; **не передавать и не устанавливать его снова**;
+- скриншот с единственным `WEBRTC` выявил отдельный runtime-дефект: при временно пустом
+  списке селектора `orderedHomeProtocols(emptyList())` возвращал только `[olcrtc]`, после
+  чего единственная ячейка центрировалась на дуге, а `olcrtc` отображался как `WEBRTC`;
+- RED commit `132c16ecd136051d1653a390eaba846c8edc21f1`, run `30758296195`:
+  APK собрался, а `PhoneHomeProtocolOrderTest.emptyRuntimeListKeepsEveryOwnerApprovedArcLabel`
+  упал ожидаемо (`82 tests completed, 1 failed`);
+- минимальное phone-only исправление в commit
+  `0263eb9196c3f0a7187187b41beb7318b47fcd9c`: пустой runtime-список использует
+  существующий `HOME_PROTOCOL_ORDER`; обработка любого непустого списка не менялась;
+- GREEN run `30758563590` — `completed / success`: `:app:assembleOtherDebug`, загрузка
+  APK и все unit-тесты прошли;
+- APK artifact `maestrovpn-tv-test-apk`, id `8836764415`, размер `177367280` байт,
+  digest `sha256:1a1d016cd6f87600efbb8f64aaeae2249f20e8fe07022b44376f9129b466507f`,
+  срок хранения до `2026-10-31T17:18:02Z`;
+- единственная актуальная страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30758563590/artifacts/8836764415`;
+- этот APK последовательно включает: full-window/top registration из `ede03afa`, полное
+  непрозрачное замещение закрытого века мозаикой из `0a116af2` и стабильные семь подписей
+  дуги (`АВТО`, `VLESS`, `HYSTERIA2`, `ANYTLS`, `NAIVE PROXY`, `WDTT`, `WEBRTC`) из
+  `0263eb91`;
+- CI-only draft PR `#78` закрыт, **не смержен**. TV, backend, VPN-runtime, workflows,
+  Release, signing и OTA не менялись.
+
+Код и CI проверены. Визуальная проверка этого точного APK на физическом телефоне ещё нужна;
+локальный simulator не считается доказательством нового runtime empty-state.
+
+## 0J. LIVE: артефакты мозаики на закрытом глазе исправлены и CI зелёный
+
+Проверенный handoff от **02.08.2026** по скриншоту владельца 18:34:
+
+- дефект: узкий полупрозрачный mosaic-envelope оставлял чёрные боковые фрагменты,
+  бронзовую дугу закрытого eye-state и светлую прямоугольную заплатку;
+- root cause: `textureAlpha = 0.78` и `envelopeExpansionPx = 0.046 * size` заменяли
+  только центр кадра, хотя painter уже рисовал точные зарегистрированные пиксели `ring`;
+- RED commit `de6dcf179d941c6e2549958db1e1c83a6c90abed`, run `30754966619`:
+  APK собрался, а 81 unit-тест завершился ровно двумя ожидаемыми падениями — alpha и
+  неполное покрытие `stateBounds`;
+- исправленный и протестированный remote SHA
+  `0a116af2cc193af15091a1a1dcfd32ebb34e3e90`;
+- GREEN run `30755278589` — `completed / success`: `:app:assembleOtherDebug`, загрузка
+  APK и все 81 unit-тест прошли;
+- APK artifact `maestrovpn-tv-test-apk`, id `8835762207`, размер `177367483` байта,
+  digest `sha256:543eb8ce1553ab48809c897783a1e487bc9f5b2dcff5f3f5b5bf0d8d67c4ce7e`,
+  срок хранения до `2026-10-31T15:51:01Z`;
+- прямая страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30755278589/artifacts/8835762207`;
+- eye fit, iris/pupil/catchlight, gaze, touch и blink timing не менялись. Изменён только
+  профиль замещения: к фазе `0.5` мозаика непрозрачно покрывает полный eye-state вне щели;
+- CI-only draft PR `#77` закрыт, **не смержен**. TV, backend, VPN-runtime, Release и OTA
+  не трогались.
+
+Следующий шаг — установить этот APK и визуально проверить закрытый глаз и обычное моргание.
+
+## 0I. LIVE: full-window Home и мозаичные веки собраны на GitHub
+
+Проверенный GitHub-handoff от **02.08.2026**:
+
+- ветка `codex/mobile-4d-deck`, протестированный remote SHA
+  `ede03afaacd10d0ba8c5a39ebbd35f8b62d66a16`;
+- GitHub Actions run `30753147169` (`Build app APK (test / compile-check)`) —
+  `completed / success`;
+- `:app:assembleOtherDebug` — success; загрузка APK — success;
+  `:app:testOtherDebugUnitTest` — success;
+- APK artifact `maestrovpn-tv-test-apk`, id `8835149771`, размер `177366787` байт,
+  digest `sha256:92b5298f46b0fa58e4b4fbc2f08bf15b2929fffb1760016121948a5fdeb2367f`,
+  срок хранения до `2026-10-31T14:54:28Z`;
+- прямая страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30753147169/artifacts/8835149771`;
+- CI-only draft PR `#76` закрыт после успешной сборки, **не смержен**. Release, OTA,
+  backend, VPN-runtime и TV не трогались.
+
+Следующий шаг — установить этот APK и проверить Home на физическом телефоне.
+
+## 0H. ИСТОРИЯ — НЕ УСТАНАВЛИВАТЬ: старый GitHub APK
+
+Этот раздел новее 0G и фиксирует проверенный GitHub-handoff от **02.08.2026**:
+
+- ветка `codex/mobile-4d-deck`, протестированный remote SHA
+  `6dcae22019274aac71ad10237460e14ff161b178`;
+- GitHub Actions run `30743893059` — `completed / success`;
+- `:app:assembleOtherDebug` — success; загрузка APK — success; unit tests — success;
+- APK artifact `maestrovpn-tv-test-apk`, id `8832259523`, размер `177363062` байта,
+  digest `sha256:372301d9d669581d510cb2eca62ae332ea459918cc636e3341e0ac054261f670`,
+  срок хранения до `2026-10-31T10:30:52Z`;
+- прямая ссылка удалена из handoff, чтобы этот устаревший APK больше не передавался;
+- CI-only draft PR `#75` после успешной сборки закрыт, **не смержен**. Release, production
+  signing/OTA и TV не трогались. Повторно запускать CI без изменения кода не нужно.
+
+Этот APK устарел и не должен устанавливаться. Единственный актуальный APK указан в разделе 0K.
+
+## 0G. LIVE: логотип и живой глаз закреплены, нижняя дека скроллится целиком
+
+Этот раздел новее 0F. Текущая рабочая ветка — `codex/mobile-4d-deck`. Claude видит
+только GitHub: локальный Windows-worktree не является источником правды.
+
+Решение владельца от **02.08.2026**:
+
+- логотип, картуш, кольцо, мозаика и живой глаз остаются неподвижными;
+- прокручивается только нижняя дека, причём одним общим смещением вместе с её резным
+  фоном, статусом, активным протоколом, телефоном, контактными плитами, дугой протоколов,
+  кнопкой покупки и нижней консолью;
+- запрещено прокручивать текст отдельно от плиток или накладывать новую деку поверх старого
+  mobile-only интерфейса;
+- глаз остаётся анатомически живым: сохраняются моргание, полуоткрытое состояние подключения,
+  закрытое состояние отключения, взгляд, движение радужки/зрачка, touch-реакция и блик.
+  Исправляется только физическая посадка века в мозаику, без рескейла и перерегистрации кадров.
+
+Локальные git-checkpoints этой итерации (до подтверждения remote SHA не считать их GitHub-handoff):
+
+- `2181813` — утверждённое design-решение и исполнимый план;
+- `d7b6901` — RED-контракты геометрии и единого скролла;
+- `281173e` — один `ScrollState`, фиксированный верх, движение только `console`, `contacts`
+  и `arc`; UI нижней деки использует тот же scroll; удалена фраза «Если я не ответил…»;
+  статус и активный протокол опущены ниже медальона; исправлены контакты, дуга, консоль и
+  типографика логотипа;
+- `9ec2473` — глаз посажен внутрь мозаики контактной тенью века и внутренней окклюзией
+  бронзового края; вся существующая анимационная и state-логика сохранена.
+
+Авторитетные документы этой итерации:
+
+- `docs/superpowers/specs/2026-08-02-mobile-home-scroll-logo-eye-design.md`;
+- `docs/superpowers/plans/2026-08-02-mobile-home-scroll-logo-eye.md`.
+
+Фактическая лёгкая проверка текущего дерева:
+
+- `python -m unittest ops.test_mobile_eye_natural_assets` — **5/5 PASS**; контуры трёх век
+  закреплены неизменяемыми SHA-256 support-масок и не принимают текущий перезаписываемый WebP
+  за эталон;
+- Python compile — PASS;
+- `python ops/phone-screen-sim.py` — exit 0; созданы совместная доска эталон/реализация и
+  scroll-proof 0/64 dp. На них fixed hero не движется, а relief и весь UI деки движутся вместе;
+- независимые review Kotlin-scroll, simulator и eye-integration: после исправлений замечаний
+  уровня Critical/High/Medium не осталось;
+- TV, `tvm_*`, backend, release, OTA и merge в `main` не входят в задачу и не менялись.
+
+Следующие обязательные шаги: зафиксировать и запушить дерево, подтвердить фактический remote
+SHA, запустить GitHub Actions `assembleOtherDebug` + `testOtherDebugUnitTest` и передать
+владельцу ссылку именно на новый APK-артефакт. Локальный Gradle/APK запрещён владельцем и не
+запускался. До зелёного CI работа не считается завершённой.
+
+## 0F. LIVE: компайл-гейт ЗЕЛЁНЫЙ, тестовый APK собран
+
+Раздел новее 0E. Это первый в этой работе прогон, доказавший, что телефонный код собирается.
+
+- Ветка `codex/mobile-4d-deck`, HEAD на момент прогона `39112cf`.
+- Прогон **`30736147048`**: `assembleOtherDebug` **success**, `testOtherDebugUnitTest`
+  **success**, шаг загрузки success И артефакт реально существует.
+- Артефакт `maestrovpn-tv-test-apk`, **177 358 268 байт**, id `8829679430`, не истёк.
+  Отчёт тестов — `unit-test-report`, id `8829684189`.
+- Предыдущий прогон `30735360248` на `89230ec`: сборка прошла, упали 4 теста из 72 — все
+  из-за устаревшей геометрии в моих же тестах, не из-за рантайма:
+  центр медальона переехал на новое кольцо (195.0/316.4 в портрете, 422.0/−33.2 в ландшафте);
+  атлас вырос с пяти слоёв до восьми, и на memoryClass 256 МиБ два света помещаются в
+  1408 px вместо 1536 (87.6 МиБ при бюджете 94.4; при 512 МиБ три света по-прежнему на
+  полных 1620 — 173.8 при 196.8);
+  допуск центров секторов 2.5 dp не покрывал собственный замер (вторая ячейка 88.3 против
+  номинальных 91). Поправлено в `39112cf`.
+- ⛔ Релиза, GitHub Release, подписи для прода и OTA НЕ делалось. Мерж в `main` запрещён.
+- Что осталось: владелец ставит APK и смотрит глазами; диаметр мозаичного диска не решён —
+  мой замер 301.2 dp включал боковые изумруды, независимая проверка даёт ~231 dp (см. 0E).
+
+⛔ Урок этой серии, чтобы следующий контекст не повторил: число, уходящее в спеку или в код
+как константа, обязано быть подтверждено ВТОРЫМ способом с другой физикой. На этой сцене
+зелёными являются пять разных вещей — мозаика, изумруды кольца, радужка, статусная надпись и
+индикатор выбора, — и одноразовый порог «яркая зелень» ловит не то, что имелось в виду.
+Подробно: `memory/measure-twice-rule-2026-08-02`.
+
+## 0E. LIVE: исправление Home после скриншота владельца 23:05
+
+Этот раздел новее 0D. Claude работает только с GitHub и должен начинать с ветки
+`codex/mobile-4d-deck`. Локальные файлы Windows источником правды не являются.
+
+- База исправления: `95b4847`. Implementation-checkpoint: `db5a683`.
+- Скриншот владельца с временем 23:05 был сделан до коммита `6447a9a` (23:07 МСК),
+  поэтому съехавшие Material-глифы Telegram/WhatsApp на нём не соответствуют текущему коду.
+  В runtime уже используются фирменные `telegram.webp`, `max.webp`, `whatsapp.webp`.
+- Найден реальный runtime-дефект: слой `contacts` был сгенерирован в атлас, но не входил в
+  список отрисовки. Теперь порядок восьми слоёв един и проверяется тестом:
+  `wood → console → contacts → frame → cartouche → vines → arc → ring`.
+- Тёмное пятно/срез внизу мозаики удалён обратимым rollback: восстановлен RGB трёх
+  `home_ring_*` из последнего состояния до cap (`03a672a`). Альфа, бронзовая рама, камни и
+  регистрация не менялись; source и kit совпадают. Это временная визуальная коррекция, а не
+  заявление о выполнении спорного resize из `95b4847`. Перегенерирована только страница
+  `atlas_*_08.webp`.
+- Alpha SHA кольца: `a0f07bea7e3b770c326687ee934c8d8dfd6629c164086fcb082d1a10c095bde0`.
+  Raw RGBA SHA-256: `_l` `29b1e212256911593a64bc33c11e975b39b049bc2969cce8a3f2c0871a5e7f96`,
+  `_c` `87dc65186d3a93a3b980ab23c3352786ecb7be9a33cd7e0df32b34c411e462e0`,
+  `_r` `ed95115915781538f33beaeeee6213a730d135c7e4632d8478dce11619e3f825`.
+- Новый art-gate проверяет непрерывность мозаики на master-y 2250/2300 и отсутствие
+  искусственного перепада яркости. Он намеренно не фиксирует долю зелени в статусной зоне и не
+  выдаёт её за диаметр. `--group ring` и `--selftest` проходят; реконструкция 27 WebP из 90
+  фрагментов попиксельно точна и стабильна.
+- Строка статуса теперь честно различает `Подключён`, `Подключение`, `Отключён`.
+  Визуальная высота кнопок телефона/покупки совпадает с эталоном (38/45 dp), а доступная
+  область касания остаётся не меньше 48 dp.
+- Контактные плиты используют утверждённые в `95b4847` границы:
+  `34.1…134.5`, `144.8…245.2`, `255.5…355.7 dp`; иконки 26 dp, подписи 10.5 sp.
+- Спецификация `2026-08-01-mobile-4d-mosaic-disc-diameter.md` содержит ошибочный замер:
+  заявленные 301.2 dp включают два боковых изумруда. Повторная проверка по переходу материала
+  `G−R` на всех непрозрачных пикселях (не по порогу яркой зелени) даёт границу r=644…645 px и
+  физический диаметр около 1280…1290 px / 231.1…232.9 dp. Поэтому target 1469 px не уменьшит,
+  а увеличит диск примерно на 14%. Ресайз по этому target намеренно не выполнялся. Сначала
+  нужен новый APK и свежий скриншот; корректировать диаметр можно только по контуру мозаики без
+  самоцветов.
+- Дизайн-решение и исполнимый план:
+  `docs/superpowers/specs/2026-08-01-mobile-home-ring-and-contacts-correction-design.md` и
+  `docs/superpowers/plans/2026-08-01-mobile-home-ring-and-contacts-correction.md`.
+- Финальный тройной review: art/atlas, Kotlin/runtime и независимый замер границы материала —
+  Critical/Important замечаний нет. `git diff --check`, Python compile, ring/selftest, simulator
+  и нулевой TV-scope проходят.
+- Локальные Gradle/APK-сборки не выполнялись. TV-пути, `TvEskiz*` и `tvm_*` не менялись.
+
+Следующий внешний шаг: собрать тестовый APK в GitHub Actions из запушенного checkpoint,
+установить его поверх поддерживаемой текущей версии и сделать новый скриншот Home. Нельзя
+оценивать эти исправления по старому APK или накладывать новый deck поверх старого mobile UI.
+
+## 0D. LIVE: перерисовка всех семи слоёв завершена и проверена
+
+Этот раздел новее 0C. Claude работает только с GitHub и должен начинать с ветки
+`codex/mobile-4d-deck`.
+
+- Финальная инструкция: `docs/superpowers/plans/2026-08-01-mobile-4d-assets-final-handoff.md`.
+- Все 18 runtime-source PNG уже заменены в `design/mobile-asset-redraw/source/`:
+  `wood`, `frame`, `cartouche`, `vines`, семисекторная `arc`, круглый `ring` с мозаикой;
+  для каждого есть `_l/_c/_r`.
+- Новая нижняя консоль лежит отдельно в `design/mobile-asset-redraw/kit/home_console_{l,c,r}.png`:
+  её нужно добавить в генератор и runtime как новый слой, а не накладывать поверх старого UI.
+- Утверждённые `arc` и `ring` в `source/` байт-в-байт совпадают с копиями в `kit/`.
+- Контрольные art-only превью: `design/mobile-4d-references/05-mobile-4d-art-only-{l,c,r}-2026-08-01.png`
+  и `06-mobile-4d-art-only-lcr-2026-08-01.jpg`. Глаз и заголовок там намеренно отсутствуют —
+  их рисует код.
+- Проверки: контракт 18 runtime PNG — PASS; unit tests `7/7` — PASS; arc/console/selftest — PASS;
+  полный аудит 21 PNG — PASS. APK/Gradle локально не запускались.
+- Старый мобильный интерфейс нельзя оставлять под новым. При подключении удалить старую сцену и
+  revolver-реализацию после проверки ссылок. ТВ-код и `tvm_*` не трогать.
+
+## 0C. LIVE: утверждена очередь оставшихся слоёв Home — кольцо первое
+
+Этот раздел новее 0B и является обязательной отправной точкой для Claude/Codex.
+
+- Рабочая staging-ветка: `codex/mobile-4d-deck`; Claude видит только то, что запушено на GitHub.
+- Утверждённая владельцем спецификация:
+  `docs/superpowers/specs/2026-08-01-mobile-4d-seven-sector-arc-console-design.md`;
+  файл впервые опубликован коммитом `fdf74d0`.
+- Авторитетный общий план: `docs/superpowers/plans/2026-08-01-mobile-4d-remaining-layers.md`,
+  commit `99a166d`, code-base `c2a6980`. Он задаёт очередь по видимому эффекту.
+- Отдельная утверждённая спека дуги/консоли из `fdf74d0` остаётся источником точной
+  геометрии для пунктов 2 и 3 общего плана.
+- Code checkpoint `c2a6980` уже содержит новый контракт размера/клипа глаза и внутреннее
+  свечение кольца, но `source/` и runtime-атлас от `e6b0922` всё ещё содержат старую
+  шестисекторную дугу и прежний ring-арт.
+- Очередь: `ring + mosaic → arc → console → frame → cartouche → vines → wood`.
+- Первый art-чекпойнт — кольцо Ø1849 px и мозаичный диск под существующим живым глазом:
+  мозаика доходит от век до бронзы, голого дерева внутри медальона нет.
+- Дуга: семь рабочих интерьеров с центрами
+  `39/91/143/195/247/299/351 dp`; центральный четвёртый сектор — AnyTLS; минимум
+  каждой ячейки `44×46 dp`; нижний ромб удалён; верхний замок не пересекает центр.
+- Консоль: три полных варианта освещения на холсте 2160×4670, alpha bbox
+  `(44,4071)–(2116,4647)`; это не позиционные left/center/right-фрагменты.
+- Между семью ячейками шесть резных разделителей уже входят в дугу. Отдельный
+  `separator_gold` поверх них не накладывать.
+- Runtime-атлас находится в `app/src/main/assets/mobile_4d/atlas_{l,c,r}_NN.webp`,
+  24 файла; загрузчик — `Mobile4DGeneratedAssets.kt`.
+- GitHub-only инвариант: локальный коммит или файл не считается checkpoint. После каждого
+  материального шага обновить этот handoff, запушить `codex/mobile-4d-deck` и подтвердить
+  удалённый SHA через `git ls-remote`.
+- Локальные Gradle/APK-сборки на компьютере владельца запрещены; TV и `tvm_*` не трогать.
+
+## 0B. LIVE: полноширинная дуга перерендерена, CI-контракт исправлен
+
+Раздел 0B исторический и заменён разделом 0C в части количества ячеек и следующего шага.
+
+Этот checkpoint новее раздела 0A и обязателен перед продолжением работы Claude.
+
+- Рабочая staging-ветка: `codex/mobile-4d-deck`; PR для неё не создавался.
+- Исправление документации: `a1e0879` (`docs: correct mobile arc and CI contract`).
+- Новый asset-checkpoint: `3bb5cff` (`design: rerender full-width mobile protocol arc`).
+- Заменены только `design/mobile-asset-redraw/kit/home_arc_l.png`,
+  `home_arc_c.png`, `home_arc_r.png`.
+- Каждый файл — полный элемент на общем холсте 2160×4670, а не позиционная треть.
+- Альфа-область всех трёх вариантов совпадает попиксельно и занимает
+  `(0,3150)–(2160,3905)`; SHA-256 общей альфы:
+  `33027c27c5b83275b0628d022699d483689b7b2152ccf267d930a7d91eeeb5c3`.
+- В этом историческом checkpoint ошибочно заявлены семь секций; фактически их шесть. Текст, протоколы, иконки, selected/disabled-состояния,
+  отдельные `separator_gold` и `center_jewel` рисует/накладывает код.
+- Варианты различаются только направлением рельефного света: `_l`, `_c`, `_r`.
+- PNG: RGBA, 8 бит, без ICC, без chroma-key каймы; inventory кита остаётся 31/31.
+- Android/Gradle/APK локально не запускались; TV и `tvm_*` не менялись.
+
+Критическое исправление CI:
+
+- Неверно считать, что push только в `design/**` не запускает CI на ветке открытого PR.
+- PR #74 имеет head `codex/mobile-4d-interface` и уже содержит `app/**` в полном diff
+  относительно `main`; поэтому любой push в эту ветку повторно проходит path-filter.
+- Это подтверждено успешным run `30672441581` на `06c905f`.
+- До закрытия PR #74 не пушить туда промежуточные ассеты. Для безопасной передачи использовать
+  `codex/mobile-4d-deck`; после push обязательно проверять отсутствие нового workflow run.
+
+Следующий шаг Claude:
+
+1. Начать с `docs/superpowers/specs/2026-08-01-mobile-4d-arc-rerender-design.md`,
+   `docs/superpowers/plans/2026-08-01-mobile-4d-arc-rerender.md` и `design/mobile-asset-redraw/KIT.md`.
+2. Подключить три полноширинных варианта дуги в `PhoneHomeControlDeck`, смешивая свет по наклону.
+3. Не накладывать новую дугу поверх старого `PhoneRevolverMenu` или других mobile-only слоёв:
+   новый deck становится единственным владельцем зоны, заменённые старые реализации удаляются.
+4. Сохранить семь протокольных позиций, callbacks, locked/selected/disabled-состояния и теги тестов.
+5. Перед обновлением проверить миграцию поверх поддерживаемой версии приложения: тот же
+   `applicationId`, возрастающие `versionCode`, сохранение пользовательских данных и чистое
+   удаление obsolete mobile-only ресурсов. Совсем древние неподдерживаемые версии можно исключить
+   только явным version-gate. TV — строго нулевой diff.
+
+## 0A. LIVE: исходный component kit из 31 PNG готов
+
+Этот checkpoint новее прежнего описания недостающих ассетов и обязателен для Claude/Codex перед дальнейшей мобильной работой.
+
+- Ветка: `codex/mobile-4d-interface`.
+- Asset-only commit: `af36016` (`design: add mobile 4D component kit`).
+- Утверждённые документы: `a639fa4` (design spec) и `176ea73` (implementation plan).
+- Готовые файлы: `design/mobile-asset-redraw/kit/`.
+- Точный состав — 31 самостоятельный PNG:
+  - 7 элементов нижней дуги и её динамических эффектов;
+  - 3 позиционных модуля нижней консоли;
+  - 15 элементов трёхчастного конструктора кнопок и состояний;
+  - 3 панели `connected` / `connecting` / `error`;
+  - 3 контактные иконки `telegram` / `whatsapp` / `max`.
+- Формат: RGBA PNG, 8 бит, sRGB без ICC; `home_arc_*` и `home_console_*` имеют ширину 2160 px; контактные иконки — 192×192.
+- Каталожный лист использован только как визуальный референс: его пиксели не вырезались и не растягивались.
+- Приёмка: `FULL PASS 31/31`; точный inventory, прозрачные углы, отсутствие chroma-key, совпадение alpha кнопочных состояний и статусных панелей.
+- Aggregate kit SHA-256: `237995f659fa4b94637d4091e7dc417ed47babb57f7836d8608fa88f32a12a1b`; общий размер 8 085 225 байт.
+- Scope gate: diff `app/`, `ops/`, `.github/`, TV и `tvm_*` пуст; Gradle/APK, merge, release и OTA не запускались.
+
+Следующий безопасный шаг для Claude:
+
+1. Читать `docs/superpowers/specs/2026-08-01-mobile-4d-component-kit-design.md` и `docs/superpowers/plans/2026-08-01-mobile-4d-component-kit.md`.
+2. Брать исходники только из `design/mobile-asset-redraw/kit/`; не резать прежний каталог и не накладывать новый UI поверх старого mobile-only интерфейса.
+3. Подключение в runtime выполнять отдельной проверяемой задачей с удалением заменённого mobile-only UI и нулевым TV-diff.
+
+## 0. LIVE: mobile 4D реализация завершена, GitHub CI и test APK готовы
+
+Этот раздел новее остальных и имеет приоритет, если ниже встречается устаревшая формулировка.
+
+### НОВЕЙШИЙ implementation checkpoint — АВТОРИТЕТНЫЙ
+
+- Ветка: `codex/mobile-4d-interface`.
+- Последний implementation HEAD перед этим docs-checkpoint: `8d1a431`.
+- Последовательность UI-коммитов:
+  - `1ec8bb9` — общий phone-only `MobilePremium4DShell` и premium component kit;
+  - `77dec2b` — phone purchase flow перенесён на 4D shell;
+  - `7b09aa2` — phone QR scanner/error surfaces и share dialog перенесены на premium kit;
+  - `67e567a` — phone split-tunnel presentation перенесён на premium shell;
+  - `e197617` — исправлены dismissal и адаптивная ширина phone share dialog;
+  - `c15b4e3` — удалён старый flat Home, mobile tooling переведён на 4D atlas;
+  - `8d1a431` — исправлен пакет импорта Compose `zIndex`, обнаруженный первой CI-сборкой.
+- Task 7 завершает визуальную миграцию ровно **6 достижимых phone-экранов + 1 dialog**:
+  `tvhome`, `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
+- Полная матрица source composables, состояний и исключений находится в
+  `docs/mobile-screen-coverage.md`.
+- Phone Home использует полный многослойный `Mobile4DHome`; пять внутренних экранов используют
+  лёгкий `MobilePremium4DShell` без удержания Home atlas; share остаётся dialog поверх Home.
+- TV остаётся отдельной неизменённой presentation-веткой universal APK: `TvEskizHome`,
+  `TvEskizSpec`, D-pad/focus/Back, TV geometry, `tvm_*` и TV tooling не переносились на phone kit.
+- Локальная Android/Gradle/APK-сборка не выполнялась по прямому запрету владельца о слабом ПК.
+  GitHub Actions run `30645395284` (№239) успешно выполнил `assembleOtherDebug`, загрузил
+  test APK и завершил `testOtherDebugUnitTest` без ошибок.
+- Cleanup и combined review завершены: старый `mobile_home_scene.webp` удалён, app/ops больше
+  не содержат его потребителей, два найденных замечания share dialog закрыты повторным review.
+- Test APK artifact `8799326567` (`maestrovpn-tv-test-apk`) имеет размер `153712227` байт,
+  SHA-256 `1044d64e805fb2ac72f9c430e74ba4973ae2eaedebe24a0dbff6580d19894fda`
+  и не истёк. Следующий внешний шаг — ручной просмотр владельцем на телефоне. Не делать merge,
+  GitHub Release, production signing или OTA.
+
+### Текущее Git-состояние
+
+- Изолированный worktree:
+  `C:\Users\User\Documents\Codex\2026-07-30\github-plugin-github-openai-curated-remote\work\proectmaestro-vpn-mobile-4d`.
+- Ветка реализации: `codex/mobile-4d-interface`.
+- База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
+  (`codex/mobile-4d-reference-pack`).
+- Последний implementation HEAD перед docs-checkpoint: `8d1a431`.
+- Уже созданы локальные коммиты:
+  - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
+  - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
+  - `a1b1bbf` — deterministic memory-safe atlas generator, manifest, tests и 24 WebP;
+  - `ac5defe` — path-safe, interruption-recoverable asset transaction + focused tests;
+  - `a3b9cfc` — durable checkpoint этого handoff;
+  - `f54c0fe` — lifecycle-safe tilt и memory-budgeted bitmap loader;
+  - `5acc6db` — cancellation/OOM-safe bitmap ownership и actual allocation gate;
+  - `e34335e` — durable runtime checkpoint этого handoff;
+  - `ad7f60d` — чистый mobile 4D Home compositor и eye-state tests;
+  - `d5228d9` — hero atlas переведён на обязательный `FilterQuality.High`;
+  - `ba87356` — новый Home подключён в phone seam, старое phone-дерево удалено;
+  - `1d423f7` — durable checkpoint подключённого mobile 4D Home;
+  - `1ec8bb9` — общий lightweight phone-only premium shell;
+  - `77dec2b` — purchase phone presentation на premium 4D shell;
+  - `7b09aa2` — QR/share phone presentation на premium surfaces;
+  - `67e567a` — split phone presentation на premium shell;
+  - `e197617` — исправления premium phone dialog после review;
+  - `c15b4e3` — удаление obsolete mobile flatten и ремонт phone tooling;
+  - `6608f0d` — durable docs handoff перед CI;
+  - `8d1a431` — исправление импорта Compose `zIndex` после CI run №238.
+- Ветка отправлена в `origin/codex/mobile-4d-interface`; открыт draft PR
+  [№74](https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/74).
+- Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
+  `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
+  для чистой работы.
+
+### Последнее решение владельца — ОБЯЗАТЕЛЬНО
+
+Владелец сначала потребовал все реально существующие mobile-экраны, а затем отдельно
+исправил завышенный подсчёт:
+
+> «У меня нет столько экранов в приложении моем».
+
+Следовательно, scope определяется не количеством зарегистрированных внутренних routes, а
+фактическими переходами из обычного мобильного запуска. Это **6 экранов + 1 dialog**.
+Android TV остаётся строго вне scope. Нельзя менять поведение `TvEskizHome`, TV focus/D-pad/Back,
+`tvm_*`, TV-геометрию или TV-симуляторы.
+
+Новое прямое решение владельца по сборке:
+
+> «На компьютере ты не соберешь у меня слабый комп. на гитхаб собери тестовый апк я посмотрю».
+
+Поэтому не выполнять локальную Android APK-сборку на компьютере владельца. После появления
+визуально рабочего 6-screen flow отправить implementation branch на GitHub и запускать
+`.github/workflows/android-test.yml`. Результат — только test APK artifact для ручного просмотра
+владельцем. Запрещены GitHub Release, production signing, merge, OTA и обновление пользователей.
+
+### Инвентарь реальных mobile-экранов
+
+Из обычного запуска пользователь реально достигает:
+
+- `tvhome` — главный экран, встроенный выбор протокола и account card;
+- `claim` — ввод логина/кода;
+- `trial` — пробный период;
+- `buy` — тарифы, оплата и все состояния оплаты;
+- `scanqr` — камера, ручной ввод, permission/error states;
+- `split` — выбор приложений для VPN;
+- `IosKaringDialog` — dialog подключения/передачи на другой телефон, не отдельный экран.
+
+Итого: ровно **6 экранов + 1 dialog**.
+
+Не считать отдельными экранами:
+
+- выбор протокола и account card — секции `tvhome`;
+- «отключено / подключение / подключено» — состояния `tvhome`;
+- тарифы / ожидание оплаты / подтверждение / активация / done / error — состояния `buy`;
+- permission/error — состояния `scanqr`;
+- поиск/выбор/предупреждение — состояния `split`.
+
+Внешний OS-intent import/profile flow (`profile/new`, `profile/edit/{id}` и вложенные editor
+routes) не входит в обычный MaestroVPN mobile flow и исключён из текущей визуальной работы.
+`Dashboard`, `Connections` и `Tools` не зарегистрированы в активном `SFANavHost`.
+
+### Обнаруженная проблема reachability
+
+`Settings`, `Log`, `Groups` и их дочерние routes зарегистрированы, но фактически скрыты:
+`bottomNavigationScreens` и `railScreens` пусты, переходов с Home нет,
+`pendingNavigationRoute` нигде не получает значение. По последнему уточнению владельца они
+**не считаются экранами его текущего приложения и исключены из scope**. Не рестайлить их и не
+возвращать в навигацию без отдельного прямого запроса.
+
+### Утверждённая техническая архитектура 4D
+
+Нельзя загружать 15 исходных PNG обычным `painterResource`/`ImageBitmap.imageResource`:
+15 × 2160×4670 ARGB требуют примерно **577 MiB decoded RAM**.
+
+Безопасная схема:
+
+1. Сохранить master PNG 2160×4670 в `design/mobile-asset-redraw/source`.
+2. Детерминированный generator режет **все пять слоёв** сеткой 3×8.
+3. У RGBA убираются прозрачные поля; для каждого fragment сохраняется одинаковая геометрия
+   `_l/_c/_r`.
+4. Добавляется 2 px edge-extruded gutter.
+5. Fragments пакуются в одинаковые для L/C/R atlas pages не больше 2048×2048, чтобы не упереться
+   в texture limit старых API 23 GPU.
+6. Generator реконструирует atlas обратно в canvas и попиксельно сравнивает с source.
+7. Runtime декодирует страницы сразу под физическую ширину viewport, шаг 64 px, максимум 1620.
+8. На нормальном устройстве все три направления могут оставаться resident; за кадр рисуются
+   только два ненулевых света. На low-RAM — только `_c`, максимум 1080, tilt-light выключен.
+9. Бюджет decoded-art — не более 35–40% `ActivityManager.memoryClass`.
+
+Ориентир полной трёхсветовой памяти atlas-комплекта: около 62 MiB при scene width 1110,
+111 MiB при 1480, 133 MiB при 1620; существующий eye добавляет около 7.5 MiB.
+
+Прозрачные relief-слои смешиваются внутри изолированного `saveLayer` через
+premultiplied `BlendMode.Plus`; обычный последовательный `SrcOver` создаёт alpha dip/кайму.
+Wood можно смешивать обычным centre + active-side crossfade.
+
+Предлагаемые runtime-файлы:
+
+- `Mobile4DSceneModel.kt` — чистая математика света/crop/parallax/memory profile;
+- `Mobile4DTilt.kt` — lifecycle-safe `TYPE_GAME_ROTATION_VECTOR`, fallback
+  `TYPE_ROTATION_VECTOR`, калибровка, display remap, ±12°, low-pass;
+- сгенерированный atlas manifest;
+- `Mobile4DBitmapStore.kt` — последовательный IO decode и lifecycle;
+- `Mobile4DScene.kt` — единый Canvas;
+- `Mobile4DHome.kt` — eye/title/connect/revolver;
+- общий phone-only `MobilePremium4DShell`/background/dialog для пяти дочерних экранов normal flow.
+
+Глубина: wood ≈0.5 dp, frame 1.5 dp, cartouche 2.5 dp, vines 3.5 dp,
+ring/eye 5 dp. Тени рисуются кодом повторным tinted alpha draw; fullscreen blur запрещён.
+
+### LIVE checkpoint реализации — после Task 2
+
+Task 1 принят отдельным review без замечаний:
+
+- commit `3d0902d`;
+- `Mobile4DSceneModel.kt` остаётся Android/Compose-free;
+- тестами зафиксированы 2160×4670, ContentScale.Crop, L/C/R weights, hysteresis,
+  глубины parallax и три состояния глаза;
+- локальный Gradle не дошёл до компиляции: wrapper 9.3.1 не скачивается из sandbox.
+  Это остаётся CI-gate, а не локальный PASS.
+
+Task 2 завершён коммитами `a1b1bbf..ac5defe` и принят scoped re-review:
+
+- 77 logical fragments;
+- 8 одинаковых layouts для каждого направления света;
+- 24 lossless WebP, всего 41 749 476 bytes;
+- все pages ≤2048×2048;
+- source→atlas→source reconstruction exact для всех 15 layers;
+- `python ops/mobile-4d-assets.py` — PASS;
+- `python ops/mobile-4d-assets.py --check` — PASS, output byte-stable;
+- Pillow 11.3.0 и libwebp 1.5.0 закреплены как deterministic toolchain;
+- WebP method 0 выбран из-за стабильности на слабом компьютере; это увеличило payload
+  на 6 896 538 bytes (≈19,8%), но не decoded RAM и не точность;
+- eye assets, old flatten, UI, TV не менялись.
+
+Scoped re-review подтвердил `ADDRESSED` для обоих прежних Important findings:
+
+1. Atlas, manifest и все их ancestors проходят lexical/resolved-path и symlink/reparse check
+   до создания каталогов или замены файлов.
+2. Persistent fsynced transaction journal восстанавливает согласованные atlas + manifest после
+   `KeyboardInterrupt`, kill/process crash и проверяет committed inventory по SHA-256.
+
+Focused safety tests: **7/7 PASS**. Независимый `--check`: **PASS**, reconstruction exact,
+output stable. Состояние Task 3 зафиксировано в следующем checkpoint.
+
+### LIVE checkpoint реализации — после Task 3
+
+Task 3 завершён коммитами `f54c0fe..5acc6db` и принят scoped re-review:
+
+- `TYPE_GAME_ROTATION_VECTOR` с fallback на `TYPE_ROTATION_VECTOR`;
+- lifecycle registration только в `RESUMED`, neutral state при pause/dispose/no sensor/reduced motion;
+- калибровка стабильной нейтрали, display rotation remap, dead zone, ±12° clamp и elapsed-time low-pass;
+- target buckets 64 px, caps 1620/1080, 40% memory-class budget и ≈8 MiB reserve под глаз;
+- internal-screen mode не удерживает home atlas;
+- centre/active-side/all-lights retention выбирается по памяти и проверяется повторно по
+  фактическому `Bitmap.allocationByteCount`;
+- sequential IO decode, centre fallback, hysteresis и bounded retry при смене стороны;
+- reference-counted leases не recycle bitmap, пока предыдущий Compose draw может его видеть;
+- prompt cancellation, OOM и partial retain проходят transactional cleanup/rollback.
+
+В первом review было 3 Important finding; fix round 1/5 закрыл все 3 (`ADDRESSED`), новых
+регрессий scoped review не нашёл. Добавлены pure tests для cancellation handoff, actual budget,
+OOM rollback и partial-retain rollback. Локальный Gradle/APK не запускался; compile/GREEN остаётся
+GitHub CI gate. Состояние Task 4/5 зафиксировано в следующем checkpoint.
+
+### LIVE checkpoint реализации — после Task 5
+
+Task 4 завершён коммитами `ad7f60d..d5228d9` и принят review:
+
+- чистый `Mobile4DHome` без `mobile_home_scene.webp` fallback;
+- wood → frame → cartouche → vines → ring → existing eye → Playfair title → revolver;
+- L/C/R relighting, bounded additive relief, runtime shadows и parallax;
+- atlas fragments рисуются с `FilterQuality.High`;
+- disconnected eye = `opennessOverride=0f`, connecting = `0.5f`, connected = living/null;
+- sensor-rate updates изолированы от `PhoneRevolverMenu`;
+- instrumentation tests фиксируют eye semantics/click и старые premium tags.
+
+Task 5 завершён коммитом `ba87356` и принят review:
+
+- phone-ветка `TvHomeScreen` теперь содержит один `Mobile4DHome`;
+- старые flat scene/glow/eye/menu layers удалены из phone Compose tree, а не скрыты;
+- оба call site передают `serviceStatus == Status.Starting` как `connecting`;
+- `connected = Started || Starting` и все callbacks сохранены;
+- diff `TvEskizHome`, `TvEskizSpec`, `tvm_*`, ресурсов и tools пуст.
+
+### Исторический checkpoint реализации — Task 6
+
+Task 6 реализован в коммите, содержащем этот checkpoint (`feat: add shared mobile premium 4D shell`):
+
+- `MobilePremiumScreen` обратно совместимо делегирует новому phone-only `MobilePremium4DShell`;
+- shell учитывает safe-drawing/IME insets, compact/regular/expanded layout и сохраняет 48 dp Back;
+- фон не использует `mobile_surface.webp`, home atlas, cartouche, ring или eye: только сдержанный
+  walnut/light draw и существующая настоящая nine-patch `frame_panel`;
+- добавлены общие Playfair top bar, dialog/sheet surfaces, setting row и switch;
+- shell возвращает нейтральный content-only fallback, если его ошибочно вызвали на TV; нормальные
+  TV-ветки и TV-файлы не менялись;
+- тесты добавлены до production API; Android/Gradle по прямому запрету владельца локально не
+  запускались, поэтому compile/GREEN остаётся GitHub CI gate;
+- статические scope-проверки и `git diff --check` прошли.
+
+На момент этого checkpoint следующей была Task 7; её актуальный результат зафиксирован в
+новейшем checkpoint в начале раздела 0.
+
+### Состояния глаза
+
+- `Stopped`/`Stopping`/«Отключено» — глаз полностью закрыт.
+- `Starting`/«Подключение…» — отдельное полуоткрытое состояние.
+- `Started`/«Подключено» — открыт, моргает, смотрит и реагирует на touch как сейчас.
+
+Для этого добавить `connecting: Boolean = false` в `TvHomeScreen`, передавать
+`serviceStatus == Status.Starting` из обоих call sites `SFANavigation`. TV этот параметр
+игнорирует.
+
+### Повторно используемый premium-кит
+
+Не переписывать без причины:
+
+- `premium/MobilePremiumSurface.kt`;
+- `premium/MobilePremiumControls.kt`;
+- `premium/MobilePremiumLayout.kt`;
+- `premium/MobilePremiumTokens.kt`;
+- `fantasy/FantasyDialog.kt`;
+- `fantasy/FantasyFrame.kt`;
+- `fantasy/FantasyListRow.kt`;
+- `fantasy/FantasyToggle.kt`;
+- `fantasy/CarvedKit.kt`.
+
+`Claim`, `Trial` и большая часть `Buy` уже используют premium controls. Основная задача пяти
+дочерних экранов normal flow — заменить плоский `mobile_surface` единым лёгким 4D shell и
+хирургически убрать donor Material UI только в `scanqr`/`split`, не меняя callbacks/данные.
+Скрытые Settings/Log/Groups/profile composables не трогать.
+
+### Глобальные overlays, входящие в scope
+
+Premium shell нужен также для app-owned dialogs/sheets:
+
+- `IosKaringDialog`;
+- `SelectableMessageDialog`;
+- `UpdateDialog`;
+- QR permission/error states;
+- dialogs в normal-flow `PerAppProxyScreen`;
+- service/update/download dialogs, реально показываемые поверх normal flow в `MainActivity`.
+
+OS-intent-only import/profile dialogs и скрытый groups `ModalBottomSheet` исключены.
+
+Системный Android permission dialog стилизовать невозможно и не требуется; стилизуется только
+app-owned pre-permission explanation.
+
+### Что уже сделано в этой implementation-сессии
+
+- полностью прочитаны project handoff/spec/reference docs;
+- визуально открыт `PREVIEW_c.png` и boards `01`, `02`, `03`;
+- подтверждён безопасный seam: TV остаётся в `if (isTv) { TvEskizHome(...) }`, phone `else`
+  заменяется clean mobile composable;
+- подтверждено, что старый phone glow/web находится вне `else` в `TvHomeScreen` и должен быть
+  удалён, а не остаться под новой сценой;
+- старый `mobile_home_scene.webp` удалён; simulator реконструирует Home из centre-light 4D atlas,
+  а eye generator больше не создаёт плоскую сцену;
+- создан isolated worktree/branch;
+- материализованы sparse paths `design`, `docs`, `gradle`, `.github`;
+- подробный TDD-план исправлен после замечания владельца: scope = 6 normal-flow screens +
+  `IosKaringDialog`, а не все зарегистрированные routes;
+- Task 1 реализован и принят review (`3d0902d`);
+- Task 2 реализован и принят (`a1b1bbf..ac5defe`): generation/`--check` PASS, оба safety finding
+  закрыты scoped re-review;
+- Task 3 реализован и принят (`f54c0fe..5acc6db`): tilt/loader/ownership готовы, 3 review finding
+  закрыты;
+- Task 4 Home реализован и принят (`ad7f60d..d5228d9`);
+- Task 5 phone seam реализован и принят (`ba87356`): новый Home подключён, старое phone-дерево удалено;
+- Task 6 shared phone-only shell реализован (`1ec8bb9`);
+- Task 7 завершён (`77dec2b`, `7b09aa2`, `67e567a`): purchase, QR/share и split перенесены,
+  а Claim/Trial получают тот же shell через обратно совместимый `MobilePremiumScreen`;
+- cleanup завершён (`c15b4e3`), combined review закрыт (`e197617`).
+
+### Локальные ограничения проверки
+
+- `adb devices -l` не показывает подключённого устройства.
+- Владелец отдельно запретил нагружать слабый компьютер локальной APK-сборкой; Android build
+  переносится в GitHub Actions `android-test.yml`.
+- Локально отсутствует `app/libs/libbox.aar`; CI скачивает normal libbox из успешного
+  `libbox.yml`.
+- `.github/workflows/android-test.yml` запускает `assembleOtherDebug` и
+  `testOtherDebugUnitTest`, но существующие instrumentation tests не компилирует и не запускает.
+- Для полной mobile-проверки нужно минимум добавить/запустить
+  `assembleOtherDebugAndroidTest`; реальный `connectedOtherDebugAndroidTest` требует устройство.
+
+### Точная следующая точка продолжения
+
+1. Использовать исправленный план
+   `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
+2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
+   `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
+3. Проверить чистый worktree, отсутствие runtime-потребителей старого flatten и пустой TV/tvm diff.
+4. Локально запускать только лёгкие Python/статические проверки. Android compile/test APK выполнить
+   через GitHub Actions `android-test.yml`, скачать/передать владельцу artifact для просмотра.
+5. Push ветку, открыть draft PR, дождаться test APK, затем провести visual QA по шести экранам и
+   dialog. Не merge/release/OTA.
+
+Обновлено: **31.07.2026**. Этот документ — первая точка входа для нового окна
+Codex/Claude. Сначала проверить volatile-факты командами Git и на GitHub, затем
+продолжать с раздела «Следующий безопасный шаг».
+
+## 1. Подтверждённое состояние
+
+- Репозиторий: `evgenmay1978-del/proectmaestro-vpn`.
+- Базовая ветка: `main`; на момент проверки её HEAD — `5e16c00`.
+- Рабочая ветка мобильных референсов:
+  `codex/mobile-4d-reference-pack`.
+- Базовый коммит готового комплекта ассетов: `21ad085`
+  (`design: add mobile 4D redraw assets`). Текущий HEAD может быть новее из-за
+  обновления документации — всегда проверять `git rev-parse HEAD`.
+- Открыт draft PR
+  [№73](https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/73):
+  `design: mobile 4D references and 15-layer redraw pack`.
+- Ветка и PR содержат документацию, визуальные референсы и исходный арт.
+  **Android-код, backend, TV, release, OTA и workflow в этой ветке не менялись.**
+- `AGENTS.md` и этот handoff существуют в PR-ветке; до merge PR №73 новый
+  checkout от `main` их не увидит. Для продолжения выбрать указанную ветку.
+- Новый арт ещё не подключён в приложение. Старый
+  `app/src/main/res/drawable-nodpi/mobile_home_scene.webp` пока остаётся рабочим
+  runtime-ресурсом и удаляется только вместе с проверенной миграцией к слоям.
+
+Локальная особенность текущего Windows-worktree: `ops/phone-screen-sim.py` может
+показываться как `M` из-за CRLF-метаданных, хотя при последней проверке
+worktree/index имели одинаковый blob `8b15218daf7f32c7f95d780e65b730cd81cfa963`.
+Не добавлять и не «восстанавливать» файл автоматически; сначала повторно
+сравнить `git hash-object -- ops/phone-screen-sim.py` с
+`git rev-parse HEAD:ops/phone-screen-sim.py`.
+
+## 2. Решение владельца
+
+Мобильный интерфейс MaestroVPN нужно пересобрать начисто как многослойную
+«4D»-сцену: глубина, параллакс, переосвещение по наклону телефона, программные
+межслойные тени и живой глаз.
+
+Нельзя класть новый дизайн поверх старого Compose-дерева или оставлять старые
+полноэкранные мобильные слои скрытыми под новым. После переноса нужно удалить
+заменённый mobile-only код и ассеты, но только после проверки всех call sites.
+
+Телевизионная версия в этой работе **строго вне области изменений**.
+
+## 3. Что уже подготовлено
+
+### Визуальные референсы экранов
+
+Каталог [`design/mobile-4d-references/`](design/mobile-4d-references/):
+
+- `00-current-mobile-ui.png` — структура текущего телефона;
+- `01-core-flow-4d.png` — главный экран и основные состояния;
+- `02-subscription-activation-4d.png` — подписка и активация;
+- `03-settings-advanced-4d.png` — настройки и дополнительные экраны;
+- `CLAUDE_INSTRUCTIONS.md` — контракт чистой реализации.
+
+Критичное состояние: **`ОТКЛЮЧЕНО` — глаз полностью закрыт**, радужка и зрачок
+не видны. `ПОДКЛЮЧЕНИЕ` — глаз открывается. `ПОДКЛЮЧЕНО` — полностью открыт.
+
+### Готовый исходный арт главного экрана
+
+Полное ТЗ: [`design/mobile-asset-redraw/SPEC.md`](design/mobile-asset-redraw/SPEC.md).
+
+Готовые файлы:
+[`design/mobile-asset-redraw/source/`](design/mobile-asset-redraw/source/).
+
+Комплект состоит ровно из 15 PNG:
+
+| Слой | Свет слева | Центр | Свет справа |
+|---|---|---|---|
+| дерево | `home_wood_l.png` | `home_wood_c.png` | `home_wood_r.png` |
+| рамка | `home_frame_l.png` | `home_frame_c.png` | `home_frame_r.png` |
+| картуш | `home_cartouche_l.png` | `home_cartouche_c.png` | `home_cartouche_r.png` |
+| кольцо | `home_ring_l.png` | `home_ring_c.png` | `home_ring_r.png` |
+| лозы | `home_vines_l.png` | `home_vines_c.png` | `home_vines_r.png` |
+
+Формат всех файлов: **2160×4670**, PNG, 8 бит, sRGB без ICC. Дерево — RGB,
+остальные 12 файлов — RGBA. Варианты `_l/_c/_r` одного слоя имеют идентичную
+альфа-геометрию; меняется только освещение.
+
+Контрольная сборка:
+[`design/mobile-asset-redraw/PREVIEW_c.png`](design/mobile-asset-redraw/PREVIEW_c.png).
+
+## 4. Контракт сборки
+
+Порядок наложения без ручных смещений:
+
+```text
+home_wood
+home_frame
+home_cartouche
+home_vines
+home_ring
+existing mobile_eye_* layers
+Playfair title
+interactive mobile UI
+```
+
+Код должен:
+
+- плавно смешивать `_l/_c/_r` по наклону телефона;
+- разводить слои на разную глубину параллаксом;
+- рисовать мягкие тени между слоями;
+- рисовать `MaestroVPN` шрифтом
+  `app/src/main/res/font/playfair_display.ttf`;
+- сохранить существующие `mobile_eye_open`, `mobile_eye_squint`,
+  `mobile_eye_closed`, `mobile_eye_sclera`, `mobile_eye_iris` и
+  `mobile_eye_catchlight`.
+
+В арт не запечены и не должны запекаться текст, глаз и тени одного слоя на
+другом. У `home_ring_*` центр намеренно прозрачный.
+
+## 5. Жёсткие запреты
+
+- Не использовать `mobile_home_scene.webp` как скрытый фон под новой сценой.
+- Не внедрять новый экран дополнительной полноэкранной обёрткой поверх старого.
+- Не прятать старые слои через `alpha = 0`, `visible = false`, clipping или
+  перекрывающую картинку.
+- Не удалять общий ресурс до проверки всех ссылок и TV-потребителей.
+- Не менять `tvm_*`, `TvEskizHome.kt`, `TvEskizSpec.kt`, D-pad/focus/Back,
+  TV-геометрию, TV-симуляторы и ветки `isTv`.
+- Не менять backend, API или VPN-runtime ради визуальной задачи.
+- Не делать merge в `main`, release или OTA без отдельного разрешения владельца.
+
+## 6. Что проверено
+
+Для комплекта из 15 PNG выполнена локальная строгая проверка:
+
+- точные имена и холст 2160×4670;
+- PNG 8-bit и декларация sRGB без ICC;
+- RGB для дерева и RGBA для остальных слоёв;
+- одинаковая alpha во всех `_l/_c/_r`;
+- отсутствие геометрического сдвига между вариантами света;
+- прозрачный центр кольца;
+- контрольные композиты для левого, центрального и правого света.
+
+Результат последнего запуска: **PASS, 15/15 файлов, 0 ошибок**.
+
+Не выполнялись Android build, emulator/device-тест и внедрение в runtime,
+поскольку этот PR пока содержит только референсы и исходники.
+
+## 7. Что не завершено
+
+- Владелец ещё должен визуально принять или скорректировать новый центральный
+  композит.
+- 15 исходных PNG не конвертированы в Android lossless WebP.
+- В мобильном Compose-коде ещё нет многослойного композитора, смешивания света,
+  параллакса и межслойных теней.
+- Старый плоский `mobile_home_scene.webp` и заменяемые mobile-only слои ещё не
+  удалены.
+- Нет нового Android CI-build и ручной проверки APK на физическом телефоне.
+
+## 8. Следующий безопасный шаг
+
+После явного разрешения владельца на реализацию:
+
+1. Проверить текущие branch/HEAD/PR и прочитать все документы из раздела 9.
+2. Инвентаризировать mobile-only composable, ресурсы и call sites старой сцены.
+3. Показать владельцу список экранов и точный план удаления старого mobile-only
+   UI до правки кода.
+4. В отдельном implementation PR подключить обработанные lossless WebP,
+   mobile-only композитор и состояния глаза, не меняя TV-ветку.
+5. После успешной миграции удалить старый плоский композит и мёртвые мобильные
+   слои, подтвердив поиском отсутствие ссылок.
+6. Запустить `assembleOtherDebug`, unit tests, доступные UI-тесты и сделать
+   сравнение всех мобильных экранов на телефоне. Отдельно доказать, что TV diff
+   отсутствует.
+
+## 9. Обязательный порядок чтения
+
+1. Этот `CONTEXT_HANDOFF.md`.
+2. [`AGENTS.md`](AGENTS.md).
+3. [`CLAUDE.md`](CLAUDE.md).
+4. [`design/mobile-4d-references/README.md`](design/mobile-4d-references/README.md).
+5. [`design/mobile-4d-references/CLAUDE_INSTRUCTIONS.md`](design/mobile-4d-references/CLAUDE_INSTRUCTIONS.md).
+6. [`design/mobile-asset-redraw/SPEC.md`](design/mobile-asset-redraw/SPEC.md).
+7. [`design/mobile-asset-redraw/README.md`](design/mobile-asset-redraw/README.md).
+8. Только для подтверждённо нужной старой геометрии глаза и истории CI:
+   [`MAESTROVPN_UI_HANDOFF.md`](MAESTROVPN_UI_HANDOFF.md).
+
+`MAESTROVPN_UI_HANDOFF.md` — исторический документ предыдущей premium-итерации.
+Его старое утверждение «fixed mobile_home_scene remains unchanged» **заменено**
+решением владельца от 31.07.2026 о чистой многослойной пересборке. Исторические
+числа геометрии глаза и факты CI можно использовать только после сверки с кодом.
+
+## 10. Как поддерживать этот handoff
+
+После каждого материального изменения обновлять:
+
+- дату проверки;
+- ветку, HEAD и PR;
+- разделы «Что проверено», «Что не завершено» и «Следующий безопасный шаг»;
+- ссылки на новые решения и артефакты.
+
+Локальная работа не является handoff: каждый материальный checkpoint должен быть запушен
+в указанную staging-ветку и подтверждён удалённым SHA.
+
+Не записывать сюда токены, пароли, приватные URL подписок, данные клиентов или
+непроверенные предположения.
+
+## HA control plane: GREEN checkpoint Plan 01 / Task 2 (11.08.2026)
+
+Репозиторная реализация изолированного трёхузлового rqlite CI-harness завершена.
+Продакшен, DNS, TLS, панели, Telegram-боты и четыре VPN-сервера этим checkpoint
+не изменялись; живой rqlite-кластер ещё не развёрнут.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный implementation HEAD: `ef58eb6a8ac307f79688cc69aeca00bb99af940f`.
+- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/312751366850`.
+- Exact-SHA GitHub Actions run: `31480737818`, conclusion `success`.
+- Job `Go and isolated rqlite` подтвердил Go format/test/race/vet и полный
+  rqlite lifecycle.
+- Контракт подтвердил один leader, три reachable voting-узла, `-fk` и
+  `PRAGMA foreign_keys=1` на каждом endpoint, безопасные start/status/stop,
+  повторный start после stop, fail-closed download, checksum pin, ограничение
+  данных runner-temp, отказ удалять out-of-scope marker/root и сохранение
+  постороннего PID.
+
+Зафиксированные причины, которые нельзя проходить повторно:
+
+1. EXIT status нужно передавать в cleanup до любых `local`-команд.
+2. EXIT-trap не может читать локальные переменные уже завершившейся функции;
+   безопасно экранированные root/marker/PID передаются литеральными аргументами.
+3. rqlite v10.1.0 возвращает `/nodes?ver=2` в wrapper-форме `{"nodes":[...]}`;
+   verifier нормализует её по стабильному `id`.
+4. Три новых voter стартуют одновременно с одинаковыми `-bootstrap-expect 3`
+   и полным списком трёх Raft-адресов.
+5. Проверка занятых loopback-портов использует `SO_REUSEADDR=1`, чтобы отличать
+   живой listener от нормального Linux `TIME_WAIT` после stop.
+
+Следующий безопасный шаг: Plan 01 / Task 3 — checksummed schema migrations и
+интеграционные тесты только на этом изолированном harness. До отдельного
+cutover-разрешения сохранять `legacy` единственным live/default режимом и не
+выполнять production import/deploy/DNS/TLS/bot/OTA mutations.
+## HA control plane: GREEN checkpoint Plan 01 / Task 3 + единая цена (11.08.2026)
+
+Task 3 завершён в репозитории и подтверждён точным GitHub Actions run. Production
+rqlite, DNS, TLS, панели, VPN-конфиги и bot process этим checkpoint не менялись.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный HEAD: `c02c0728085bcfe2651849ba99eb480130c49118`.
+- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/312751366851`.
+- Exact-SHA workflow run: `31486611114`, job `93763353148`, conclusion
+  `success`.
+- Успешны format, backend tests, race, vet, harness contract, запуск реального
+  трёхузлового rqlite, integration tests и stop/cleanup.
+- RED-доказательства до реализации:
+  - run `31484085387`: отсутствовали `NewMigrator` и `SchemaVersion`;
+  - run `31484546092`: отсутствовали мигратор и typed states;
+  - run `31486254959`: backend имел только 1m/2m вместо полной тарифной
+    шкалы.
+- Миграция `0001_control_plane.sql` содержит ровно 41 таблицу, 56
+  delimiter-separated statements, checksum migration, explicit `ON DELETE`,
+  immutable tariff/audit/order guards, payment/idempotency constraints,
+  S1–S4 seed state и проходит `PRAGMA foreign_key_check`.
+- `Migrator.Apply` повторяем, `Verify` fail-closed проверяет FK на трёх
+  voter endpoints, checksum, точный table set и FK integrity.
+- Каноническая цена теперь в legacy backend и HA seed одинакова:
+  1/2/3/6/12 месяцев = 400/800/1200/2400/4800 ₽; длительности
+  30/60/90/180/365 дней. Тест запрещает возврат к 300 ₽/месяц.
+
+### Read-only проверка живого S2-бота по сообщению владельца о 300 ₽
+
+- Фактический unit: `vpn_bot.service`.
+- Фактический entry point: `/opt/vpn_bot/bot_minimal.py`; старый
+  документированный путь `/root/vpn_bot` отсутствует.
+- Source mtime предшествует текущему старту unit, поэтому процесс загрузил
+  текущий файл.
+- В текущем source уже была шкала
+  400/800/1200/2400/4800 ₽ для 1/2/3/6/12 месяцев.
+- Агрегированная read-only проверка payment DB показала только суммы
+  400/800/1200 ₽; суммы 300 ₽ нет. Идентификаторы клиентов не читались и в
+  handoff не записывались.
+- Следовательно, 300 ₽ не воспроизводится в найденном живом S2-процессе.
+  Если владелец снова увидит 300 ₽, нужен скрин или точное имя Telegram-бота:
+  это может быть старое Telegram-сообщение с уже созданной inline-кнопкой либо
+  другая, пока не инвентаризированная копия.
+- На S4 bot unit/catalog не найден. S1 после переустановки не принял
+  сохранённый public-key доступ; S3 заблокирован строгой проверкой нового host
+  key. Эти защиты не обходить и не отключать. Production bot restart/deploy не
+  выполнялся.
+
+Зафиксированные ошибки команд, которые нельзя повторять:
+
+1. В PowerShell не помещать Python/SQL с кавычками и `*` в хрупкую
+   однострочную команду; использовать stdin here-string.
+2. Не использовать локальный `gh`, если он отсутствует в PATH; статусы CI
+   читать через подключённый GitHub commit-workflow API.
+3. Не использовать `$()` внутри двойных кавычек PowerShell для remote SSH:
+   локальная оболочка выполнит substitution. Использовать systemd properties
+   либо корректно изолированный remote script.
+4. SQL `ORDER BY tariff_version_id` сортирует `tariff_12m_v1` перед
+   `tariff_1m_v1`; тестовое ожидание должно повторять реальный lexical order.
+
+Следующий безопасный шаг по утверждённому плану: Plan 01 / Task 4,
+`Encrypted credentials and stable identifiers`, только в репозитории через
+RED → GREEN. До отдельного cutover-разрешения legacy остаётся единственным
+production write path; не выполнять live rqlite/import/DNS/TLS/panel/bot/OTA
+mutations.
+## HA control plane: GREEN checkpoint Plan 01 / Task 4 (11.08.2026)
+
+Plan 01 полностью завершён в репозитории; production не изменялся.
+
+- Implementation HEAD: `00244c722d7a08fac3c84d15f0c35f76753e2665`.
+- RED run `31487271087`: отсутствовали `NewSecretBox`, `SecretScope` и
+  связанные функции.
+- GREEN run `31487505121`, job `93766169546`: format, backend tests, race,
+  vet, harness, трёхузловой rqlite integration и cleanup успешны.
+- `SecretBox` использует AES-256-GCM только из Go standard library, свежий
+  nonce для каждого seal и length-delimited AAD с key version, owner type,
+  owner ID, field и secret kind.
+- Предыдущая key version может только decrypt; новые envelope всегда используют
+  current version. Отсутствующая referenced version делает readiness red.
+- Encryption key и HMAC key обязаны быть разными 32-byte ключами.
+- Lookup HMAC детерминирован и разделён по kind; ошибки не содержат plaintext,
+  nonce или ciphertext.
+- `NewID` проверен под 100 конкурентными goroutine; `CanonicalLoginKey`
+  стабилизирует login lookup и отказывает на пустом/control/oversize input.
+
+Следующий безопасный шаг: Plan 02 / Task 5,
+`Cluster-backed read models, settings, sessions and audit`, через отдельный
+RED → GREEN checkpoint в том же draft PR. Production legacy остаётся
+единственным live/default write path до отдельного cutover-разрешения.
+
+## HA control plane: GREEN checkpoint Plan 02 / Task 5 (11.08.2026)
+
+Task 5 завершён и проверен в репозитории. Production rqlite, legacy JSON/SQLite,
+DNS, TLS, панели, Telegram-боты, OTA и четыре VPN-сервера этим checkpoint не
+изменялись; legacy остаётся единственным live/default write path.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный implementation HEAD:
+  `2e460f79ba4b92cdad182987af5f4a1ec4565247`.
+- Draft PR: `#82` —
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/312751366852`.
+- Финальный exact-SHA GitHub Actions run: `31491787642`, job `93779767990`,
+  conclusion `success`.
+- Успешны backend tests, race, vet, rqlite harness contract, запуск
+  изолированного трёхузлового rqlite, integration tests и stop/cleanup.
+
+RED/GREEN доказательства:
+
+1. После исправления синтаксиса test fixtures run `31490144430`, job
+   `93774435519` дал содержательный RED только на отсутствующих `Service`,
+   `NewReadiness` и `ReadinessConfig`.
+2. Первая реализация прошла полный baseline GREEN в run `31491211843`.
+3. Дополнительный hardening RED run `31491501558`, job `93778854328`
+   доказал четыре реальные слабости: dependent setting writes не были
+   привязаны к успешному CAS; authorizer смотрел только первую роль;
+   readiness формировал два SELECT в одном statement; audit device claim не
+   был retry-idempotent.
+4. После production-исправлений финальный run `31491787642` полностью GREEN.
+
+Реализовано и проверено:
+
+- `Store`/`Service` используют только injected `rqlite.RQLite`, `SecretBox`,
+  clock и ID source; глобального mutable state нет.
+- `CustomerByToken` и `CustomerByLogin` выполняют linearizable lookup только
+  по kind-separated HMAC; raw token/login/device identity не попадают в SQL
+  или printable errors.
+- `ClaimDevice` одной rqlite-транзакцией делает DB-enforced limit,
+  `ON CONFLICT` idempotency и HMAC-only audit; повторная audit-запись имеет
+  `ON CONFLICT(event_id) DO NOTHING`.
+- Tariff snapshots читаются linearizable и копируются; caller не может
+  изменить следующий результат.
+- Настройки используют version CAS. Удаление/вставка members, encrypted
+  secret envelope и audit выполняются только через `EXISTS` на уже
+  committed next generation; конфликт не может частично изменить dependents.
+- Web session имеет абсолютный TTL 30 минут, Secure/HttpOnly/SameSite=Strict,
+  отдельный CSRF HMAC и revocation epoch. `owner` имеет полный явный набор,
+  `admin` — только read/provision, неизвестные роли default-deny; учитываются
+  все роли principal.
+- Read readiness проверяет schema checksum, referenced key versions, tariff
+  catalog, точное наличие required settings и commit age одним корректным
+  aggregate statement. Write readiness делает bounded upsert одной canary row
+  с nonce HMAC и linearizable post-commit comparison; rollback-only probe нет.
+- Исходная миграция по-прежнему содержит 41 таблицу и дополнена физическими
+  полями `principals.revocation_epoch`, `web_sessions.csrf_hmac`,
+  `web_sessions.revocation_epoch`, `health_write_canary.nonce_hmac`.
+
+Зафиксированные ошибки, которые нельзя повторять:
+
+1. Не создавать глубокие вложенные Go composite literals в fixtures;
+   использовать `rowsScript`/`resultsScript` и явные типы function args.
+2. Guard correction принимает точный флаг `--root-cause-code`; не изобретать
+   похожие имена параметров.
+3. В linked Windows worktree прямой `apply_patch` блокируется ACL: создавать
+   внешний patch, выполнять `git apply --check --unidiff-zero --recount`,
+   затем один `git apply`.
+4. Проверка plaintext не может запрещать substring `secret` в SQL, потому что
+   защищённая таблица называется `setting_secrets`; сравнивать точные args.
+5. Не соединять несколько SELECT через `;` внутри одного rqlite Statement.
+6. Успешный CAS первой statement сам по себе не откатывает последующие
+   statement при zero rows; каждый dependent write обязан иметь generation
+   gate внутри той же транзакции.
+
+Следующий безопасный шаг: Plan 02 / Task 6 — deterministic legacy snapshot
+importer и shadow digest, только в репозитории через RED → GREEN. Не выполнять
+production import/deploy/restart/DNS/TLS/panel/bot/OTA mutations до всех
+отдельных inventory/import/shadow/cutover gates утверждённого плана.
+
+## HA control plane: Plan 02 / Task 6 core RED checkpoint (11.08.2026)
+
+Task 6 начат только в репозитории; production import, rqlite writes, серверы,
+боты, DNS, OTA и клиентские данные не изменялись.
+
+- Ветка: `codex/ha-rqlite-task2`; Draft PR `#82`.
+- Test-only HEAD: `53144dcb68e29dc2f4ac23a6ebe4812ba6ef6128`.
+- Expected RED run: `31492975243`, job `93783663188`.
+- Старые backend/controlplane tests прошли; новый package
+  `backend/internal/importer` остановился только на отсутствующих production
+  символах `Snapshot`, `DecodeSnapshot`, `PlanOptions`, `Plan`.
+- Все пять JSON fixtures отдельно прошли `ConvertFrom-Json`; `git diff
+  --check` чист.
+
+Test-only контракт уже фиксирует:
+
+- fail-closed decode truncated JSON без эха входных bytes в ошибке;
+- точное сохранение login casing, absolute expiry, generation и encrypted
+  envelope bytes;
+- стабильный полный список collision blockers;
+- `pending+credited -> confirmed/pending` с exact уже сохранённым expiry и
+  marker `legacy_credit_preserved`, без второго credit;
+- unsupported bot schema как blocker;
+- сохранение public settings, principals/roles и encrypted secret references;
+- missing principal secret как blocker и отсутствие ciphertext в report.
+
+Следующий безопасный шаг: до production-кода добавить оставшиеся test-only
+контракты `Apply`/crash-resume/different-digest/delta/tombstone/full+delta/
+concurrent-resume/missing-delete-marker, получить второй содержательный RED,
+затем реализовывать минимальный importer. Текущие `import_runs/import_batches`
+не содержат parent/plan/target digest и потребуют проверяемого расширения схемы.
+
+## HA control plane: Plan 02 / Task 6 Apply + schema GREEN checkpoint (11.08.2026)
+
+Работа продолжена строго в `codex/ha-rqlite-task2`, draft PR `#82`. Никаких
+production import/deploy/restart/DNS/TLS/panel/bot/OTA/server writes не было.
+Legacy остаётся единственным live/default write path.
+
+### Полный Apply/resume/delta RED
+
+- Test-only commit: `cb44e19a3bd451e01532f316e952229e43c1ca31`.
+- GitHub RED: run `31494082958`, job `93787334728`.
+- Formatting и все существующие backend/controlplane пакеты прошли.
+- `backend/internal/importer` упал только на отсутствующих production symbols
+  `ApplyRun`, `RunProgress`, `TargetState`, `ApplyBatch`, `BatchReceipt`,
+  `ApplyCompletion`, а также ранее зафиксированных `Snapshot/PlanOptions`.
+- Test-only contract теперь включает exact-once retry, unknown outcome after
+  committed batch, crash at every batch boundary, different-digest conflict,
+  exact delta parent, explicit tombstone, full+delta=fresh-full digest,
+  concurrent resume и implicit-delete blocker.
+- Synthetic fixtures находятся в
+  `backend/internal/importer/testdata/full-then-delta/`; production/customer
+  bytes, tokens и private subscription URLs туда не попадали.
+
+### Минимальный importer core GREEN
+
+- Production commit: `f1ee4e941d373b8ffefe48c61b046fdc2379ca8f`.
+- GitHub GREEN: run `31494782931`, job `93789659960`.
+- Прошли `go test ./...`, race, vet, rqlite harness contract и изолированная
+  трёхузловая rqlite integration.
+- Реализованы строгий `DecodeSnapshot`, stable `Validate/Plan/Digest`, exact
+  casing/expiry/generation/encrypted-envelope preservation, deterministic
+  internal IDs, redacted immutable report, explicit/cascade tombstones и
+  `Apply` через транзакционный `ApplyStore` boundary.
+- `Apply` привязывает immutable `run_id + source_digest + plan_digest +
+  batch_index + batch_digest`, не повторяет committed receipt после transport
+  failure и сверяет final business digest.
+
+### Проверяемое расширение importer schema GREEN
+
+- Valid schema RED commit после syntax correction:
+  `747a51f159b57b3a185e788587b567d07d832b38`.
+- Valid RED run `31495446387`, job `93791871998`: unit/race/vet/harness были
+  green, rqlite integration упала ровно на старых колонках `import_runs`.
+- Schema GREEN commit:
+  `a853ee764f444eed2f2efb6cc367341e5b9068be`.
+- Final GREEN run `31495703008`, job `93792740664`: все шаги green, включая
+  3-node rqlite integration.
+- Неразвёрнутая schema v1 теперь хранит snapshot kind, source/plan/parent/
+  target digest, deterministic batch count и `(run_id,batch_index,
+  batch_digest)` с fail-closed CHECK constraints.
+
+### Зафиксированные ошибки и правильные повторения
+
+1. Windows `rg path/*_test.go` не расширяет glob. Использовать
+   `rg -g "*_test.go" PATTERN directory`.
+2. Первый schema RED patch вставил функцию внутрь предыдущего вызова из-за
+   неверного `unidiff-zero` anchor; это был invalid RED. Исправление вынесено
+   отдельным commit, после чего получен содержательный schema RED.
+3. Ручной hunk-count schema patch был неверен; первый `git apply --check`
+   остановил изменение. Правильный linked-worktree путь:
+   `git apply --check --unidiff-zero --recount PATCH`, отдельный guard check,
+   затем ровно один `git apply --unidiff-zero --recount PATCH`.
+
+### Следующий безопасный шаг
+
+Task 6 ещё не объявлять завершённым. Остаются production rqlite adapter для
+`ApplyStore` с реальными canonical business rows/receipts, explicit CLI
+`backend/cmd/maestro-import`, legacy trial salt protected-file gate и
+`ops/ha/shadow-verify.sh`. Сначала писать отдельные RED tests для adapter/CLI/
+shadow, затем GREEN через GitHub Actions. Не выполнять production import до
+inventory, snapshot, collision, shadow и отдельного owner cutover approval.
+
+## HA control plane: Plan 02 / Task 6 CLI + shadow GREEN checkpoint (11.08.2026)
+
+Работа по-прежнему только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer writes не было.
+
+### Fail-closed `maestro-import` CLI
+
+- CLI RED commit: `8abc81f2534a7bbe889a78d61d8ddcdb5684905f`.
+- Valid RED run `31496133093`, job `93794192769`: новый command package упал
+  только на отсутствующих `run`, exit constants и `applyConfig`.
+- CLI GREEN commit: `d91e73399f161330ed427577d5f0091f79d1af54`.
+- GREEN run `31496370525`, job `93795000410`: unit, race, vet, harness и
+  3-node rqlite integration прошли.
+- CLI требует явные `--snapshot`, `--report`, `--mode=dry-run|apply`; delta
+  дополнительно требует explicit parent snapshot/digest. Exit codes:
+  `0=clean`, `2=blockers`, `3=input/system`.
+- Report пишется atomically mode `0600` и содержит только redacted `Report`.
+- Apply до вызова store требует exact approved plan digest, stable run id,
+  protected key file и protected legacy-trial-salt file. Production `main`
+  пока имеет `factory=nil`, поэтому apply fail-closed до реального rqlite
+  adapter; dry-run уже полностью работает.
+
+### Offline redacted shadow verifier
+
+- Shadow test commits: `12502d96883d348599f74f7142d6f47d28d47bbe`,
+  `4648f70b424dbf88d1b5fef5972af3edae51e676`.
+- Valid RED run `31496825873`, job `93796538244`: harness упал ровно на
+  отсутствующем `ops/ha/shadow-verify.sh`.
+- Production commit: `5425878bbc34e3dbf90cbcc5a95e07862a5c5461`;
+  executable-mode fix `9795baea775124b7994939664baff7d027772967`.
+- Final GREEN run `31497241816`, job `93797939798`: shadow contract, unit,
+  race, vet, harness и 3-node integration прошли.
+- Script принимает только explicit `--legacy`, `--candidate`, `--salt-file`,
+  не содержит network-capable commands, строго валидирует versioned JSON,
+  нормализует protocol/node order, сравнивает counts, HMAC identities, exact
+  expiry/generation, protocol tags, node set, Maestro/Karing URL shape,
+  settings/principals fingerprints и exact OTA manifest.
+- Match -> `0`, mismatch -> `2`, invalid/system -> `3`; report содержит только
+  run-salt HMAC subject IDs и не выводит raw identity HMAC/URL/value bytes.
+
+### Новые зафиксированные ошибки
+
+1. Local OAuth push не имеет `workflow` scope. Не менять existing workflow
+   ради нового test step; запускать shell contract через обычный Go test,
+   который уже входит в `go test ./...`. Net workflow diff был возвращён до
+   успешного push.
+2. Windows worktree создаёт `.sh` как Git mode `100644`. После Linux
+   `Permission denied` правильное исправление: guard, затем
+   `git update-index --chmod=+x <scripts>`, mode-only commit и один retry.
+3. `git check-ignore` возвращает exit `1`, когда файл корректно НЕ ignored;
+   обрабатывать этот отрицательный результат явно, не считать ошибкой task.
+
+### Следующий безопасный шаг
+
+Task 6 ещё не завершён: нужен отдельный RED -> GREEN production rqlite
+`ApplyStore` adapter, который атомарно связывает реальные canonical business
+writes и receipts. Нельзя подменять его generic JSON staging или включать
+`factory` до tests на customer/order/settings/principal rows, unknown write
+outcome и recomputed business digest. После adapter — повторный полный GREEN,
+handoff/review; production import всё ещё запрещён до cutover gates.
+
+## HA control plane: Plan 02 / Task 6 real rqlite ApplyStore checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer mutations не
+выполнялись. CLI production factory всё ещё `nil` и fail-closed.
+
+### Canonical legacy values и schema
+
+- Order contract/model RED `e6ac3ce0fa61b042ebdab1db47a9db5e25dee948`,
+  GREEN `ad090febe0bc0677df2a5274475946bffcf20afd`; green run
+  `31499691823`, job `93805089568`.
+- Canonical schema RED `00b04c3e5c68c9a54b9dd5ffde3a375d6066b61b`,
+  GREEN `ada15a005c4d384c9f02f54f31bb187ec010fb63`, test correction
+  `69b18b55c941dc75fbc74df8262ec42494702607`; green run
+  `31500654537`, job `93809465011`.
+- Customers preserve exact `display_login`; subscription token/credential
+  envelopes stay protected; orders preserve unique `payment_code`, buyer
+  HMAC/scope, tariff version, amount/currency/duration, absolute times and
+  credited result generation.
+- Customer/order owner binding GREEN `a73f9676221bbe09172265f7f9f0ff82836b42f2`,
+  run `31501401007`, job `93812029942`.
+- Setting/principal protected owner binding GREEN
+  `37ffe96ada80cee64707a26aab09a2acd1bb4d15`; detached owner secrets больше не
+  создаются как generic operations.
+
+### Production `RQLiteApplyStore`
+
+- Core atomic batch GREEN `8b32d67c546f4ee244064558f99499c3b24777d9`;
+  run `31503058590`, job `93817685482`, all green.
+- Durable lifecycle GREEN `e9ed1ddfc748467e71ff223c6a97e9a6d5cf5558` и
+  recorder correction `c8e650cac5563e6bf5a7f6be9212b253050581bb`;
+  run `31504254201`, job `93821695468`, all green.
+- `CommitBatch` делает receipt `applying -> applied` и все typed canonical
+  writes в одной linearizable transaction. Неопределённый transport outcome
+  не повторяет write, а разрешается linearizable receipt read.
+- `BeginOrResume` связывает run/source/plan/parent/batch-count и receipts;
+  `Complete` требует полный непрерывный набор receipts.
+- `InspectTarget` пересчитывает deterministic SHA-256 по canonical business
+  rows и исключает importer bookkeeping.
+
+### Real three-node rqlite E2E
+
+- Первый E2E `923321df0d13f906b84ea90a15779f42f3cca0ee`.
+  Run `31504676834`, job `93823121685` выявил cross-package collision
+  тестового `payment_code`; production transaction не была причиной.
+- Fixture-isolation fix `b4c010288ddac4c5975619402006e9bec1553d52`.
+  Run `31505118200` полностью green: unit, race, vet, harness и настоящий
+  трёхузловой rqlite E2E.
+- E2E проверяет `customers`, `credentials`, `subscription_tokens`, `orders`,
+  `import_batches`, `import_runs`, business digest и durable lifecycle.
+- Protected setting/principal E2E
+  `90d5c3a9a9a46348145bcd61a19c8f5ae2f8b753`. Run `31505703054`, job
+  `93826610614`: обычные шаги green; integration записала и прочитала все
+  строки, но test-only assertion ожидал `float64`, а rqlite wire вернул
+  INTEGER строками.
+- Parser/test fix `45edd94`: `applyRowInt` строго принимает decimal INTEGER
+  string и отвергает нецелое; E2E использует тот же parser. Final GREEN run
+  `31506224995` полностью прошёл, включая настоящий трёхузловой rqlite.
+
+### Ошибки, которые нельзя повторять
+
+1. Integration packages используют один CI cluster: каждый UNIQUE fixture
+   обязан иметь package-scoped value до `Plan`, чтобы Source/Plan digest
+   оставались честными.
+2. Реальный rqlite INTEGER может приходить строкой с `Types=integer`;
+   проверять через `applyRowInt`, не сравнивать с `float64`.
+3. Нельзя добавлять Go-функцию по голому номеру строки как якобы EOF: дважды
+   test попал внутрь предыдущей функции. Использовать full-context patch с
+   видимой закрывающей скобкой и просматривать конец файла до commit.
+4. Windows linked worktree: внешний patch, `git apply --check --recount`,
+   отдельный guard, один `git apply --recount`; для zero-context также
+   `--unidiff-zero`.
+
+### Следующий безопасный шаг
+
+1. Сначала подтвердить полный green для `45edd94`.
+2. Task 6 не завершать и CLI factory не включать: production store пока
+   fail-closed для `trial`, `bot_binding`, `encrypted_secret`,
+   `bot_poll_state`, `pending_callback`, `bot_credential_rotation` и typed
+   tombstones/deletes.
+3. Не писать legacy bot/trial данные в несовместимые runtime tables. Сначала
+   RED schema/adapter tests на exact HMAC/version/fence/callback/rotation и
+   protected legacy trial salt, затем typed schema + transaction + E2E.
+4. После всех typed entities — fail-closed endpoint/auth/TLS CLI factory,
+   полный GitHub GREEN, review и отдельный cutover gate. До этого никакого
+   production import, deploy или переключения клиентов.
+
+## HA control plane: Task 6 typed Telegram bot route checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer mutations не
+выполнялись. CLI production factory всё ещё `nil` и fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `a3021e5e6b0495f3822912824a2ce3b93ae742a5`; GitHub Actions
+  run `31509153164`, job `93838265683` упал ровно на
+  `unsupported canonical import entity "bot_binding"`. Остальные
+  выполненные packages были green.
+- GREEN commit `6504cdbee19da9293d1f098eb0821388a2f95e78`.
+- Final GREEN run `31509885416`, job `93840733457`: formatting, unit,
+  race, vet, rqlite harness и настоящий изолированный трёхузловой rqlite
+  integration прошли.
+
+### Сохранённый контракт
+
+- Добавлена отдельная typed таблица `telegram_bot_routes`; generic JSON
+  staging не используется.
+- Сохраняются только stable `bot_identity_hmac`,
+  `token_fingerprint_hmac`, положительный `credential_version`,
+  `schema_fingerprint` и timestamp. Raw Telegram token/ID не сохраняются.
+- Повтор exact same version идемпотентен и не меняет timestamp; более новая
+  версия разрешена; downgrade и другой fingerprint/schema на той же версии
+  атомарно блокируются SQLite trigger.
+- Таблица включена в deterministic business digest импортера.
+
+### Следующий безопасный шаг
+
+Task 6 не завершать. Следующий отдельный RED -> GREEN slice — typed
+`bot_poll_state` с exact next update ID, credential route и captured fence;
+после него pending callbacks и credential rotations. Unsupported также
+остаются `trial`, standalone `encrypted_secret` и typed tombstones/deletes.
+
+## HA control plane: Task 6 hard-fenced bot poll state checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `9894e087e0ce6cd895707b6c09521635d6b4e6ae`; run
+  `31510900991`, job `93844161333` упал ровно на unsupported
+  `bot_poll_state`.
+- GREEN commit `2d140b7b6ad2be54e046aead2bb597e36a4c93a8`.
+- Final GREEN run `31511239698`, job `93845282625`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- `telegram_pollers` теперь keyed только stable `bot_identity_hmac` и
+  связан FK с `telegram_bot_routes`; raw bot ID/token не сохраняются.
+- Hard-fenced import хранит exact next update ID и captured lease fence без
+  активного node/lease. Offset и fence не могут уменьшиться.
+- Credential fingerprint/version проверяются атомарно по current route, но
+  не дублируются в poller state. Mismatch откатывает и state, и batch receipt.
+- Real rqlite E2E доказывает matching write, mismatch rollback и отсутствие
+  активного lease после импорта.
+
+### Следующий безопасный шаг
+
+Отдельный RED -> GREEN typed `pending_callback`, затем audited
+`bot_credential_rotation`. После них всё ещё остаются `trial`, standalone
+`encrypted_secret` и typed tombstones/deletes; Task 6 не завершён.
+
+## HA control plane: Task 6 imported pending callbacks checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `ccf06857f1f5e42bf8b15872d2ebdef711bde798`; run
+  `31511911286`, job `93847564660` упал ровно на unsupported
+  `pending_callback`.
+- GREEN commit `361d3f87c6b8745088b84b68b29aada832e709e4`.
+- Final GREEN run `31512251553`, job `93848707734`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Legacy callback не записывается в несовместимую runtime-таблицу:
+  используется отдельная typed `telegram_imported_callbacks`.
+- Exact callback/order/action/state сохраняются без raw bot ID/token;
+  credential fingerprint/version только атомарно сверяются с current route.
+- Разрешён только идемпотентный retry и `pending -> in_flight`; подмена
+  identity/order/action и state rollback блокируются.
+- Real rqlite E2E доказывает matching write и полный rollback callback плюс
+  batch receipt при чужом credential route.
+
+### Следующий безопасный шаг
+
+Typed immutable `bot_credential_rotation` с linear no-fork chain до current
+route. Затем остаются `trial`, standalone `encrypted_secret` и typed
+tombstones/deletes; Task 6 и production import всё ещё не завершены.
+
+## HA control plane: Task 6 audited bot rotations checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `b6d7252360c3c092cb1be10cbc36b1c1d65d49ec`; run
+  `31512957001`, job `93851034183` доказал две причины: fork chain не
+  блокировался, а `bot_credential_rotation` не поддерживался store.
+- GREEN commit `c4325d1c728bca1667e9b5dfe7b494a89c78b388`.
+- Final GREEN run `31513414491`, job `93852541374`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Plan требует одну linear rotation chain без fork/disconnected segment,
+  повторного fingerprint и cross-bot fingerprint collision; tail должен
+  точно совпасть с current credential route.
+- Typed `telegram_bot_credential_rotations` хранит только HMAC fingerprints,
+  monotonic versions и audit digest. Raw Telegram token/ID отсутствуют.
+- Уникальные old/new version блокируют fork на уровне DB; audit history
+  immutable и undeletable, exact retry идемпотентен.
+- Real rqlite E2E переносит route/poll/callback/rotation в одной transaction.
+
+### Следующий безопасный шаг
+
+Typed owner-bound standalone `encrypted_secret`, затем `trial` с отдельным
+protected legacy salt input и typed tombstones/deletes. Task 6 и production
+import всё ещё не завершены.
+
+## HA control plane: Task 6 standalone encrypted secret checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `f531f50402f9e55eaa9411fea54150fc722c8eaf`; run
+  `31514231930`, job `93855254096` доказал отсутствие owner collision blocker
+  и unsupported `encrypted_secret` в apply store.
+- Production GREEN commit `78840d74090416ca6ac981e5a75d5d340ee5ed26`.
+- Run `31514646876`, job `93856641018`: formatting, unit, race, vet и harness
+  прошли; integration обнаружил только конфликт одинакового тестового owner
+  tuple между пакетами на общем CI rqlite-кластере.
+- Test-only isolation commit `4f67220d9b0846479256475261c151d6c56fc3d9`.
+- Final GREEN run `31515049920`, job `93857990043`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Standalone legacy secret хранится только в typed `imported_secrets` с
+  уникальным owner tuple `(owner_type, owner_source_key, field)`.
+- Сохраняются encrypted envelope, SHA-256 и key version; plaintext secret в
+  snapshot/report/typed SQL не появляется.
+- Secret row immutable и undeletable; exact retry идемпотентен, а подмена
+  owner/envelope/hash/version атомарно блокируется.
+- Таблица включена в deterministic business digest; real rqlite E2E проверяет
+  exact typed row и durable batch receipt.
+
+### Следующий безопасный шаг
+
+Отдельный RED -> GREEN `trial`: current и legacy HMAC сохраняются в typed
+identity row, а legacy trial salt принимается только отдельным защищённым
+входом и хранится как encrypted key-version-1 secret. Затем остаются typed
+tombstones/deletes; Task 6 и production import всё ещё не завершены.
+
+## HA control plane: Task 6 protected legacy trial checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `ab240319c4ea74095d55a33f6c9cda708307a51b`; run
+  `31516510313`, job `93862869458` упал ровно на отсутствующих
+  `TrialImportProtection` и protected constructor.
+- Production GREEN commit `feaa3e3bc3249fe744c2704831cf128b0a5f5515`.
+- Run `31517299065`, job `93865535656`: formatting, unit, race, vet и harness
+  прошли; integration compile обнаружил только package-local test helper,
+  ошибочно использованный из другого Go package.
+- Test-only fix commit `b7e1020a3a8b549b138cb8a76c55eb40fc7757d7`.
+- Final GREEN run `31517648635`, job `93866698171`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- `imported_trial_identities` хранит только stable source key, legacy/current
+  HMAC, exact expiry, monotonic used flag и ссылку на protected lookup secret.
+- Legacy salt не входит в snapshot/report: store принимает только заранее
+  зашифрованный envelope key version 1; plaintext input fail-closed.
+- Salt хранится reserved typed row `legacy-trial-salt-v1` в
+  `imported_secrets`; salt row immutable, exact retry идемпотентен.
+- Trial identity запрещает HMAC/source collision, смену HMAC/expiry/key и
+  rollback `used=1 -> 0`; разрешены exact retry и `used=0 -> 1`.
+- Trial identity включена в deterministic business digest и проверена real
+  rqlite E2E вместе с durable batch receipt.
+
+### Следующий безопасный шаг
+
+Владелец подтвердил разделение operational tombstones и logical business
+digest. Focused design записывается в
+`docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`.
+После review отдельный RED -> GREEN slice реализует только explicit customer
+delete и derived encrypted-secret marker. Production import всё ещё запрещён.
+
+## HA control plane: Task 6 typed delete planning and registry checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/DNS/customer mutations не
+выполнялись; production `maestro-import` apply factory остаётся nil/fail-closed.
+Утверждённая спецификация: `docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`
+(commit `b13ad0c`). Подробный план: `docs/superpowers/plans/2026-08-11-maestrovpn-ha-import-delete.md`
+(commit `8f96689`).
+
+### Task 1: deterministic typed delete planning
+
+- RED commit `2ffb2c5b50be48f9d02aca93d9c33c7ab78df706`; run
+  `31521572673`, job `93879595838` упал только на отсутствующих
+  `canonicalLegacyDigest` и typed полях `PlannedDelete`.
+- GREEN commit `3ff68364c274c0f5831d23cd558f9ea403365c8a`.
+- Final GREEN run `31522413319`, job `93882447316`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+- Delete разрешён только для delta и explicit customer; exact parent digest,
+  prior customer digest, единственный source, отсутствие upsert/delete collision
+  и generation overflow проверяются до write.
+- Customer target/tombstone IDs, prior/next generation и derived owner-bound
+  encrypted-secret marker детерминированы. Delete operations несут полный
+  несекретный canonical JSON proof.
+
+### Task 2: lifecycle registry, receipts and logical digest
+
+- RED commit `78d8883c72a8e9e94ff1b367a0c9e438852f3ad7`; run
+  `31523217922`, job `93885166584` упал только на отсутствующих registry writes
+  и operational tombstones в business digest.
+- GREEN commit `9505da985ced8806afe71083654e7e3cee68b6ec`.
+- Final GREEN run `31524287056`, job `93888659664`: formatting, unit, race,
+  vet, harness, schema constraints и настоящий трёхузловой rqlite прошли.
+- `imported_entity_state` хранит только typed stable key, immutable target,
+  canonical SHA-256, lifecycle и timestamp; target substitution, state delete,
+  digest substitution при delete и `deleted -> active` fail closed.
+- `import_delete_receipts` immutable/undeletable, связан exact composite FK с
+  deleted registry state и exact `(run,batch,digest)`. Customer receipt trigger
+  требует deleted customer generation, disabled credentials, revoked tokens и
+  полный frozen target set.
+- Customer upsert атомарно пишет active registry для customer и consumed
+  encrypted-secret; standalone encrypted secret пишет immutable envelope и
+  active registry в той же batch transaction.
+- Canonical business digest исключает operational tombstones и import
+  bookkeeping; customer/credential/token/desired rows и imported secrets с
+  deleted registry state логически фильтруются. Orders остаются историческими.
+
+### Исправленные рабочие ошибки, не повторять
+
+- В этой Windows-среде локального `gh` нет: CI читать через GitHub connector.
+- Полный commit SHA всегда получать `git rev-parse HEAD`, никогда не достраивать
+  из короткого SHA.
+- Linked worktree shell требует escalation; patch mutation: внешний patch,
+  `git apply --check --recount`, новый guard и ровно один `git apply --recount`.
+- Если monolithic patch теряет актуальный context, не форсировать: записать
+  fail/correct и разделить на schema/store патчи с текущим контекстом.
+
+### Следующий безопасный шаг
+
+Task 3 RED -> GREEN: typed tombstone dispatch, atomic customer registry CAS,
+customer generation/status CAS, credential/token revoke, deterministic
+tombstone, frozen S1-S4 targets, derived secret receipt и clean-cluster
+`full(base)+delta == fresh-full` digest proof. До полного GitHub GREEN не
+включать production factory и не трогать серверы/ботов/OTA/клиентов.
+
+## HA control plane: Task 6 typed delete apply and parity checkpoint (11.08.2026)
+
+Focused delete plan завершён в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Локальный и remote HEAD после code verification:
+`800bb088e460579b4a23e5c981f3cde6bc27183c`. PR остаётся open, draft,
+mergeable; base `codex/mobile-4d-deck`.
+
+### RED -> GREEN evidence
+
+- RED commit `54f6dbfd1205b21be9ce521a1d2a9904a0f698bb`; run
+  `31526958387`, job `93897531010`: formatting прошёл, unit упал ровно на
+  `unsupported import tombstone entity "customer"` и `"encrypted_secret"`.
+- GREEN code commit `c4b0f849eb0ac86764a765dda3e5f29e712519c2`.
+- Git credential не имел OAuth `workflow` scope, поэтому code commit был
+  отправлен обычным Git, а parity workflow отдельным GitHub App commit
+  `3144607b12813fd70c0b2359d35fc00ef7917dd5`; проверка не ослаблялась.
+- Run `31527705051`, job `93900056197`: formatting, unit, race, vet, harness и
+  importer real-rqlite прошли; controlplane schema test остановился до своей
+  проверки из-за повторной пары test-only `(source_sha256,plan_sha256)`.
+- Test-only isolation commit `800bb088e460579b4a23e5c981f3cde6bc27183c`
+  заменил только три synthetic digest на уникальные `d/e/f`.
+- Final GREEN run `31528537528`, job `93902683167`: formatting, unit, race,
+  vet, harness, полный real-rqlite integration, reset/full+delta capture,
+  второй reset/fresh-full comparison и final stop прошли.
+
+### Сохранённый delete-контракт
+
+- Tombstone dispatcher принимает только `customer` и derived
+  `encrypted_secret`; неизвестные типы остаются fail-closed.
+- Customer delete proof строго связывает entity/key, exact 64-hex prior digest,
+  immutable target ID, prior/next generation и детерминированный tombstone ID.
+- Одна linearizable rqlite transaction выполняет строго: batch begin, registry
+  `active -> deleted` CAS, customer generation/status CAS, credential disable,
+  token revoke, deterministic tombstone, frozen targets из всех active desired
+  S1-S4 `maestro-core`, immutable receipt и batch finish.
+- Неверный `ExpectedPriorDigest` откатывает customer, registry, tombstone,
+  targets и batch receipt целиком. Receipt trigger также требует существующие
+  credential/token, их полный revoke и точный полный target set.
+- Derived customer-owned secret получает только registry transition и receipt
+  с `tombstone_id=NULL`; encrypted envelope остаётся в credential/token и не
+  попадает в receipt. Standalone `imported_secrets` не удаляются физически.
+- Operational tombstones/receipts/registry не входят в business digest;
+  logically deleted imported rows фильтруются. Два чистых трёхузловых кластера
+  доказали `base-full + delta == final-full` по exact 64-character digest.
+
+### Исправленные рабочие ошибки, не повторять
+
+- Workflow сначала искать через `rg --files .github/workflows`; фактический файл
+  здесь `.github/workflows/ha-control-plane.yml`.
+- `maestro-repetition-guard.py correct` требует `--old-family`, `--new-family`
+  и `--root-cause-code`.
+- Перед поиском importer-файлов использовать `rg --files`; не предполагать
+  `types.go`/`planner.go`.
+- Внешний файл для `git apply` обязан быть полноценным unified diff. Bare `@@`
+  понимает `apply_patch`, но не `git apply`; zero-context требует точных old/new
+  offsets и обязательного `--unidiff-zero`. Перед commit всегда читать итоговый
+  diff, чтобы блок не оказался внутри соседней Go-функции.
+- Тесты real-rqlite делят один кластер: каждый schema test обязан иметь
+  уникальную пару `(source_sha256,plan_sha256)`.
+- Если Git OAuth отклоняет workflow без scope, не ретраить ту же команду:
+  отправить code-only commit, обновить workflow GitHub App отдельным commit,
+  затем `git pull --ff-only` и проверять новый полный SHA.
+
+### Граница готовности и следующий безопасный шаг
+
+Production/server/bot/OTA/DNS/customer mutations не выполнялись. Реальные S1-S4
+не изменялись. `backend/cmd/maestro-import/main.go` всё ещё вызывает
+`run(..., nil)`, поэтому production apply factory остаётся nil/fail-closed.
+Завершён только focused typed-delete plan; parent Task 6 и весь HA проект не
+объявлять готовыми. Следом нужны redacted shadow verification, отдельное
+решение о production factory, backup/restore/cutover gates и лишь затем
+явно разрешённое развёртывание на серверах.
+
+## HA control plane: repository-only shadow export design (12.08.2026)
+
+Владелец подтвердил рекомендуемый следующий этап: воспроизводимая redacted
+shadow-сверка только в репозитории и изолированном GitHub Actions rqlite.
+Утверждённая спецификация:
+`docs/superpowers/specs/2026-08-12-maestrovpn-ha-shadow-export-design.md`.
+
+### Зафиксированное решение
+
+- Один versioned `ShadowExport` получает два чистых producer: из уже
+  проверенного `ImportPlan` и из canonical linearizable candidate rows.
+- Оба producer используют один строгий canonical encoder; существующий
+  `ops/ha/shadow-verify.sh` остаётся отдельным offline verifier.
+- Реальный proof использует только synthetic HMAC и существующий runner-local
+  трёхузловой rqlite: import -> legacy export -> candidate export -> exact
+  verifier match.
+- Live collectors, S1-S4, Telegram DB/credentials, production endpoints и
+  production `maestro-import` factory не входят в этот slice.
+
+### Следующий gate
+
+Design подтверждён владельцем. Детальный TDD implementation plan записан в
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-shadow-export.md`.
+Самопроверка выявила и закрыла на уровне плана прежнее ложное допущение:
+текущий `ImportPlan` не содержит public protocol/node topology, а customer
+import ещё не создаёт `desired_node_state`. Поэтому Task 1 сначала добавляет
+явные `protocol_tags/node_ids`, typed `desired_protocol_tags` и атомарную exact
+set replacement; подставлять одинаковые constants в два export запрещено.
+
+После выбора режима выполнения идти по плану Task 1 -> Task 5 через отдельные
+RED/GREEN checkpoints и exact-SHA GitHub runs. Даже после focused GREEN parent
+Task 6 остаётся открытым: live collectors, production factory и
+backup/restore/cutover gates не входят в этот slice.
+`backend/cmd/maestro-import/main.go` по-прежнему должен вызывать
+`run(..., nil)`; production остаётся
+`NO-GO (repository implementation only)`.
+
+## HA control plane: redacted shadow parity checkpoint (12.08.2026)
+
+Focused repository-only shadow export plan завершён в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production остаётся `NO-GO`: реальные S1-S4, панели,
+боты, DNS/TLS, клиенты, Android/TV, release и OTA не изменялись. Production
+factory в `backend/cmd/maestro-import/main.go` по-прежнему строго вызывает
+`os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, nil))`.
+
+### RED -> GREEN evidence
+
+- Task 1 topology RED: `efac2b4f1d00f4a94d2fef4dc17718e62720ae5e`,
+  `5a46d6db890ee2aab3af7143cf98f9ff7514daa6` и real-rqlite assertion
+  `824f66a8e899621c216bae25dcfb2740e81eeedd`. Final GREEN:
+  `282ad26e97913ed46ebc20a52cd4c902deead72a`, run `31553828257`, job
+  `93981990550`, conclusion `success`.
+- Task 2 legacy shadow RED: `2cb28db3152889474da9577d3c2a1f8cd913dc27`;
+  run `31554223345`, job `93983181574` упал только на отсутствующих shadow API.
+  Final GREEN: `4514ba1af38d8ee211f7283b4d2d9121a3a2c108`, run
+  `31554949682`, job `93985336630`, conclusion `success`.
+- Task 3 candidate RED: `7c487287146d80176df9424944c62b3645df74ad`;
+  run `31555611991`, job `93987294414` упал только на отсутствующих
+  `ShadowProjection*`, `ShadowFromCandidate` и `ReadShadowProjection`.
+  Production GREEN: `4ea96a6537613c59d052ef8c923252444aac1427`;
+  strengthened proof assertion: `5c953d506f628ff05277147482a6c74047fcfe22`,
+  run `31556257270`, job `93989193594`, conclusion `success`.
+- Task 4 final proof SHA: `f6bacd671ebf20877276a7339f5e37c692068d7e`.
+  Exact run `31556743561`, job `93990616906`: formatting, unit, race, vet,
+  harness, ordinary real-rqlite, full+delta/fresh-full digest parity, dedicated
+  clean-cluster reset, `Prove redacted shadow export parity` и final cleanup —
+  все `success`, parity step не skipped.
+
+### Доказанный shadow-контракт
+
+- Legacy producer `ShadowFromPlan` строит export только из уже validated full
+  `ImportPlan`; candidate producer `ShadowFromCandidate` независимо вызывает
+  `RQLiteApplyStore.ReadShadowProjection` и получает business rows одним
+  `QueryLinearizable` batch без единого `Request`.
+- Candidate read связывает exact source digest с единственным applied run,
+  non-null target digest, полным числом applied batch receipts и независимо
+  пересчитанным canonical business digest. Missing/extra/duplicate relations,
+  inactive/deleted customer, disabled credential, revoked token, неполная
+  node/protocol topology, malformed order/settings/principal/OTA fail closed.
+- Оба producer сходятся только в строгой versioned `ShadowExport` модели и
+  общих canonical fingerprint/state helpers; candidate не читает legacy export,
+  а legacy producer не читает rqlite.
+- Dedicated clean-cluster test применил полный synthetic snapshot через
+  `Apply`, независимо создал оба `0600` export, исполнил настоящий
+  `ops/ha/shadow-verify.sh` и потребовал точный результат
+  `{"differences":[],"status":"match"}\n`.
+- Exact job-log scan дал zero occurrences для synthetic raw login, payment
+  code, двух nonce, трёх ciphertext и private URL marker. Export JSON,
+  verifier stdout/stderr и process error проверяются до вывода ошибки.
+
+### Финальный scope/security gate
+
+- `git diff --check` чист; focused slice не добавил SSH, curl collector,
+  `MAESTRO_CONTROL_PLANE` wiring или production factory в importer.
+- Diff относительно `codex/mobile-4d-deck` для `app/src/main`, `app/src/test`
+  и `app/src/androidTest` пуст: Android mobile и TV код/ассеты не затронуты.
+- Production import, server deploy/restart, customer mutation, bot payment,
+  OTA publication и live shadow comparison не выполнялись.
+
+### Исправленные рабочие ошибки, не повторять
+
+- Fixture OTA был расширен до полного synthetic manifest 154; все прежние
+  exact-JSON tests надо обновлять одновременно, не ослабляя byte comparison.
+- Production/test helper names должны быть уникальны; collision
+  `validShadowShapes` исправлялся отдельным rename и больше не повторяется.
+- Git HTTPS OAuth без `workflow` scope не может писать `.github/workflows`:
+  не ретраить push, применять GitHub App и затем синхронизировать branch.
+- Нельзя передавать workflow text с regex, содержащим `$'`, в JavaScript
+  `String.replace` replacement string: `$'` разворачивается в suffix и портит
+  YAML. Использовать проверенные `indexOf` + `slice` (или callback replacer),
+  затем fetch remote file и требовать ровно по одному semantic marker.
+- `controlplane.NewMigrator` уже создаёт synthetic tariff/nodes/services для
+  integration cluster; повторный seed вызывает UNIQUE failure. Перед seed
+  всегда проверять migration fixtures и переиспользовать их.
+
+### Граница завершения и следующий gate
+
+Focused plan
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-shadow-export.md` завершён,
+но parent Plan 02 Task 6 и вся production HA-система ещё не завершены.
+Следующий отдельный этап: design/RED/GREEN для production import factory,
+затем обязательные backup/restore, fencing, dry-run и cutover/rollback gates.
+До их утверждения и полного exact-SHA GREEN серверы, панели и Telegram-боты
+не развёртывать и production factory не включать.
+
+## HA control plane: production import factory design (12.08.2026)
+
+Владелец подтвердил рекомендуемый узкий следующий этап: production-capable
+import factory только в репозитории и isolated GitHub Actions, без изменений
+реальных S1-S4, клиентов, панелей, ботов, Android/TV, Release и OTA.
+Утверждённая спецификация:
+`docs/superpowers/specs/2026-08-12-maestrovpn-ha-production-import-factory-design.md`.
+
+Зафиксирован mandatory-mTLS target config ровно для S2/S3/S4, strict protected
+control-plane key bundle, exact legacy-trial-salt digest binding, read-only
+`Migrator.Verify` без автоматического schema apply, существующий resumable
+`importer.Apply` и подписанный Ed25519 applied-run receipt. Dry-run остаётся
+network/secret-free; production errors и artifacts не раскрывают секреты.
+
+Даже после реализации этого slice статус остаётся
+`NO-GO (repository implementation only)`. Реальные import/deploy/restart,
+backup/restore, legacy-writer fencing, live dry-run/final delta, shadow parity,
+canary и cutover/rollback требуют отдельных gates и явного разрешения.
+
+Следующий шаг по brainstorming gate: self-review этой спецификации, review
+владельца, затем отдельный TDD implementation plan. До его утверждения
+production factory code не менять.
+
+## HA control plane: production import factory implementation plan (12.08.2026)
+
+После подтверждённого design review создан и самопроверен TDD-план:
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
+
+План содержит восемь RED -> GREEN gates: snapshot format v2 с HMAC/salt
+binding; локальная аутентификация key bundle/envelopes/trial salt; verified
+schema identity; strict S2/S3/S4 mandatory-mTLS runtime; linearizable preflight
+всех target-referenced key versions; canonical Ed25519 applied-run receipt;
+production CLI wiring с resumable atomic receipt; real built-binary proof на
+test-only three-node mTLS rqlite и финальный scope/secrecy gate.
+
+Self-review дополнительно закрыл две ошибки до кода: delta не может потерять
+historical encryption key, уже referenced в rqlite; отрицательные mTLS cases
+выполняются на чистом prepared cluster до valid import и не используют restart,
+который удаляет harness state.
+
+Production code ещё не менялся. Статус остаётся
+`NO-GO (repository implementation only)`; S1-S4, панели, боты, клиенты,
+Android/TV, Release и OTA не затронуты. Следующий шаг — выбрать режим исполнения
+плана. Каждый behavior gate обязан иметь отдельные exact-SHA RED и GREEN
+GitHub Actions evidence.
+
+
+## 2026-08-12 production import factory checkpoint (Tasks 1-3 GREEN)
+
+Authoritative branch and review surface:
+
+- branch: `codex/ha-rqlite-task2`
+- draft PR: #82
+- work remains GitHub-first; the owner PC is used only for the lightweight repetition guard and exact `rg`/Git metadata checks
+- production S1-S4, panels, bots, customers, Android/TV, Release and OTA remain unchanged
+
+Completed production-factory plan stages:
+
+1. Task 1 snapshot protection metadata v2: final GREEN SHA `97a0382362ba6a0b6540f486231a70c991c1fb16`; run `31561449224`; job `94004424897`.
+2. Task 2 local key/envelope/trial-salt authentication: GREEN SHA `9cda13006450522fa5bf294d1879a9a6d8a5e0f3`; run `31561746986`; job `94005317388`.
+3. Task 3 immutable schema identity: GREEN SHA `0417c5ae6d93336a6e218dd990dca90775033bba`; run `31562039927`; successful second-attempt job `94006475476`.
+
+Every successful job above passed ordinary backend tests, race tests, vet, harness contract, isolated real-rqlite integration, full-plus-delta parity, fresh-full parity, shadow parity and cleanup.
+
+Task 3 first job attempt `94006186086` failed only in the pre-existing nondeterministic `TestConcurrentResumeAppliesEachBatchOnce` with `import run digest mismatch`; Task 3 controlplane race tests were already GREEN. The mandatory repetition guard allowed exactly one retry, and the retry passed the entire workflow. Do not rerun that historical job again.
+
+Current next step: Task 4 in `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`: strict exactly-S2/S3/S4 HTTPS mandatory-mTLS runtime, all protected local validation before the first network request, `VerifyIdentity` only, and linearizable referenced-key-version readiness. Continue with RED tests first. Do not deploy to servers after Task 4; server dry-run remains forbidden until Tasks 1-7 are GREEN and a separate backup/restore plus fencing drill has passed.
+
+Operational note for Windows searches: pass globs through `rg -g "*.go" <pattern> <directory>`; do not append a Unix-style `directory/*.go` path because native Windows `rg` rejects it.
+
+## 2026-08-12 DR restore drill checkpoint (Tasks 1-5 GREEN)
+
+Authoritative review surface remains draft PR #82, branch
+`codex/ha-rqlite-task2`. Production remains
+`NO-GO (repository DR implementation only)`: S1-S4, panels, bots, customers,
+Android/TV, Release, OTA, DNS and production credentials were not accessed or
+changed.
+
+Exact completed evidence:
+
+- Task 1 GREEN SHA `e8f1e62e72af3a75ea557bba4e7138f2c442f941`,
+  run `31573726939`.
+- Task 2 GREEN SHA `bb8b84b2cd22b35d07116c749fff1624a64668fd`,
+  run `31574573939`.
+- Task 3 GREEN SHA `cc3bc341488ebd633f7190b981998806d083e393`,
+  run `31577613693`.
+- Task 4 GREEN SHA `11798300efd9781dd4ea62c66dfe9808e287f013`,
+  run `31579056320`, job `94057725391`.
+- Task 5 final GREEN SHA `3829a861832feea431849a5b0b9c2599de691d57`,
+  run `31585328200`, job `94077716333`. Every named step succeeded:
+  unit, race, vet, harness, real-rqlite, importer parity, shadow parity,
+  production mTLS importer and unconditional cleanup.
+
+Task 5 proves the exact built importer creates a signed synthetic source, an
+authenticated encrypted backup is independently verified, a fresh mTLS
+destination is restored once, business/schema/import/batch/shadow parity holds,
+and a repeated restore into the same root is rejected. Restore epoch advance and
+activation execute in separate test processes; the process terminates after
+advance, the restarted process observes the preserved inactive epoch, stale
+leases/old epoch are fenced, and current-epoch mutation is exact-once. After
+activation, loss of S4 preserves strong state plus idempotent write through
+active S2/S3; loss of S3 as well makes S2 reject a linearizable write.
+
+A deterministic regression was added for a real importer race exposed during
+verification: completed concurrent resume now refreshes target state after
+`BeginOrResume` before comparing the completed digest. RED:
+`8c4c992641346fc575df313b1d55c6952b552609`, run `31583987756`,
+job `94073414698`; GREEN fix `a264f481948b599b2767f3ebfe2095f4453bbf31`,
+run `31584173786`, job `94074003728`.
+
+Current next step is Task 6 in
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`:
+add a dedicated repository-only exact-SHA DR workflow and strict policy test
+with no production secrets or artifact upload. Continue RED first. Production
+read-only audit is still forbidden until Tasks 1-7 are fully GREEN.
+
+
+## 2026-08-12 authenticated DR restore drill complete
+
+Plan `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`
+is fully GREEN in draft PR #82 on branch `codex/ha-rqlite-task2`.
+
+Final code evidence:
+
+- exact code SHA: `e9c0bc74e963ab55c4e96214fb6a7de76d1b823e`
+- dedicated workflow: `HA DR restore drill`, run `31586579401`, job
+  `94081701920`, conclusion `success`
+- ordinary workflow on the same SHA: `HA control-plane checks`, run
+  `31586579375`, conclusion `success`
+- dedicated job steps all succeeded: pinned checkout/setup, baseline formatting
+  plus shell syntax, backend unit, race, vet, self-policy, authenticated backup
+  and tamper matrix, fresh restore fencing/parity/quorum, unconditional cleanup
+- workflow artifact list for run `31586579401` is empty
+
+Final scope/secrecy audit compared
+`ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf..e9c0bc74e963ab55c4e96214fb6a7de76d1b823e`.
+There are no `app/**` or `deploy/**` changes. Added URLs are only loopback
+rqlite endpoints and `.invalid` synthetic fixtures. No production endpoint,
+DNS/OTA/SSH operation, `InsecureSkipVerify`, GitHub environment, repository
+secret, artifact upload or customer identity was introduced. Local Python
+verification ran 15 tests successfully and the workflow policy passed.
+
+Status remains: `NO-GO (repository DR implementation only)`. S1-S4, panels,
+bots, customers, VPN protocols, Android/TV, Release and OTA are unchanged.
+Repository GREEN does not authorize deployment.
+
+Next authorized gate is a separate read-only S2/S3/S4 readiness audit. It may
+inventory versions, ports, service topology, current panel/bot placement,
+backup availability and rollback prerequisites, but must not install, import,
+restart, rotate, write customer data or change traffic. Any staged production
+deployment still requires the audit evidence and explicit owner approval.
+
+
+## 2026-08-12 read-only production readiness audit — public summary
+
+Durable report:
+`docs/operations/ha-readiness-audit-2026-08-12.md`.
+
+One authenticated node was inventoried without mutations. Existing customer VPN,
+panel and bot services remained active, while the new HA control plane was not
+yet installed. Backup evidence, storage headroom and legacy file permissions
+must be resolved before a canary. No customer records or secrets were read.
+
+Two additional nodes are reachable, but their SSH identities are not yet
+independently verified. They were not trusted or accessed.
+
+Current status: `INCOMPLETE / PRODUCTION NO-GO`. Next step requires
+independent provider-console identity confirmation for both nodes, then the same
+read-only audit. Do not bypass strict host-key checking. No install, restart,
+import, customer, bot, DNS, TLS, OTA or traffic mutation occurred.
+
+## 2026-08-12 HA outbox and tombstone checkpoint (Task 10 GREEN)
+
+Authoritative review surface remains draft PR #82 on branch
+`codex/ha-rqlite-task2`. Exact GREEN SHA is
+`b68b90bf420fca49375ff3c20d45aa25e07972e2`.
+
+Task 10 now provides repository-only control-plane contracts for monotonic
+desired generations, encrypted desired payload hash verification, immutable
+same-generation operation identity, fenced leases, exact duplicate receipt
+readback, tombstone target acknowledgement, retention from the final required
+acknowledgement, and encrypted revoke propagation to every frozen required
+target with one outbox event per target.
+
+Exact verification evidence:
+
+- `HA control-plane checks`, run `31599320040` (run number 217): `success`;
+- `HA DR restore drill`, run `31599319926` (run number 21): `success`;
+- the successful workflows cover backend unit tests, race, vet, migrations,
+  isolated rqlite integration, importer parity and authenticated DR restore.
+
+Production status remains `NO-GO (repository implementation only)`. No server,
+panel, bot, customer, VPN protocol, Android/TV, Release, OTA, DNS or production
+credential was changed. The next repository task is Plan 03 Task 11: RED-first
+signed and fenced apply-agent protocol, dispatcher, local aggregate state and
+private hardened HTTP surface. Deployment remains forbidden until the remaining
+agent/driver/bot and rollout gates are GREEN and separately approved.
+
+## 2026-08-12 atomic repetition barrier checkpoint
+
+Owner correction exposed a process defect: guard checks had sometimes been
+combined with mutations/commit/push, an exit code had been treated as success
+without confirming the target, and context-free source patches had been reused
+after contextual failures. Feature work stopped until this was made durable.
+
+`AGENTS.md` and the permanent `project-master` skill now require: standalone
+guard checks; exactly one semantic action per allowance; immediate result
+inspection; `fail` as the next executable action after any unexpected result or
+owner correction; root-cause correction before one new attempt; no
+`--unidiff-zero` or context-free patch on existing source; full changed-boundary
+inspection before staging; and separate mutation, validation, add, commit and
+push actions. Repeated root cause now blocks feature work until both policies
+are updated.
+
+Resume point remains Plan 03 Task 11 on branch `codex/ha-rqlite-task2`, current
+HEAD before this policy commit `f251cdf3f3042f6aafd39b3c4c994cd757b58932`.
+Preserve the untracked RED test
+`backend/internal/applyagent/apply_result_test.go`; it is not yet validated or
+committed. Production remains NO-GO and was not accessed or changed.
+
+## 2026-08-12 Task 11 apply-result and monotonic-marker checkpoint
+
+This section supersedes the stale resume point immediately above. Authoritative
+review surface remains draft PR #82, branch `codex/ha-rqlite-task2`. Exact
+current GREEN SHA is `13bb17b24fa5b314f4f97d4fd7ba517a94b19a65`.
+
+Completed RED/GREEN evidence:
+
+- per-entry apply result RED SHA
+  `885d0f86d28ead67ff2cf05b63c2f4930a7d7c50`: `HA control-plane
+  checks` run 238 and `HA DR restore drill` run 42 failed at backend tests
+  after formatting passed;
+- per-entry result GREEN SHA
+  `705a81d02dfde6763cd9e97e4c2122f759c02478`: control-plane run 239
+  and DR run 43 succeeded;
+- monotonic local-marker RED SHA
+  `5a645e5f07b1c3e142b263610b856ade60d059f7`: DR run 44 failed at
+  backend tests;
+- monotonic local-marker GREEN SHA
+  `13bb17b24fa5b314f4f97d4fd7ba517a94b19a65`: control-plane run 241
+  and DR run 45 succeeded.
+
+The agent now returns canonical per-entry `DispatchResult` only after successful
+aggregate apply and local marker fsync; private `/v1/apply` returns that JSON to
+the dispatcher. It strong-verifies the lease, loads and validates the local
+marker before any driver call, rejects generation rollback and same-generation
+hash conflict, and fails closed on marker read error. The standalone RED test is
+committed; there is no longer an untracked test file.
+
+Task 11 is not complete. Confirmed P1 gap: `DesiredEntry.Payload` is still a
+`controlplane.Envelope`, `AgentConfig` has no payload opener/decryption key, and
+the `Driver` receives the encrypted `DesiredSnapshot` unchanged. No code in
+`backend/internal/applyagent` opens the envelope or enforces the planned AAD over
+node/service/customer/generation. `backend/cmd/maestro-agent` is also absent;
+do not create a dead runtime stub or begin Task 12 drivers over ciphertext.
+
+Next repository step: RED-first define a materialized plaintext snapshot boundary
+and injected fail-closed payload opener with exact AAD binding, authenticate and
+open every entry only after signature plus strong lease validation, ensure any
+open/hash/key-version failure makes zero driver calls, and re-run both GitHub HA
+workflows. After that, implement real Task 12 local drivers and wire
+`cmd/maestro-agent` to those concrete drivers. Production remains NO-GO; no
+server, customer, bot, VPN, Android/TV, OTA, DNS or production credential was
+accessed or changed.
+
+## 2026-08-30 — Akonit Telegram/product research checkpoint
+
+The owner asked that the public Akonit/Telegram findings survive context
+compaction. The sanitized durable record is
+`docs/research/2026-08-30-akonit-telegram-product-notes.md`. It contains only
+anonymous public-source facts and MaestroVPN product actions; no private
+subscription URL, user token or external credential is present.
+
+Load that note before changing Telegram onboarding, metered-gigabyte billing,
+balance notifications, gifts/referrals, client import or subscription delivery.
+Key decisions: one Telegram/cabinet identity flow; cluster-backed idempotent
+ledger for purchased/used/available/overdraft bytes; deduplicated threshold
+notifications; recipient-bound gifts; explicit order/payment/provisioning
+states; last-known-good config delivery; client/platform/transport matrix; and
+public-link checks. Public Akonit materials did not prove Yandex CDN or padding.
+OLCRTC and WDTT remain frozen.
+
+## 2026-08-30 - S1-S4 read-only production readiness checkpoint
+
+Durable redacted report:
+`docs/operations/ha-readiness-audit-2026-08-30.md`.
+
+The owner confirmed ownership/access for S1-S4. Strict key-only SSH works for
+all four nodes. S1, S2 and S4 have revalidated existing or owner-provided
+ED25519 identity evidence. S3 had no durable prior pin; its live ED25519
+fingerprint matched from the local runner and trusted S2 before a dedicated
+continuity pin was created. That is not authoritative out-of-band attestation;
+S3 identity remains a blocker before mutation. S4 cannot reach S3 TCP/22, so
+the east-west matrix is incomplete.
+
+S1 remains the public control plane; S2 remains the multi-protocol/bot node; S3
+and S4 remain x-ui/VPN nodes. Bounded unit/path checks did not detect an HA
+panel, HA agent, rqlite or HA backup worker on S2-S4. S2 legacy backup verify
+downloaded, decrypted and read
+the selected archive and returned `ok` for x-ui SQLite, but RPO age, object
+version, authenticity and isolated restore remain unproved. S4 is degraded
+because systemd-networkd owns an operational `eth0` while enabled ifupdown tries
+to assign the same static address. No network change was made.
+
+S1 health reports build commit `296079c`, which resolves to full commit
+`296079cf819b36087c690b525d8970d6c87a18db` and is reachable as
+`tv-v1.0.157~3` from the remote tag. Its backend tree matches tagged `1.0.157`
+but differs from accepted current code
+`d7cfec12eb8656ea821d855bdb552a172cbf5fd6`. The health stamp is not a binary
+digest, and no immutable `maestro-panel` artifact manifest/digest was found;
+binary provenance remains incomplete and deployment stays blocked.
+
+Current status: `PRODUCTION NO-GO`. Next gates are authoritative S3 identity,
+reviewed HA runbooks/tooling, reproducible exact-SHA artifacts,
+authenticated/versioned backup plus empty-cluster restore proof, S4 network
+maintenance and complete east-west proof, then non-public S2-S4 shadow
+deployment. Shadow deployment and every production backup, fencing or import
+mutation require separate owner-approved, console-recoverable change windows;
+this checkpoint authorizes none of them. Canary and final cutover remain separate
+approvals. No customer, bot, service, firewall, DNS, TLS, OTA or VPN configuration
+was changed. OLCRTC and WDTT remain frozen.
+
+## 2026-08-30 - Immutable panel artifact exact-SHA checkpoint
+
+Task15A produces and verifies an immutable transport artifact for exact commit
+`f577c67ad229fe89278430d35a3ec65f6ce454e5` and tree
+`c1a6fbe0f4af9c3ab7c0038a798d1cbcf4fc8cef` on the sole canonical branch
+`codex/yandex-cdn-whitelist-task3-sync`. It does not authorize release or
+deployment. Manifest fields remain `release_readiness: "NO_GO"` and
+`deployment_authorized: false`; every deployment path must fail closed while
+either value remains unchanged.
+
+Exact-source GitHub evidence is GREEN:
+
+- `HA immutable panel artifact`: run `33327019392`, job `99298854016`;
+- `HA control-plane checks`: run `33327019360`, job `99298853822`;
+- `HA DR restore drill`: run `33327019363`, job `99298853947`.
+
+Verified GitHub transport identity is workflow run `33327019392`, job
+`99298854016`, artifact ID `9736614530`, head SHA
+`f577c67ad229fe89278430d35a3ec65f6ce454e5`, archive size `10650572` and
+archive digest
+`sha256:104ea083f3c590533574a3c3d09f2569129e006597a6e057ce15276c15d49828`.
+The artifact is not expired. These values identify the immutable GitHub
+transport object; they are not release authorization.
+
+The artifact name is
+`maestro-panel-f577c67ad229fe89278430d35a3ec65f6ce454e5`; it contains exactly
+the regular files `maestro-panel` and `manifest.json`. Offline verification in
+an ephemeral directory passed without executing the binary. The binary size is
+`10649784`, its SHA-256 is
+`8f67bde5d720e17e04b5b2de0147f2c2502fafa54a5e675471f1a160866a3990`, and
+the manifest SHA-256 is
+`853282de28d13627f0660a0c233e9d3e653c174f28d34062d8c1d3e93797fa9f`.
+The manifest is canonical schema `maestro-ha-build-manifest-v1`, targets
+`linux/amd64`, records Go `go1.25.0`, the exact branch/ref/run/attempt, and
+remains `NO_GO` with deployment authorization false.
+
+Independent exact-SHA code/security review found zero Critical and zero
+Important findings within this artifact-only scope. The immutable artifact
+evidence is accepted for Task15A only. The following controls are hard
+pre-deploy blockers, not release authorization supplied by this checkpoint:
+
+1. an independently controlled artifact attestation or signed release record
+   binding the approved commit, artifact ID, GitHub archive digest and inner
+   member digests;
+2. GitHub ruleset/CODEOWNERS protection plus required independent review and
+   exact-SHA status checks for workflows, workflow-policy code, manifest code
+   and deployment/release code;
+3. an explicit authorized release transition as the only process allowed to
+   replace `NO_GO/false`;
+4. target-compatible executable/runtime smoke verification before promotion,
+   because current ELF verification is structural rather than a complete
+   loadability/runtime proof.
+
+Non-blocking review notes remain: the structural ELF verifier does not require
+an entry point inside an executable `PF_X` segment, and the pinned GitHub
+Actions revisions emit a Node.js 20 compatibility warning and require a
+separately reviewed maintenance refresh before compatibility is removed.
+
+The exact-SHA `Yandex CDN isolated release checks` run `33327019364` failed only
+because the redacted baseline held a stale `CONTEXT_HANDOFF.md` row. It had no
+missing or extra rows, and the artifact commit did not change either file. This
+is separate from the three required Task15A gates and does not invalidate the
+artifact. The documenting commit regenerates the redacted baseline and must
+pass the docs unit suite and validator before it is accepted.
+
+Status remains **PRODUCTION NO-GO**. Remaining production blockers are:
+authoritative S3 identity, S4 network repair, the complete east-west matrix,
+authenticated/versioned backup plus production empty-cluster restore proof,
+PKI/service templates, an offline deploy plan, shadow change-window approval,
+canary and cutover. The artifact trust controls above are additional hard
+pre-deploy blockers. No server, customer, bot, VPN, Android/TV, OTA, DNS, TLS,
+firewall or billing state was changed by this slice. OLCRTC and WDTT remain
+frozen.
+
+## 2026-09-04 - Task 14 commercial release-gate checkpoint
+
+Canonical branch remains `codex/yandex-cdn-whitelist-task3-sync`. Task 14 code
+is independently reviewed and exact-SHA GREEN at
+`8d756783ff969530a94e6525473e59d61836533c`; its redacted evidence report is
+recorded through `f653d0d21d70f0ee89e1d3c743d1231c5d0582f0`. The final scoped re-review
+concluded `CLEAN` with zero remaining Critical or Important findings.
+
+Required exact-code-SHA workflows succeeded: HA immutable artifact run
+`33844446577`, Yandex CDN isolated release run `33844446580`, and HA S4
+change-package run `33844446668`. The report SHA also completed HA immutable
+artifact run `33846130034` and HA S4 change-package run `33846130013`.
+Production Android remains exactly `1.0.157`; `1.0.158-task7-test` remains an
+unpublished test-only artifact. The private working CDN subscription was not
+queried, changed, rotated, deleted, or rolled back.
+
+A concurrent remote-ref observation was resolved without reset, rebase,
+history rewrite, or force-push: the observed remote SHA
+`0af3ffb3fcd46159edd74e0d758e31c8f17f168e` was verified as an ancestor of the
+local reviewed lineage, and the canonical remote ref was reverified at exact
+report SHA `f653d0d21d70f0ee89e1d3c743d1231c5d0582f0`.
+
+Task 15 is the only remaining plan task. Its mandatory order is read-only
+inventory and identity proof, backup/restore proof, S4 canary and rollback,
+then gated S2, S3, and current S1 rollout, client/bot/channel compatibility,
+and 48-hour shadow accounting. The private test subscription stays active as
+the rollback canary and may be deleted automatically only after the entire
+fleet, automatic existing-customer refresh, MaestroVPN/Happ/Incy/Karing import
+and refresh, both Telegram bots, the customer channel, panel delivery, and the
+last-known-good path are all GREEN. Any mismatch blocks deletion.
+
+Status remains **PRODUCTION NO-GO** pending Task 15. Customer publication is
+default OFF, real charges and OTA/release publication remain OFF, OLCRTC and
+WDTT remain frozen, and ordinary VPN must remain working throughout.
+
+## 2026-09-04 - Task 15 immutable commercial package checkpoint
+
+Canonical branch `codex/yandex-cdn-whitelist-task3-sync` is independently
+reviewed and exact-SHA GREEN at
+`9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`. The final scoped re-review of the
+commercial bundle/operator concluded `CLEAN` with zero remaining Critical or
+Important findings.
+
+Required exact-SHA workflows succeeded: Yandex CDN isolated release run
+`33888366730`, HA immutable artifact run `33888366763`, HA S4 change-package
+run `33888366742`, and isolated sidecar run `33890350723`. The immutable Linux
+amd64 artifact is
+`maestro-xray-cdn-commercial-9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`,
+artifact ID `9943000857`, size `54135231` bytes, archive SHA-256
+`9ad8414e9cf82b2f3fb2ea9a4f924b99d3d72c54760b4bc5cc698cb3ad4b99ad`,
+and manifest SHA-256
+`d73357dbdb65ce52c957f9f86ac99d8f7f36c659d56064ed78b2b2ee7e05c83c`.
+Independent offline inspection matched all nine declared member sizes and
+hashes, found no extra files, and found no runtime credentials, private keys,
+or certificates.
+
+The package provides the reviewed fail-closed commercial operator and supports
+the standard S2/S3/S1 profile on `18081/18082/18084/18443` plus the isolated S4
+commercial profile on `28081/28082/18084/18443`. S4's working private canary on
+`18081/18082` was not read, changed, restarted, rotated, or deleted. The
+operator verifies complete release/runtime inventories, performs controlled
+process cutover, supports an explicit first-install `ABSENT` rollback, validates
+target-local last-known-good releases, and reports failed recovery rather than
+hiding it.
+
+This checkpoint authorizes no host mutation by itself. S4, S2, S3, and current
+S1 remain **PRODUCTION MUTATION NO-GO** until the node-specific console,
+backup-plus-restore, certificate, firewall, fresh inventory/port, artifact
+binding, and under-five-minute rollback gates are green. The subscription
+delivery gap for CDN-capable third-party clients and the authorized production
+MaestroVPN CDN runtime also remain open. The private test subscription remains
+active until the full fleet, client/bot/channel refresh matrix, last-known-good
+recovery, and continuous 48-hour accounting window are green; any mismatch
+retains it. No live server, customer traffic, real charge, OTA/release
+publication, OLCRTC, or WDTT state changed in this package slice.
+
+## 2026-09-05 - Historical Task 15 recovered S4 first-install checkpoint
+
+The first S4 deployment candidate was code/package SHA
+`dbbd950ab556b92b103cd51f5a4b2686acb74ef5`. Exact-SHA runs were green: Yandex
+CDN release `33921272744` (commercial package job `101180838339`), HA immutable
+artifact `33921272756`, and HA S4 network package `33921272769`. Two bounded
+independent reviews found no code blocker. Artifact `9955259827` is
+`maestro-xray-cdn-commercial-dbbd950ab556b92b103cd51f5a4b2686acb74ef5`,
+size `54137499`, archive SHA-256
+`64b41f53592fc3a3b5c82da45028f851a85811ea11725ed713b16ce67b484981`,
+and manifest SHA-256
+`b005eba27a5ab5a95038dae7ce5dc26e440fb42b599af8e38b31abceb14246e4`.
+The exact shipped S4 operator plan passed with config SHA-256
+`8ff75a7e4718610cf20866aadc7e6903d69362d7455d60735ddef47daa41e7a1`
+and runtime-input SHA-256
+`57a9aeba7bca9f07fdac0c72311baeba9d2709f24b2bc4a5378b22c8ba1043d5`.
+
+That immutable package is retained as failed evidence and must not be applied
+again. Its first S4 apply reached the real Xray `ExecStartPre` and failed
+because `runtime/relay-ca` was agent-owned `0750`, so the Xray service identity
+could not traverse the directory to read its own `0640` CA files. The operator
+recovered to `ABSENT`. The exact commercial firewall delta was then rolled back
+and a full fresh baseline proved ordinary/private files, PIDs, listeners, UFW,
+route, time synchronization, capacity, and failed-unit state unchanged. No
+commercial installation or commercial firewall rule remained live at that
+historical recovery point; the subsequent `3603f11...` installation below
+supersedes that state.
+
+The minimal correction is code SHA
+`3603f11bbc35a4a9d708c41db1bc13f0d2907805`: the relay-CA directory is
+`root:xray` `0750`, its certificate files remain Xray-owned `0640`, and the
+agent retains read access through its existing supplementary Xray group. The
+commercial package job `101188536793` is green and produced artifact
+`9956162284`,
+`maestro-xray-cdn-commercial-3603f11bbc35a4a9d708c41db1bc13f0d2907805`,
+size `54137499`, archive SHA-256
+`8274c235b47b54ad0bfa2e76f6c7f2dabf8a34476bdd0f0cceb421fc86a99bc5`.
+The exact direct S4 fetch and shipped operator `plan` passed: manifest SHA-256
+`623fa69d3ebe00dca99595d73d5287c9b63b7a6346def2ea4252d441fb10268c`,
+config SHA-256
+`8ff75a7e4718610cf20866aadc7e6903d69362d7455d60735ddef47daa41e7a1`,
+runtime-input SHA-256
+`afb832ce9e32f3a4b088222989f3e24d46a2c4d3efbb458e214c286925cbb928`,
+and release identity `3603f11bbc35-s4commercial-afb832ce9e32f3a4`. Exact CI
+runs `33923773188`, `33923773196`, and `33923773238` are terminal green,
+including Android job `101189660919`.
+
+The exact `3603f11...` operator apply is now `ACTIVE` on S4. All six shipped
+inventory/process/listener/unit checks passed and the release, config, and
+runtime-input digests match the plan. Xray owns commercial `28081/18084`, its
+API is loopback `28082`, and the agent owns `18443` with loopback health on
+`18444`. The two services are enabled and run as their separate intended users;
+the agent has the existing supplementary Xray group. The corrected firewall
+was committed only after separate strict-SSH and independent-observer proofs.
+Fresh ordinary/private file hashes, units, PIDs, route, time synchronization,
+and failed-unit state remain unchanged. No CDN or customer switch occurred;
+synthetic receipt proof is not yet recorded here.
+
+Canonical ingress source checkpoint
+`aad63b52c74aedd2c568f0ed4a6a9f912e31e262` adds only the protected renderer,
+dual-path nginx template, isolated custom unit, install/rollback contract, unit
+tests, and its CI invocation. It was independently reviewed `PASS`; three
+targeted tests and Python compilation are green. This source checkpoint is not
+a replacement for immutable sidecar deployment identity `3603f11...`.
+
+S4 evidence before mutation: strict pinned SSH and connected encrypted QEMU
+console PASS; SSH remains on `22` with IPv4 and IPv6 UFW allowances; time is
+synchronized; one default route and no failed units were observed. The
+protected backup `maestro-commercial-s4-20260904-qzBchh` has archive SHA-256
+`b1aa962a5b33e3eb352ae132814729a189752b6186893f995750605c7cf28f95`;
+the SQLite snapshot SHA-256 is
+`cd2a5525f4289f04ec8ca15c4ca0218d3917608a3ec1f443a8eaa012cea2c6ae`.
+SQLite quick-check, byte match, isolated restore, ordinary-file hashes, and
+unchanged live ordinary hashes/PIDs passed. S4 PKI inputs passed chain, SAN,
+EKU, expiry, key-match, and mode checks; Xray stays pinned to official `26.5.9`.
+Current S1 strict pinned key-only SSH is restored, and the corrected
+controller-source client leaf with exact `maestro-whitelist-controller` SAN is
+protected-staged; S1 services were not changed.
+
+Corrected errors that must not recur:
+
+- Do not push workflow changes with the stored HTTPS OAuth credential; it lacks
+  workflow scope. The repository SSH identity successfully publishes the
+  canonical branch without exposing or changing a token.
+- The immutable CLI must set `sys.dont_write_bytecode` before importing its
+  bundled library; direct execution must never add `lib/__pycache__`.
+- First-install parser validation must rewrite certificate and error-log paths
+  only in its temporary validation copy. Production rendered bytes and digest
+  must retain `/opt/.../current/runtime` and the production log path.
+- Xray `26.5.9` accepts `verifyPeerCertByName` as a comma-separated string and
+  rejects removed `verifyPeerCertInNames`. The exact package job now exercises
+  the real pinned parser before upload; synthetic-only opt-in retains parser
+  stderr while default production execution still suppresses it.
+- Commercial preflight includes health port `18444` in addition to the four
+  transport/API/relay/agent ports. The controller client SAN is
+  `maestro-whitelist-controller`, not the earlier prepared-only name.
+- `runtime/relay-ca` must be `root:xray` `0750`; its CA files remain Xray-owned
+  `0640`, and the agent uses its existing supplementary Xray group. Do not
+  repair an immutable failed release in place with an ad-hoc `chmod`.
+- The legacy sealed release validator is an identity-specific private-canary
+  baseline for `18081/18080`, not a commercial `28081` pre-install gate.
+  Post-install receipts and client evidence cannot be required before the
+  isolated unit exists; they remain mandatory after install and before any
+  publication.
+- The current Yandex workflow runs the full Android toolchain and APK job even
+  for an operator-only permission change. Do not cancel or weaken the current
+  gate; a later reviewed input-path condition may remove this repeated CI wait.
+- Never expand a short commit ID by inference: obtain the full deployment or
+  source checkpoint only with `git rev-parse` or GitHub metadata. The initial
+  ingress source status message violated this rule and was corrected before any
+  ingress staging or server use.
+- In PowerShell, pass every repetition-guard option and value as separate argv
+  elements. Two bookkeeping calls accidentally fused an option with its value;
+  the parser rejected them, no server business action repeated, and both records
+  were closed with explicit argv arrays and their existing evidence.
+
+One paid Yandex CDN resource remains the approved design. Reviewed canonical
+source now describes the dual-path ingress needed to preserve the private path
+on `18081` while routing a new secret commercial path to `28081`, but it is not
+installed or live. Its `28080` firewall delta, exact rollback exercise, and the
+CDN switch are still `NO_GO`; no second paid resource is authorized.
+Production Android remains `1.0.157` ordinary-only. Customer publication,
+charging, OTA/signing, OLCRTC, and WDTT remain unchanged and unauthorized.

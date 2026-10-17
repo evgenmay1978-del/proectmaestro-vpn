@@ -35,6 +35,14 @@ python ops/maestro-repetition-guard.py success --action s1-key-login --family op
 смысловые коды и SHA-256 способов. Никогда не подставлять туда текст команды,
 пароль, ключ, токен, URL подписки или данные клиента. Проверка:
 
+Один результат `ALLOW` разрешает ровно одну смысловую операцию и один
+исполняемый шаг. Нельзя объединять под одним `check` несколько проверок через
+`;`, pipeline или один shell-вызов: `unittest`, syntax compile,
+`git diff --check`, status и чтение diff получают отдельные
+`check`/результат/`success`,
+даже когда все они read-only. Иначе поздний успешный шаг может скрыть ранний
+сбой, а вся составная попытка считается ошибочной.
+
 ```powershell
 python -m unittest ops.test_maestro_repetition_guard -v
 ```
@@ -66,6 +74,11 @@ original ZIP and a path-traversal-safe `extracted/` directory.
 Authentication lookup order is `GH_TOKEN`, `GITHUB_TOKEN`, then
 `git credential fill`; credentials are never written to metadata or printed. This
 script has no GitHub Release or OTA endpoint and does not merge or publish anything.
+
+When polling workflow status through an execution tool with a 30-second yield,
+do not combine a blocking sleep with several GitHub API calls. Use an immediate
+batch poll, or one API request after a short wait that leaves enough time for the
+response; preserve the session ID whenever the command may outlive the yield.
 
 ## Isolated rqlite CI cluster
 

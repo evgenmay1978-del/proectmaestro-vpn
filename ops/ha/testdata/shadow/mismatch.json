@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "customers": [
+    {
+      "identity_hmac": "1111111111111111111111111111111111111111111111111111111111111111",
+      "expires_at_unix": 2099999,
+      "generation": 7,
+      "protocol_tags": ["hysteria2", "vless"],
+      "nodes": ["S2", "S3", "S4"],
+      "maestro_url_shape": "maestro://subscription/{opaque-token}",
+      "karing_url_shape": "https://example.invalid/karing/{opaque-token}"
+    }
+  ],
+  "orders": [
+    {
+      "order_hmac": "2222222222222222222222222222222222222222222222222222222222222222",
+      "state": "confirmed",
+      "result_expires_at_unix": 2100000
+    }
+  ],
+  "settings_fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+  "principals_fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+  "ota_manifest": {
+    "version_code": 154,
+    "version_name": "1.5.4",
+    "apk_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "apk_size": 12345678
+  }
+}

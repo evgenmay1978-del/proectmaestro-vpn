@@ -1,0 +1,172 @@
+{
+  "api": {
+    "backup": "/var/backups/maestro-bot-api-20260911T011209Z",
+    "old_binary": "/var/backups/maestro-commercial-controller-20260904-s4-qzBchh/panel-candidate-b14738d/maestro-panel",
+    "old_sha256": "9ddd0ec382e52c855b08eba89e79c5742d4e7d5e0fdc915e54813693f7f17fe4",
+    "new_sha256": "258077b13ae15d9808134415618ba9610a5b939ab22ca57ca4a8ced5babde85d",
+    "source": "8ca9bcdc3cdb17ade925e52cc8b7585fa8531e4e",
+    "status": "installed",
+    "http_status": 200,
+    "controller_pid": "1900452",
+    "ordinary_panel_pid_preserved": true,
+    "bot_pid_preserved": true,
+    "runtime_env_preserved": true
+  },
+  "S1": {
+    "server": "S1",
+    "backup": "/var/backups/maestro-bot-ui-S1-20260911T011457Z",
+    "unit": "vpnbot.service",
+    "before_pid": "1714444",
+    "files": [
+      {
+        "path": "main.py",
+        "sha256": "236b29f29f5a44f6d18958e38ae119a6aa3e3904a8d048fd567c8641a1cd3cf5",
+        "before_sha256": "80c03a9d06ddf757780e12ae9fa775dc1c68cbcb2c69a822b887a06f67bedd69"
+      },
+      {
+        "path": "keyboards.py",
+        "sha256": "97cae684be1c0e6b431140275873e75ad28c4e4290e1e1982c285d33c64d7bab",
+        "before_sha256": "ccde7f2fb9cb2a51bebb01b5c920da508e83078d96326ea9b5f8825fc4218880"
+      },
+      {
+        "path": "formatters.py",
+        "sha256": "c773694a4ee2bdd76b8852aaaf27c246051f9b5083c96f28a6f36bd0cc2ab0af",
+        "before_sha256": "becb5c2f5d1bbe82e3fef2e19220af7fa648674e61d6d4e9b5a845fdd701449a"
+      },
+      {
+        "path": "states.py",
+        "sha256": "af9e1fc3d5e06d7b186452a9f08d38536d6a249043ed203fdeaa9f44821ac385",
+        "before_sha256": "697de609e1899c02b268c4b22bf359fa07daa2bd1f58ea7c919d04387eecb6ed"
+      },
+      {
+        "path": "handlers/client.py",
+        "sha256": "d6b2a19c16bc48aebe61c55b721bd78f508d3ff986133c66d04366709805fe05",
+        "before_sha256": "2d12016959db4ca989fd467d76fcc1362a5276dcd0dc92e46ac1457f8a600b92"
+      },
+      {
+        "path": "handlers/admin.py",
+        "sha256": "b6d4ee37a136ce36b1f3b3160a30aaa9e50c85f55988e9ab581201f06fd785f8",
+        "before_sha256": "56162470c8bfa7c7b15ffda54c5f999108917d31cf2cd1d232e1a0983d7d2299"
+      },
+      {
+        "path": "handlers/maestro_customer.py",
+        "sha256": "4c9ddda9797219f0653d8fadf3776cc474f747d019ec10b17f865d51abe3e403",
+        "before_sha256": "7f17c3ee31f141050c4130795163d3e93f24653be385fd0569a299df438151c2"
+      },
+      {
+        "path": "handlers/maestro_customer_entry.py",
+        "sha256": "6c1c52332697f8ea2a18c9be38a2f2d005aa0341f51e37fc41123a73958cbd0e",
+        "before_sha256": "e94529ef2066a1daff2ec0d9304a43ddedd4aa049eca6944b79927400d3cc45d"
+      },
+      {
+        "path": "handlers/maestro_customer_cdn.py",
+        "sha256": "5fd3ea4ac74d6e7d1e1b55907f08d8be23f0e17df31d5e7c0e7a41d5e197f10c",
+        "before_sha256": "a7839277aa96b9f1a29f086a2957252b8f43e2f0389f8b511ce20f572736ab57"
+      },
+      {
+        "path": "handlers/maestro_customer_admin.py",
+        "sha256": "cbb8c5ee3a4658dae565ffd45909b89b1edb0fea89d2c4aaed1d83309739c391",
+        "before_sha256": null
+      },
+      {
+        "path": "handlers/maestro_customer_devices.py",
+        "sha256": "1b9a79f57a63d338974f4f537f2f3f6a5ec14ecaae7502c3ef1ed598a5672e8f",
+        "before_sha256": null
+      }
+    ],
+    "preserved_payment_fields": [
+      "MAESTRO_CUSTOMER_SUPPORT_URL"
+    ],
+    "database_restored": false,
+    "status": "installed",
+    "after_pid": "1900780",
+    "protected_pids_preserved": true,
+    "startup_tracebacks": false
+  },
+  "S2": {
+    "server": "S2",
+    "backup": "/var/backups/maestro-bot-ui-S2-20260911T011455Z",
+    "unit": "vpn_bot.service",
+    "before_pid": "1386963",
+    "files": [
+      {
+        "path": "bot_minimal.py",
+        "sha256": "44d716bac6d16eaa2704d905753f20f501f00078acc682ed4123f9ac38e9624e",
+        "before_sha256": "65ed6fa51d4c6046a1fbfabc2097185ec82218219392a9f580773d03592fc954"
+      },
+      {
+        "path": "maestro_customer.py",
+        "sha256": "4c9ddda9797219f0653d8fadf3776cc474f747d019ec10b17f865d51abe3e403",
+        "before_sha256": "7f17c3ee31f141050c4130795163d3e93f24653be385fd0569a299df438151c2"
+      },
+      {
+        "path": "maestro_customer_entry.py",
+        "sha256": "6c1c52332697f8ea2a18c9be38a2f2d005aa0341f51e37fc41123a73958cbd0e",
+        "before_sha256": "a208ce7199c13e3a440341de632783468d00c63e858f196695f41311b57c19e6"
+      },
+      {
+        "path": "maestro_customer_cdn.py",
+        "sha256": "5fd3ea4ac74d6e7d1e1b55907f08d8be23f0e17df31d5e7c0e7a41d5e197f10c",
+        "before_sha256": "bff4b093ac1e2b6f2da344e737bc9b76a06c7e7253667a1e629fc0d303b33db5"
+      },
+      {
+        "path": "maestro_customer_admin.py",
+        "sha256": "cbb8c5ee3a4658dae565ffd45909b89b1edb0fea89d2c4aaed1d83309739c391",
+        "before_sha256": null
+      },
+      {
+        "path": "maestro_customer_devices.py",
+        "sha256": "1b9a79f57a63d338974f4f537f2f3f6a5ec14ecaae7502c3ef1ed598a5672e8f",
+        "before_sha256": null
+      }
+    ],
+    "preserved_payment_fields": [
+      "MAESTRO_CUSTOMER_SUPPORT_URL",
+      "PAYMENT_PHONE",
+      "PAYMENT_BANK",
+      "PAYMENT_NAME"
+    ],
+    "database_restored": false,
+    "status": "installed",
+    "after_pid": "1389982",
+    "protected_pids_preserved": true,
+    "startup_tracebacks": false
+  },
+  "finalS1": {
+    "server": "S1",
+    "backup": "/var/backups/maestro-bot-final-S1-20260911T014937Z",
+    "files": [
+      {
+        "path": "handlers/maestro_customer_devices.py",
+        "sha256": "942aff0eec5b93f781e117a74f0d34e5b582250e3e21494663c9a34831deec17",
+        "before_sha256": "1b9a79f57a63d338974f4f537f2f3f6a5ec14ecaae7502c3ef1ed598a5672e8f"
+      }
+    ],
+    "before_pid": "1900780",
+    "status": "installed",
+    "after_pid": "1903419",
+    "environment_preserved": true,
+    "other_pids_preserved": true
+  },
+  "finalS2": {
+    "server": "S2",
+    "backup": "/var/backups/maestro-bot-final-S2-20260911T014936Z",
+    "files": [
+      {
+        "path": "maestro_customer_devices.py",
+        "sha256": "942aff0eec5b93f781e117a74f0d34e5b582250e3e21494663c9a34831deec17",
+        "before_sha256": "1b9a79f57a63d338974f4f537f2f3f6a5ec14ecaae7502c3ef1ed598a5672e8f"
+      },
+      {
+        "path": "bot_minimal.py",
+        "sha256": "f7b949744301cece3a91268b0b3c0b3aaa4df5985b7e54f266931e0683364367",
+        "before_sha256": "44d716bac6d16eaa2704d905753f20f501f00078acc682ed4123f9ac38e9624e"
+      }
+    ],
+    "before_pid": "1389982",
+    "status": "installed",
+    "after_pid": "1390727",
+    "environment_preserved": true,
+    "other_pids_preserved": true
+  }
+}

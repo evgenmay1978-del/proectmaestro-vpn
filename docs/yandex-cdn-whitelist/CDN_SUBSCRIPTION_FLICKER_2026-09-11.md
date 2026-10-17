@@ -1,0 +1,9 @@
+# Пропадание CDN из подписок — 11.09.2026
+
+Наблюдение на одной и той же учётной записи подтвердило серверный сбой: до исправления 29 из 30 ответов `format=xray` имели `X-Maestro-CDN: unavailable`; единственный успешный ответ уложился в 985 мс, неуспешные завершались около 1005 мс. Причина — `WrapLegacySubscriptions` в rqlite runtime получал 1 секунду, хотя подключение к rqlite и `ServiceBusiness` рассчитаны на 10 и 5 секунд.
+
+Установлен controller source `ae1ed4d53a811a4ef4e7e937436d74982c4e104d`: только timeout оболочки подписки увеличен до 10 секунд. Build-only run `34610155821` успешен, artifact `10267662615`, binary SHA-256 `d4f5a56a2f9ab8d485aec8c33d41d87cab428406aa3f4806e08e18b12d28a8a9`. Серия после установки: 30/30 ответов `included`, максимум 3657 мс. Текущая проверка после отката экспериментов: Karing `format=links`, HAPP и INCY `format=xray` содержат CDN и не менее четырёх XHTTP-маркеров. Откат: `/var/backups/maestro-cdn-subscription-timeout10-20260911T142916Z/unit.before` возвращает предыдущий controller.
+
+Дальнейшая проверка отделила наличие профилей от работоспособности. JSON без вложенного `extra` применял клиентские defaults; полный Akonit-набор также не совпадал с действующим server profile и воспроизводимо давал HTTP400. Финальный controller `c2960b77863411f2d0fa62f6d0a9d07b24859d01` вкладывает точный минимальный server `extra`. Build-only run `34623638053`, artifact `10272804684`, binary SHA-256 `63942fffa596c288e456be960430a5ca96d3f0597b1c223d4f939cf77501c66a`.
+
+Matched-core запрос через выданный JSON прошёл HTTP200; затем владелец подтвердил пинг и работу CDN в INCY и HAPP. Karing остаётся `n/a`, такое же поведение владелец наблюдает у Akonit; это не считать регрессией MaestroVPN и не продолжать без новой задачи. Обычный VLESS/Xray, ingress, боты, платежи и балансы не менялись. Откат: `/var/backups/maestro-cdn-minimal-extra-20260911T164540Z/unit.before`.

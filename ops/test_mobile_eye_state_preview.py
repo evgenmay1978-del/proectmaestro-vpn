@@ -24,10 +24,10 @@ CURRENT_INSTALLED_HOME = (
     ROOT
     / "design"
     / "mobile-4d-references"
-    / "08-owner-installed-test-home-2026-08-08.jpg"
+    / "10-owner-installed-home-2026-09-01.jpg"
 )
 CURRENT_INSTALLED_HOME_SHA256 = (
-    "9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b"
+    "df82a090ba4ba3185509dd1ce5fccd5717932a50b27bac0f9b3d7490247a22e7"
 )
 
 
@@ -39,19 +39,22 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
         for value, target in zip(actual, expected):
             self.assertAlmostEqual(value, target, delta=0.002)
 
-    def test_open_aperture_matches_owner_approved_viewport_bounds(self) -> None:
+    def test_open_aperture_matches_original_master_registered_bounds(self) -> None:
         upper, lower = MODULE.aperture_contours_dp(closure=0.0)
         xs = [point[0] for point in upper + lower]
         ys = [point[1] for point in upper + lower]
         bounds = (min(xs), min(ys), max(xs), max(ys))
 
-        expected = (107.158, 231.878, 288.251, 300.942)
+        # Frozen 390x844 dp projection of the original 1254px green master:
+        # corners x=25/1229, upper y=444 and lower y=809. These independent
+        # reference values must not be calculated from MODULE's contours/fit.
+        expected = (83.252, 224.486, 306.748, 292.240)
         for value, target in zip(bounds, expected):
             self.assertAlmostEqual(value, target, delta=0.05)
-        self.assertAlmostEqual(bounds[2] - bounds[0], 181.093, delta=0.05)
-        self.assertAlmostEqual(bounds[3] - bounds[1], 69.064, delta=0.05)
+        self.assertAlmostEqual(bounds[2] - bounds[0], 223.496, delta=0.05)
+        self.assertAlmostEqual(bounds[3] - bounds[1], 67.754, delta=0.05)
 
-    def test_full_closure_uses_the_production_70_30_seam(self) -> None:
+    def test_full_closure_uses_original_master_fold_and_fixed_corners(self) -> None:
         upper, lower = MODULE.aperture_contours_dp(closure=1.0)
 
         self.assertEqual(len(upper), len(lower))
@@ -59,30 +62,41 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertAlmostEqual(upper_point[0], lower_point[0], delta=0.0001)
             self.assertAlmostEqual(upper_point[1], lower_point[1], delta=0.0001)
 
+        # Independently frozen master-fold samples, not a 70/30 blend of OPEN:
+        # master x: 25,100,200,300,400,500,627,750,850,950,1050,1150,1229
+        # master y: 635,660,693,718,737,746,749,740,727,707,685,658,635
+        # The same registration is fixed in LivingEyeLayerGeometry.kt.
         expected_points = [
-            (107.158, 271.979),
-            (112.568, 272.364),
-            (117.342, 273.182),
-            (120.525, 273.324),
-            (130.073, 274.303),
-            (142.803, 275.862),
-            (155.534, 277.326),
-            (168.265, 278.599),
-            (180.995, 279.713),
-            (193.726, 280.222),
-            (206.457, 279.777),
-            (219.187, 279.140),
-            (231.918, 278.408),
-            (244.649, 277.581),
-            (257.379, 276.244),
-            (270.110, 274.621),
-            (280.294, 273.221),
-            (288.251, 271.979),
+            (83.252, 259.941),
+            (97.174, 264.581),
+            (115.737, 270.707),
+            (134.300, 275.348),
+            (152.863, 278.875),
+            (171.425, 280.545),
+            (195.000, 281.102),
+            (217.833, 279.431),
+            (236.395, 277.018),
+            (254.958, 273.306),
+            (273.521, 269.222),
+            (292.084, 264.210),
+            (306.748, 259.941),
         ]
         self.assertEqual(len(upper), len(expected_points))
         for actual, expected in zip(upper, expected_points):
             self.assertAlmostEqual(actual[0], expected[0], delta=0.05)
             self.assertAlmostEqual(actual[1], expected[1], delta=0.05)
+
+        for closure in (0.0, 0.5, 1.0):
+            phase_upper, phase_lower = MODULE.aperture_contours_dp(closure=closure)
+            for contour in (phase_upper, phase_lower):
+                for index in (0, -1):
+                    self.assertEqual(contour[index], upper[index])
+                    self.assertAlmostEqual(
+                        contour[index][0], expected_points[index][0], delta=0.05
+                    )
+                    self.assertAlmostEqual(
+                        contour[index][1], expected_points[index][1], delta=0.05
+                    )
 
     def test_full_closure_reveals_the_registered_emerald_surround(self) -> None:
         scale = 2
@@ -103,6 +117,11 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             ImageFilter.MinFilter(3)
         )
         difference = ImageChops.difference(material_only, disconnected)
+        # The green master remains untouched; only the newly approved lashes cover its fold.
+        lash_support = MODULE.render_eyelashes(1.0, scale).getchannel("A").point(
+            lambda value: 255 if value else 0
+        )
+        required = ImageChops.multiply(required, ImageChops.invert(lash_support))
 
         self.assertIsNone(aperture.getbbox())
         self.assertIsNone(glow.getchannel("A").getbbox())
@@ -115,8 +134,59 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertIsNone(
                 ImageChops.multiply(channel, required).getbbox(),
                 "full closure must be pixel-identical to the registered "
-                "emerald surround inside the original aperture",
+                "emerald surround outside the explicit eyelash overlay",
             )
+
+    def test_lashes_are_irregular_sparse_below_and_attached_during_blink(self) -> None:
+        upper_specs = MODULE._lash_specs(True)
+        lower_specs = MODULE._lash_specs(False)
+        self.assertTrue(upper_specs)
+        self.assertTrue(lower_specs)
+        self.assertLess(len(lower_specs), len(upper_specs))
+        self.assertLess(max(spec[1] for spec in lower_specs), max(spec[1] for spec in upper_specs))
+        self.assertGreater(len({round(b[0] - a[0], 4) for a, b in zip(upper_specs, upper_specs[1:])}), 5)
+        self.assertGreater(len({spec[1] for spec in upper_specs}), 10)
+        follicle_identity = [(curve[0][0], curve[-1]) for curve in MODULE.lash_curves_dp(0.0)]
+        for closure in (0.0, 0.5, 1.0):
+            upper, lower = MODULE.aperture_contours_dp(closure)
+            curves = MODULE.lash_curves_dp(closure)
+            self.assertEqual(curves, MODULE.lash_curves_dp(closure))
+            self.assertEqual(follicle_identity, [(curve[0][0], curve[-1]) for curve in curves])
+            for root, control1, control2, tip, width, alpha, is_upper in curves:
+                lid = upper if is_upper else lower
+                self.assertGreater(root[0], lid[0][0])
+                self.assertLess(root[0], lid[-1][0])
+                self.assertAlmostEqual(root[1], MODULE._interpolate_contour_y(tuple(lid), root[0]))
+                self.assertGreater(width, 0)
+                self.assertGreater(alpha, 0)
+                self.assertLessEqual(alpha, 1)
+                # The control points depart from a straight spoke and end in a zero-width tip.
+                cross = ((control2[0] - root[0]) * (tip[1] - root[1])
+                         - (control2[1] - root[1]) * (tip[0] - root[0]))
+                self.assertNotAlmostEqual(cross, 0, delta=0.000001)
+            self.assertIsNotNone(MODULE.render_eyelashes(closure).getchannel("A").getbbox())
+
+    def test_connected_glow_fades_to_transparent_at_socket_boundary(self) -> None:
+        scale = 2
+        _eye, _seam, _aperture, glow = MODULE.render_living_eye_layers(
+            closure=0.0,
+            scale=scale,
+        )
+        center_x, center_y, medallion = MODULE._current_medallion_dp()
+        center = (round(center_x * scale), round(center_y * scale))
+        outer_radius = round(medallion * 0.45 * scale)
+
+        self.assertEqual(
+            glow.getpixel((center[0] + outer_radius, center[1]))[3],
+            0,
+            "the connected glow must fade out before the circle ends, "
+            "not leave an opaque cut-off rim",
+        )
+        self.assertGreater(
+            glow.getchannel("A").getextrema()[1],
+            0,
+            "fading the edge must retain the connection glow",
+        )
 
     def test_connected_contact_seam_uses_runtime_alpha(self) -> None:
         _eye, seam, _aperture, _glow = MODULE.render_living_eye_layers(
@@ -136,7 +206,7 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
             CURRENT_INSTALLED_HOME_SHA256,
         )
         with Image.open(CURRENT_INSTALLED_HOME) as source:
-            self.assertEqual(source.size, (591, 1280))
+            self.assertEqual(source.size, (1080, 2340))
             return source.convert("RGB").resize(
                 (390 * scale, 844 * scale),
                 Image.Resampling.LANCZOS,

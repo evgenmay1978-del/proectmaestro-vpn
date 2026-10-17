@@ -1,0 +1,76 @@
+name: mvpn-remna-trial
+x-common: &common
+  restart: "no"
+  networks: [trial]
+  logging:
+    driver: local
+    options: {max-size: "5m", max-file: "2"}
+services:
+  remnawave:
+    <<: *common
+    image: remnawave/backend:3.4.4
+    container_name: mvpn-remna-trial-backend
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: "1"
+    env_file: [.env]
+    environment:
+      APP_PORT: "3000"
+      METRICS_PORT: "3001"
+      API_INSTANCES: "1"
+      WORKER_INSTANCES: "1"
+      NODE_OPTIONS: "--max-old-space-size=192"
+      REDIS_SOCKET: /var/run/valkey/valkey.sock
+      IS_TELEGRAM_NOTIFICATIONS_ENABLED: "false"
+      WEBHOOK_ENABLED: "false"
+    ports: ["127.0.0.1:38000:3000"]
+    volumes: [valkey-socket:/var/run/valkey]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      remnawave-db: {condition: service_healthy}
+      remnawave-redis: {condition: service_healthy}
+  remnawave-db:
+    <<: *common
+    image: postgres:18.4
+    container_name: mvpn-remna-trial-db
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: "0.35"
+    shm_size: 64mb
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+      TZ: UTC
+    command: [postgres, -c, shared_buffers=32MB, -c, max_connections=30]
+    volumes: [db-data:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 10s
+      retries: 3
+  remnawave-redis:
+    <<: *common
+    image: valkey/valkey:9-alpine
+    container_name: mvpn-remna-trial-valkey
+    mem_limit: 32m
+    memswap_limit: 32m
+    cpus: "0.10"
+    volumes: [valkey-socket:/var/run/valkey]
+    command: [valkey-server, --save, "", --appendonly, "no", --maxmemory-policy, noeviction, --loglevel, warning, --unixsocket, /var/run/valkey/valkey.sock, --unixsocketperm, "777", --port, "0"]
+    healthcheck:
+      test: [CMD, valkey-cli, -s, /var/run/valkey/valkey.sock, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 3
+networks:
+  trial: {name: mvpn-remna-trial-network, driver: bridge}
+volumes:
+  db-data: {name: mvpn-remna-trial-db-data}
+  valkey-socket: {name: mvpn-remna-trial-valkey-socket}
+

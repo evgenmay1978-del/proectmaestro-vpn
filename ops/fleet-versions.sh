@@ -9,7 +9,7 @@
 #     в nginx-логе.
 #  3. Приборы ниже 138 в /sub часто не ходят вовсе — их видно лишь по /update/update.json, и там
 #     нет ни device=, ни токена. Такие подписки в этот отчёт не попадут: см. блок «без подписки».
-#  4. Мои собственные пробы с 194.48.141.106 (это сам S1) остаются в логах НАВСЕГДА и создают
+#  4. Мои собственные пробы с 193.17.183.48 (это актуальный S1) остаются в логах НАВСЕГДА и создают
 #     фантомные «живые приборы на vc84». Исключаем жёстко.
 #
 # Граница 138 не случайна: в сборках ниже сломан САМ установщик внутри APK (фоновый startActivity
@@ -18,7 +18,7 @@
 # Usage: ops/fleet-versions.sh [дней_логов]   (по умолчанию текущий + вчерашний access.log)
 set -u
 STORE=${MAESTRO_STORE:-/var/lib/maestro/customers.json}
-S1_IP=194.48.141.106
+S1_IP=193.17.183.48
 BROKEN_INSTALLER_BELOW=138
 LATEST=$(curl -s --max-time 10 https://storage.yandexcloud.net/maestro-apk/update.json 2>/dev/null |
          jq -r '.version_code // empty')

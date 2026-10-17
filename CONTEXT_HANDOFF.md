@@ -1,5 +1,32 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## MAIN ДОГНАЛ ПРОД. 17.10.2026: серверная часть main = задеплоенная панель
+
+До сегодня бэкенд в `main` был **августовским снимком** (последняя правка 13.08, на 512 файлов меньше), а живая
+панель на S1 собрана из другой линии — `ed6edd32` (13.09). Деплой панели из `main` снёс бы rqlite-рантайм,
+совместимость подписок и ещё ~500 файлов. Все августовские правки `main` (WDTT-гейт, backfill-s4, S4, fakeip,
+отзыв S2, rqlite-клиент) в проде уже были — проверено по содержимому.
+
+Сделано слиянием (merge-коммит с родителями `main` и `e50462d`, [skip ci]):
+- `backend/`, `deploy/`, `sidecar-agent/`, `scripts/`, `.superpowers/`, `ops/`, `docs/`, 9 серверных workflow — **из прода**
+  (`e50462d` = `ed6edd32` + AmneziaWG в автовыбор, задеплоено 17.10.2026 ~13:42 МСК);
+- приложение (`app/`, `android-xhttp/`, `libbox-awg/`, `version.properties`, gradle, 4 app-workflow), `AGENTS.md`,
+  `CLAUDE.md`, этот файл — **из main** (из него вышел 1.0.170).
+- Проверка: `git diff e50462d main -- backend` пусто → **панель, собранная из main, = панель в проде**.
+  `git diff <main до слияния> main -- app` пусто → приложение не тронуто, OTA не запускается.
+- Не перенесены 4 файла незавершённого августовского пакета «olcRTC/WDTT runtime repair» (на прод-коде красные:
+  `backend/internal/api/olcrtc_panel_test.go`, `ops/olcrtc-remote-restore.sh`, `ops/olcrtc-ssh-config.sh`,
+  `ops/test_olcrtc_ops.py`). Работа цела в ветке `archive/olcrtc-wdtt-repair-2026-08-13`. Его 5 документов-планов
+  оставлены в `docs/`.
+
+⚠️ Известный долг (не от слияния, был на `ed6edd32`): `go test ./...` в `backend` — 63 провала (миграции,
+white-list sidecar, commercial final store и др.; часть, вероятно, зависит от окружения), в т.ч.
+`subgen/delivery_test.go`: тест ждёт `format=links`, код отдаёт `format=xray` — именно `xray` сейчас получают
+Incy/Happ. Не чинить вслепую: это смена ссылки у клиентов iPhone.
+
+Деплой панели теперь можно делать из `main`: `MAESTRO_PANEL_REPO=<checkout main>/backend sh ops/deploy-panel.sh`.
+Бэкап бинаря до AWG-правки: `/root/maestro-panel.bin.bak-1792233794` (S1).
+
 ## CDN-ИСПАНИЯ. 20.09.2026: Испания ходит на свой origin напрямую (без круга через Германию)
 
 Симптом: CDN-локация Испании стабильно медленнее остальных (~520–780 мс против 280–450). Причина —

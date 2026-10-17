@@ -1,0 +1,18 @@
+# Repository template: install with the logical name maestro-ha-backup.timer.
+# Basename-preserving installation is invalid; use the checked installation map.
+[Unit]
+Description=Run the MaestroVPN HA resumable backup worker
+After=maestro-backup.service maestro-backup.timer maestro-backup-onchange.path
+Conflicts=maestro-backup.service maestro-backup.timer maestro-backup-onchange.path
+ConditionPathExists=/etc/maestro/backup-worker.json
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=true
+Unit=maestro-ha-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,9 +1,13 @@
 # Runbook — "Server 1 died" (control-plane recovery)
 
-Server 1 (`wapmixx.ru` / `194.48.141.106`) is the **control-plane SPOF**: it runs
+Server 1 (`wapmixx.ru` / `193.17.183.48`, hostname `ubuntu24`) is the **control-plane SPOF**: it runs
 `maestro-panel` (the app subscription + provisioning backend), 3x-ui/Xray (VLESS, the
 customer base), the primary Telegram bot, and the nginx TLS front (`:8911 → :8910`).
 This runbook restores it from the off-site encrypted backups.
+
+> Owner-authoritative identity checkpoint (29.08.2026): verify SSH only against
+> `SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`; the predecessor is
+> permanently retired and must not be used as an operational recovery target.
 
 > Data-plane note: an S1 outage does **not** drop already-connected users. The app
 > overwrites its local config only after a successful `/sub` fetch **and**

@@ -30,6 +30,9 @@ type Tariff struct {
 var DefaultTariffs = []Tariff{
 	{Key: "1m", Name: "1 месяц", Days: 30, Rub: 400},
 	{Key: "2m", Name: "2 месяца", Days: 60, Rub: 800},
+	{Key: "3m", Name: "3 месяца", Days: 90, Rub: 1200},
+	{Key: "6m", Name: "6 месяцев", Days: 180, Rub: 2400},
+	{Key: "12m", Name: "12 месяцев", Days: 365, Rub: 4800},
 }
 
 // TariffByKey returns the tariff for a key, or false.

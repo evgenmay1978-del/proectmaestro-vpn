@@ -96,14 +96,15 @@ type Config struct {
 	// OlcWBTokenFile holds the wbstream ACCOUNT token (a WB session JWT) on THIS node — used by the
 	// panel to create wbstream rooms + to show "token set" status. Root-only (0600). Empty → the
 	// wbstream carrier is unavailable from the panel (the token still lives on S3 for the srv).
-	OlcWBTokenFile string
-	SubBaseURL     string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
-	SBPPhone       string // СБП phone shown to the customer for in-app purchase
-	PayURL         string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
-	TGBotToken     string // bot token for owner payment notifications (send-only, no poll)
-	TGAdminID      string // owner's Telegram chat id
-	UpdateDir      string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
-	ReportDir      string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
+	OlcWBTokenFile          string
+	SubBaseURL              string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
+	SBPPhone                string // СБП phone shown to the customer for in-app purchase
+	PayURL                  string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
+	CustomerCDNSalesEnabled bool   // Explicit commissioning gate for the browser CDN checkout.
+	TGBotToken              string // bot token for owner payment notifications (send-only, no poll)
+	TGAdminID               string // owner's Telegram chat id
+	UpdateDir               string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
+	ReportDir               string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
 	// EnforceDeviceLimit gates the per-account 5-device cap at /sub + /claim. A kill
 	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
 	// redeploy if it ever misbehaves in prod.

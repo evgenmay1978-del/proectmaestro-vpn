@@ -14,6 +14,8 @@ package subgen
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 // VLESSCreds is a 3x-ui VLESS+Reality client.
@@ -66,12 +68,13 @@ type AnyTLSCreds struct {
 type Customer struct {
 	Name   string
 	VLESS  *VLESSCreds
+	VLESS2 *VLESSCreds  // VLESS-Reality on server 2 (Czech Republic)
 	Hy2    *Hy2Creds
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
 	VLESS3 *VLESSCreds  // VLESS-Reality on the 3rd node (S3)
 	VLESS4 *VLESSCreds  // VLESS-Reality on the 4th node (S4); nil until S4_* env is configured
-	WG     *WGCreds     // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
+	WG     *WGCreds     // AmneziaWG (S3); emitted only for a supported with_awg client version
 	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
 	VKTurn *VKTurnCreds // VK TURN/DTLS carrier — mobile-only manual fallback; gated by the /sub handler
 
@@ -116,23 +119,18 @@ type OLCRTCCreds struct {
 // Per-customer fields only; the shared obfuscation block (awg* consts) is global and MUST
 // byte-match the S3 server awg0.conf [Interface] (/root/.s3wg). ⛔ Only the `with_awg` libbox
 // parses an awg endpoint; the PLAIN shipping fleet libbox HARD-FAILS the whole config — so WG
-// must stay nil for every real customer until the with_awg libbox is the OTA'd fleet engine
-// (canary devices only). See [[amneziawg-app-support]].
-type WGCreds struct {
-	Server        string // peer (S3) address, e.g. "46.30.42.151"
-	Port          int    // peer (S3) UDP port, e.g. 443
-	PeerPublicKey string // S3 server public key (base64)
-	PrivateKey    string // THIS customer's client private key (base64)
-	LocalAddress  string // this customer's tunnel IP, e.g. "10.10.8.2/32"
-}
+// emission requires the existing supported-client version gate. Persisted credentials
+// are retained independently of that gate. See [[amneziawg-app-support]].
+type WGCreds = controlplane.WGCredentialIdentity
 
 const (
-	tagVLESS  = "vless"
-	tagVLESS3 = "vless-s3" // VLESS-Reality on the 3rd node
-	tagVLESS4 = "vless-s4" // VLESS-Reality on the 4th node (S4)
-	tagHy2    = "hysteria2"
-	tagNaive  = "naive"
-	tagAnyTLS = "anytls"
+	tagVLESS  = "🇪🇸 MaestroVPN VLESS"
+	tagVLESS2 = "🇨🇿 MaestroVPN VLESS"
+	tagVLESS3 = "🇳🇱 MaestroVPN VLESS S3" // VLESS-Reality on the 3rd node
+	tagVLESS4 = "🇩🇪 MaestroVPN VLESS S4" // VLESS-Reality on the 4th node (S4)
+	tagHy2    = "🇨🇿 MaestroVPN Hysteria2"
+	tagNaive  = "🇨🇿 MaestroVPN Naive"
+	tagAnyTLS = "🇨🇿 MaestroVPN AnyTLS"
 	tagWG     = "awg"     // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
 	tagOLC    = "olcrtc"  // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
 	tagVKTurn = "vk-turn" // WireGuard over the local WDTT VK TURN/DTLS relay
@@ -286,6 +284,10 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		outbounds = append(outbounds, vlessOutbound(c.VLESS, tagVLESS))
 		protoTags = append(protoTags, tagVLESS)
 	}
+	if c.VLESS2 != nil {
+		outbounds = append(outbounds, vlessOutbound(c.VLESS2, tagVLESS2))
+		protoTags = append(protoTags, tagVLESS2)
+	}
 	if c.Hy2 != nil {
 		outbounds = append(outbounds, hy2Outbound(c.Hy2))
 		protoTags = append(protoTags, tagHy2)
@@ -370,6 +372,22 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	}
 	if len(autoTags) == 0 { // customer with ONLY naive → keep something auto-selectable
 		autoTags = protoTags
+	}
+	// AmneziaWG joins the "auto" pool (owner's decision 2026-10-17: «сервис сам понимает, каким
+	// протоколом лучше подключиться»). Until now it was selector-only («slow UDP, RU mobile shapes
+	// it»). It is safe in urltest because urltest only ever picks a leaf that ANSWERS its probe:
+	//   • app 1.0.169+ (amneziawg-go v3.1 engine, i1 stripped client-side) handshakes with S4 and
+	//     competes on latency like any other leaf;
+	//   • older engines that can't complete a 3.1 handshake, or can't resolve the probe host
+	//     through the endpoint (pre-169 «cannot marshal DNS message»), simply fail the probe → the
+	//     leaf is never chosen → no change for them;
+	//   • routers: lib/router-transform.jq (0.1.25+) drops `endpoints` and scrubs the awg tag from
+	//     every group, so router configs are unaffected.
+	// It stays in the selector too (selOnly), so manual choice is unchanged. awg is NOT a VLESS
+	// leaf, so it is appended after the TCP protocols: on a latency tie within `tolerance` urltest
+	// keeps the current pick, it does not prefer list order — order here is only for readability.
+	if c.WG != nil {
+		autoTags = append(autoTags, tagWG)
 	}
 	outbounds = append(outbounds,
 		map[string]any{

@@ -8,20 +8,26 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/sidecaragentclient"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
@@ -41,8 +47,97 @@ func atoi(s string, def int) int {
 	return def
 }
 
+type panelRuntime struct {
+	mode                    string
+	business                api.Business
+	handler                 http.Handler
+	background              func(context.Context)
+	whiteListSidecarSenders map[string]controlplane.ExternalActionSender
+}
+
+type runtimeFactories struct {
+	legacy func(context.Context) (*panelRuntime, error)
+	rqlite func(context.Context) (*panelRuntime, error)
+}
+
+func buildRuntime(ctx context.Context, mode string, factories runtimeFactories) (*panelRuntime, error) {
+	switch mode {
+	case "", "legacy":
+		return factories.legacy(ctx)
+	case "rqlite":
+		return factories.rqlite(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported MAESTRO_CONTROL_PLANE mode %q", mode)
+	}
+}
+
 func main() {
 	listen := env("MAESTRO_LISTEN", "127.0.0.1:8910")
+	switch mode := strings.TrimSpace(os.Getenv("MAESTRO_CONTROL_PLANE")); mode {
+	case "rqlite":
+		runtimeConfig, err := readRQLiteRuntimeConfig(os.Getenv)
+		if err != nil {
+			log.Fatalf("configure rqlite runtime: %v", err)
+		}
+		sidecarConfig, err := readRuntimeWhiteListSidecarConfig(os.Getenv)
+		if err != nil {
+			log.Fatalf("configure white-list sidecar runtime: %v", err)
+		}
+		sidecarSenders, err := buildRuntimeWhiteListSidecarSenders(sidecarConfig, func(config sidecaragentclient.Config) (controlplane.ExternalActionSender, error) {
+			return sidecaragentclient.New(config)
+		})
+		if err != nil {
+			log.Fatalf("build white-list sidecar runtime: %v", err)
+		}
+		runtimeDependencies := productionRQLiteRuntimeDependencies()
+		runtimeDependencies.whiteListSidecarSenders = sidecarSenders
+		runtimeInstance, err := buildRQLitePanelRuntime(
+			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), runtimeDependencies,
+			sidecarConfig.Enabled,
+		)
+		if err != nil {
+			log.Fatalf("build rqlite runtime: %v", err)
+		}
+		runtimeInstance.whiteListSidecarSenders = sidecarSenders
+		workerContext, stopWorker := context.WithCancel(context.Background())
+		var workerDone chan struct{}
+		if runtimeInstance.background != nil {
+			workerDone = make(chan struct{})
+			go func() {
+				defer close(workerDone)
+				runtimeInstance.background(workerContext)
+			}()
+		}
+		srv := &http.Server{
+			Addr: listen, Handler: runtimeInstance.handler, ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			log.Printf("maestro-panel listening on %s (rqlite control plane)", listen)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("serve: %v", err)
+			}
+		}()
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		<-sig
+		stopWorker()
+		if workerDone != nil {
+			select {
+			case <-workerDone:
+			case <-time.After(5 * time.Second):
+				log.Printf("white-list renewal worker shutdown timed out")
+			}
+		}
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownContext)
+		return
+	case "", "legacy":
+		// The unchanged legacy composition root begins below.
+	default:
+		log.Fatalf("unsupported MAESTRO_CONTROL_PLANE mode %q", mode)
+	}
+
 	storePath := env("MAESTRO_STORE", "/var/lib/maestro/customers.json")
 
 	st, err := store.Open(storePath)
@@ -110,6 +205,9 @@ func main() {
 			AnyTLSKey:        env("ANYTLS_KEY", "/etc/sing-box-anytls/key.pem"),
 			AnyTLSService:    env("ANYTLS_SERVICE", "sing-box-anytls"),
 			AnyTLSConfigPath: env("ANYTLS_CONFIG", "/etc/sing-box-anytls/config.json"),
+			VLESSService:      env("S2_VLESS_SERVICE", "maestro-vless-s2"),
+			VLESSConfigPath:   env("S2_VLESS_CONFIG", "/etc/maestro-vless-s2/config.json"),
+			VLESSBinaryPath:   env("S2_VLESS_BINARY", "/opt/maestro-vless-s2/xray"),
 		})
 		provCfg := provision.Config{
 			VLESS: provision.VLESSTmpl{
@@ -123,6 +221,14 @@ func main() {
 				Server: env("HY2_SERVER", "wapmix.duckdns.org"), Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
 				SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
 			},
+		}
+		if server := os.Getenv("S2_VLESS_SERVER"); server != "" {
+			provCfg.VLESS2 = provision.VLESSTmpl{
+				Server: server, Port: atoi(os.Getenv("S2_VLESS_PORT"), 2096),
+				SNI: os.Getenv("S2_VLESS_SNI"), PublicKey: os.Getenv("S2_VLESS_PBK"),
+				ShortID: os.Getenv("S2_VLESS_SID"), Flow: env("S2_VLESS_FLOW", "xtls-rprx-vision"),
+				Fingerprint: env("S2_VLESS_FP", "firefox"),
+			}
 		}
 		// Naive: enabled when the rixxx-panel is reachable + NAIVE_SERVER set.
 		if os.Getenv("NAIVE_SERVER") != "" {
@@ -236,7 +342,7 @@ func main() {
 			ReportDir:         env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
 			// Per-account 5-device cap, on by default; MAESTRO_DEVICE_LIMIT=off is a live
 			// kill switch (no redeploy) if it ever misbehaves against real customers.
-			EnforceDeviceLimit: env("MAESTRO_DEVICE_LIMIT", "on") != "off",
+			EnforceDeviceLimit: deviceLimitEnforced(env("MAESTRO_DEVICE_LIMIT", "on")),
 			// In-app free trial (POST /trial): 2 days, soft per-/24 quota of 3 trials per day.
 			TrialDays:    atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
@@ -259,4 +365,70 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
+}
+
+type runtimeWhiteListSidecarConfig struct {
+	Enabled bool
+	Nodes   map[string]sidecaragentclient.Config
+}
+
+func readRuntimeWhiteListSidecarConfig(getenv func(string) string) (runtimeWhiteListSidecarConfig, error) {
+	if getenv == nil {
+		return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	switch strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_ENABLE")) {
+	case "", "0":
+		return runtimeWhiteListSidecarConfig{}, nil
+	case "1":
+	default:
+		return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	caFile := strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_CA_FILE"))
+	certFile := strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_CERT_FILE"))
+	keyFile := strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_KEY_FILE"))
+	if caFile == "" || certFile == "" || keyFile == "" {
+		return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	nodes := make(map[string]sidecaragentclient.Config, 4)
+	for _, nodeID := range []string{"s1", "s2", "s3", "s4"} {
+		prefix := "MAESTRO_WHITELIST_SIDECAR_" + strings.ToUpper(nodeID)
+		baseURL := strings.TrimSpace(getenv(prefix + "_URL"))
+		serverName := strings.TrimSpace(getenv(prefix + "_SERVER_NAME"))
+		parsed, err := url.Parse(baseURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+			parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || serverName == "" {
+			return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+		}
+		nodes[nodeID] = sidecaragentclient.Config{
+			BaseURL: baseURL, ServerName: serverName, CAFile: caFile, CertFile: certFile, KeyFile: keyFile,
+			RequestTimeout: 5 * time.Second, ReceiptLookupTimeout: 2 * time.Second,
+			CredentialTemplateFile: strings.TrimSpace(getenv("MAESTRO_WHITELIST_CLIENT_TEMPLATE_FILE")),
+		}
+	}
+	return runtimeWhiteListSidecarConfig{Enabled: true, Nodes: nodes}, nil
+}
+
+func buildRuntimeWhiteListSidecarSenders(
+	config runtimeWhiteListSidecarConfig,
+	factory func(sidecaragentclient.Config) (controlplane.ExternalActionSender, error),
+) (map[string]controlplane.ExternalActionSender, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	if factory == nil || len(config.Nodes) == 0 {
+		return nil, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	senders := make(map[string]controlplane.ExternalActionSender, len(config.Nodes))
+	for nodeID, clientConfig := range config.Nodes {
+		sender, err := factory(clientConfig)
+		if err != nil {
+			return nil, err
+		}
+		if sender == nil {
+			return nil, errors.New("white-list sidecar client is unavailable")
+		}
+		senders[nodeID] = sender
+		senders[strings.ToUpper(nodeID)] = sender
+	}
+	return senders, nil
 }

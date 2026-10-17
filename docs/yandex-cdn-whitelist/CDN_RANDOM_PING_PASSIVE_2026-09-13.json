@@ -1,0 +1,558 @@
+{
+  "observed_date_msk": "2026-09-13",
+  "purpose": "Owner-reported alternating per-route n/a with actual loss of access",
+  "source": "Passive tcpdump metadata and read-only Xray APIs; user initiated client ping",
+  "downstream": {
+    "event": "downstream_correlation",
+    "utc_start": "2026-09-12T21:40:42Z",
+    "capture_ok": true,
+    "packet_count": 697,
+    "session_count": 8,
+    "other_counts": {},
+    "sessions": [
+      {
+        "session": 1,
+        "down": {
+          "ingress": {
+            "request_t": 10.369,
+            "packets": [
+              [
+                10.372,
+                827
+              ],
+              [
+                10.381,
+                1794
+              ],
+              [
+                10.47,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 2626,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 10.37,
+            "packets": [
+              [
+                10.371,
+                795
+              ],
+              [
+                10.381,
+                1794
+              ],
+              [
+                10.47,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 2594,
+            "fin": [
+              10.471,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            10.374,
+            "0"
+          ],
+          [
+            10.4,
+            "1"
+          ],
+          [
+            10.467,
+            "2"
+          ]
+        ]
+      },
+      {
+        "session": 2,
+        "down": {
+          "ingress": {
+            "request_t": 10.377,
+            "packets": [
+              [
+                10.385,
+                1064
+              ],
+              [
+                10.387,
+                1418
+              ],
+              [
+                10.417,
+                913
+              ],
+              [
+                10.466,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 3400,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 10.379,
+            "packets": [
+              [
+                10.384,
+                1032
+              ],
+              [
+                10.387,
+                1418
+              ],
+              [
+                10.417,
+                913
+              ],
+              [
+                10.466,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 3368,
+            "fin": [
+              10.468,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            10.379,
+            "0"
+          ],
+          [
+            10.421,
+            "1"
+          ],
+          [
+            10.464,
+            "2"
+          ]
+        ]
+      },
+      {
+        "session": 3,
+        "down": {
+          "ingress": {
+            "request_t": 10.39,
+            "packets": [
+              [
+                10.395,
+                506
+              ],
+              [
+                10.403,
+                2033
+              ],
+              [
+                10.477,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 2544,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 10.39,
+            "packets": [
+              [
+                10.394,
+                474
+              ],
+              [
+                10.402,
+                2033
+              ],
+              [
+                10.477,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 2512,
+            "fin": [
+              10.48,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            10.388,
+            "0"
+          ],
+          [
+            10.425,
+            "0"
+          ],
+          [
+            10.475,
+            "1"
+          ]
+        ]
+      },
+      {
+        "session": 4,
+        "down": {
+          "ingress": {
+            "request_t": 10.392,
+            "packets": [
+              [
+                10.394,
+                1129
+              ],
+              [
+                10.398,
+                1902
+              ],
+              [
+                10.448,
+                2796
+              ],
+              [
+                10.449,
+                307
+              ],
+              [
+                10.479,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 6139,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 10.392,
+            "packets": [
+              [
+                10.393,
+                1097
+              ],
+              [
+                10.398,
+                1902
+              ],
+              [
+                10.448,
+                3103
+              ],
+              [
+                10.478,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 6107,
+            "fin": [
+              10.48,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            10.391,
+            "0"
+          ],
+          [
+            10.474,
+            "1"
+          ]
+        ]
+      },
+      {
+        "session": 5,
+        "down": {
+          "ingress": {
+            "request_t": 18.775,
+            "packets": [
+              [
+                18.777,
+                892
+              ],
+              [
+                18.798,
+                2282
+              ],
+              [
+                18.858,
+                2733
+              ],
+              [
+                18.954,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 5912,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 18.776,
+            "packets": [
+              [
+                18.777,
+                860
+              ],
+              [
+                18.798,
+                2282
+              ],
+              [
+                18.857,
+                2733
+              ],
+              [
+                18.953,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 5880,
+            "fin": [
+              18.954,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            18.792,
+            "0"
+          ],
+          [
+            18.951,
+            "1"
+          ]
+        ]
+      },
+      {
+        "session": 6,
+        "down": {
+          "ingress": {
+            "request_t": 18.792,
+            "packets": [
+              [
+                18.795,
+                410
+              ],
+              [
+                18.807,
+                1563
+              ],
+              [
+                18.845,
+                1525
+              ],
+              [
+                18.965,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 3503,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 18.793,
+            "packets": [
+              [
+                18.794,
+                378
+              ],
+              [
+                18.807,
+                1563
+              ],
+              [
+                18.845,
+                1525
+              ],
+              [
+                18.964,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 3471,
+            "fin": [
+              18.966,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            18.8,
+            "0"
+          ],
+          [
+            18.96,
+            "1"
+          ]
+        ]
+      },
+      {
+        "session": 7,
+        "down": {
+          "ingress": {
+            "request_t": 18.81,
+            "packets": [
+              [
+                18.812,
+                1241
+              ],
+              [
+                18.818,
+                1513
+              ],
+              [
+                18.868,
+                1258
+              ],
+              [
+                18.994,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 4017,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 18.811,
+            "packets": [
+              [
+                18.812,
+                1209
+              ],
+              [
+                18.817,
+                1513
+              ],
+              [
+                18.867,
+                1258
+              ],
+              [
+                18.992,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 3985,
+            "fin": [
+              18.995,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            18.814,
+            "0"
+          ],
+          [
+            18.867,
+            "1"
+          ],
+          [
+            18.984,
+            "2"
+          ]
+        ]
+      },
+      {
+        "session": 8,
+        "down": {
+          "ingress": {
+            "request_t": 18.864,
+            "packets": [
+              [
+                18.868,
+                499
+              ],
+              [
+                18.876,
+                1718
+              ],
+              [
+                18.996,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 2222,
+            "fin": null,
+            "rst": null
+          },
+          "xray": {
+            "request_t": 18.865,
+            "packets": [
+              [
+                18.866,
+                467
+              ],
+              [
+                18.874,
+                1718
+              ],
+              [
+                18.994,
+                5
+              ]
+            ],
+            "retransmissions": 0,
+            "bytes": 2190,
+            "fin": [
+              18.997,
+              "server"
+            ],
+            "rst": null
+          }
+        },
+        "up_sequences": [
+          [
+            18.863,
+            "0"
+          ],
+          [
+            18.983,
+            "1"
+          ]
+        ]
+      }
+    ],
+    "raw_saved": false
+  },
+  "conclusion": "Unresolved: early XHTTP session completion observed; exact initiating error unavailable at warning log level",
+  "production_configuration_changed": false
+}

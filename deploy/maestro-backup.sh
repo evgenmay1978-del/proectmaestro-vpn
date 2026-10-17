@@ -8,6 +8,18 @@
 #
 # Recovery: see docs/runbook-s1-recovery.md (decrypt with the Server-2 private key).
 set -euo pipefail
+case "${MAESTRO_CONTROL_PLANE_MODE:-}" in
+  rqlite)
+    printf '%s\n' 'maestro-backup: disabled in rqlite mode'
+    exit 0
+    ;;
+  legacy)
+    ;;
+  *)
+    printf '%s\n' 'maestro-backup: invalid control-plane mode' >&2
+    exit 64
+    ;;
+esac
 
 AWS=/root/.local/bin/aws
 EP=(--endpoint-url=https://storage.yandexcloud.net)

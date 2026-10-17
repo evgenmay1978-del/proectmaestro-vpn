@@ -1,0 +1,196 @@
+{
+  "scope": "Verified exact archived binaries before S2 unlink; original metadata retained",
+  "cleanup": {
+    "removed_count": 7,
+    "freed_bytes": 1030590464,
+    "free_bytes": 1291169792,
+    "disk_used_percent": 87,
+    "service_pids_unchanged": true,
+    "receipt": "/var/tmp/maestro-staging-cleanup-20260911.json"
+  },
+  "files": [
+    {
+      "path": "/var/tmp/maestro-mobile-candidate-1016002/MaestroVPN-TV-1.0.160-debug.apk",
+      "size": 211148418,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "5ac5646e62c0821b9a3b838ec541192926b321fe6f0e2502c71973afc7acc18f",
+      "nlink": 1,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-candidate-160-1016002\\MaestroVPN-TV-1.0.160-debug.apk"
+    },
+    {
+      "path": "/var/tmp/maestro-mobile-candidate-1016002/MaestroVPN-TV-1.0.160-1016002-preview.apk",
+      "size": 211148418,
+      "mode": "0o666",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "5ac5646e62c0821b9a3b838ec541192926b321fe6f0e2502c71973afc7acc18f",
+      "nlink": 1,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-candidate-160-1016002\\MaestroVPN-TV-1.0.160-debug.apk"
+    },
+    {
+      "path": "/var/tmp/maestro-ota-159/MaestroVPN-TV-1.0.159-debug.apk",
+      "size": 201331669,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "53270cee67b030509deaa8d12bf3c5076dff560afc709c65c5b90becfef0da65",
+      "nlink": 2,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-release-159\\MaestroVPN-TV-1.0.159-debug.apk"
+    },
+    {
+      "path": "/var/tmp/maestro-ota-159/mobile-release-159/MaestroVPN-TV-1.0.159-debug.apk",
+      "size": 201331669,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "53270cee67b030509deaa8d12bf3c5076dff560afc709c65c5b90becfef0da65",
+      "nlink": 2,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-release-159\\MaestroVPN-TV-1.0.159-debug.apk"
+    },
+    {
+      "path": "/var/tmp/maestro-ota-159/mobile-release-159/build.zip",
+      "size": 198503130,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "5207d5815013787780b9f8266e8c416da90159a3022d27632423f469ac8c7069",
+      "nlink": 1,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-release-159\\build.zip"
+    },
+    {
+      "path": "/var/tmp/maestro-ota-160/MaestroVPN-TV-1.0.160-debug.apk",
+      "size": 208436712,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "b5347eeb6fb2cd6d705c01a1ce866153e83628a92409cb350586765855e1db75",
+      "nlink": 2,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-release-160-validated\\MaestroVPN-TV-1.0.160-debug.apk"
+    },
+    {
+      "path": "/var/tmp/maestro-ota-160/mobile-release-160-validated/MaestroVPN-TV-1.0.160-debug.apk",
+      "size": 208436712,
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0,
+      "sha256": "b5347eeb6fb2cd6d705c01a1ce866153e83628a92409cb350586765855e1db75",
+      "nlink": 2,
+      "verified_copy": "C:\\Users\\User\\Documents\\Codex\\2026-09-06\\new-chat\\mobile-release-160-validated\\MaestroVPN-TV-1.0.160-debug.apk"
+    }
+  ],
+  "s1": {
+    "utc": "2026-09-10T20:55:47.753106+00:00",
+    "cores": 3,
+    "load": [
+      0.28955078125,
+      0.24072265625,
+      0.2021484375
+    ],
+    "uptime_days": 31.47,
+    "mem_mib": {
+      "total": 1967,
+      "available": 1095,
+      "swap_used": 95
+    },
+    "disk": {
+      "total_bytes": 41085726720,
+      "available_bytes": 27517767680,
+      "used_percent": 29.4,
+      "inode_used_percent": 8.3
+    },
+    "services": [
+      {
+        "unit": "certbot.service",
+        "load": "loaded",
+        "state": "inactive/dead"
+      },
+      {
+        "unit": "hysteria-server.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "maestro-cdn-controller.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "maestro-cdn-probe.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "maestro-olcrtc-health.service",
+        "load": "loaded",
+        "state": "inactive/dead"
+      },
+      {
+        "unit": "maestro-panel.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "maestro-s1-commercial-guard.service",
+        "load": "loaded",
+        "state": "active/exited"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "nginx.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "ssh.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "sshd.service",
+        "load": "not-found",
+        "state": "inactive/dead"
+      },
+      {
+        "unit": "vpnbot.service",
+        "load": "loaded",
+        "state": "active/running"
+      },
+      {
+        "unit": "x-ui.service",
+        "load": "loaded",
+        "state": "active/running"
+      }
+    ],
+    "failed": "",
+    "journal_error_lines_30m": 6,
+    "error_categories_30m": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0,
+      "auth": 2,
+      "network": 2
+    },
+    "top_processes": [
+      "    PID COMMAND         %CPU %MEM   RSS",
+      "1879223 ps               200  0.2  4096",
+      "1879219 python3         14.2  0.5 11904",
+      "1879125 systemd         11.2  0.5 11008",
+      "1635639 xray-linux-amd6  6.8  4.7 96420",
+      "1879116 sshd             4.5  0.4  9604",
+      "1826446 maestro-panel    2.8  0.9 20116",
+      "1879118 sshd             1.6  0.5 10368",
+      "  23755 x-ui             1.1  3.9 79232"
+    ]
+  }
+}

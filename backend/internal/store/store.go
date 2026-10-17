@@ -26,6 +26,7 @@ type Customer struct {
 	Expires  time.Time           `json:"expires"`
 	Disabled bool                `json:"disabled"`
 	VLESS    *subgen.VLESSCreds  `json:"vless,omitempty"`
+	VLESS2   *subgen.VLESSCreds  `json:"vless2,omitempty"` // VLESS-Reality on S2 (CZ)
 	Hy2      *subgen.Hy2Creds    `json:"hy2,omitempty"`
 	Naive    *subgen.NaiveCreds  `json:"naive,omitempty"`
 	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
@@ -50,7 +51,7 @@ func (c *Customer) Active() bool {
 
 // ToSubgen maps a customer to the subscription generator input.
 func (c *Customer) ToSubgen() subgen.Customer {
-	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, VLESS4: c.VLESS4, WG: c.WG}
+	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, VLESS2: c.VLESS2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, VLESS4: c.VLESS4, WG: c.WG}
 }
 
 // clone returns an independent deep copy so callers can read it without the lock
@@ -65,6 +66,10 @@ func (c *Customer) clone() *Customer {
 	if c.VLESS != nil {
 		v := *c.VLESS
 		cp.VLESS = &v
+	}
+	if c.VLESS2 != nil {
+		v := *c.VLESS2
+		cp.VLESS2 = &v
 	}
 	if c.Hy2 != nil {
 		h := *c.Hy2

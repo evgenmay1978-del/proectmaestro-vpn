@@ -8,6 +8,8 @@ activates automatically.
 
 INSTALL (gated production edit — run yourself on server 1):
   1. cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_orders.py /root/vpn_bot/handlers/maestro_orders.py
+     cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_customer.py /root/vpn_bot/handlers/maestro_customer.py
+     cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_order_actions.py /root/vpn_bot/handlers/vpn_bot_maestro_order_actions.py
   2. in /root/vpn_bot/main.py:
        - add `maestro_orders` to the `from handlers import ...` line
        - add `dp.include_router(maestro_orders.router)` next to the other include_router calls
@@ -15,13 +17,25 @@ INSTALL (gated production edit — run yourself on server 1):
 """
 import io
 import os
+from urllib.parse import urlparse
 
 import httpx
 import qrcode
 from aiogram import F, Router
-from aiogram.types import BufferedInputFile, CallbackQuery
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from .maestro_customer import build_customer_router_from_env
+from .vpn_bot_maestro_order_actions import (
+    TOPUP_CONFIRM_PREFIX,
+    TOPUP_REJECT_PREFIX,
+    admin_delivery_button_urls,
+    admin_delivery_choices,
+    admin_subscription_caption,
+    topup_admin_request,
+)
 
 router = Router()
+customer_router = build_customer_router_from_env()
+router.include_router(customer_router)
 
 
 def _qr_png(data: str) -> bytes:
@@ -33,7 +47,18 @@ def _qr_png(data: str) -> bytes:
     qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
     return buf.getvalue()
 
-MAESTRO_URL = os.getenv("MAESTRO_URL", "http://127.0.0.1:8910")
+def _panel_url(configured: str | None = None) -> str:
+    """Verified TLS is the default; plaintext is explicit loopback-only."""
+    value = (configured or "https://localhost:8910").rstrip("/")
+    parsed = urlparse(value)
+    if parsed.scheme == "https" and parsed.netloc:
+        return value
+    if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
+        return value
+    raise ValueError("MAESTRO_URL must use HTTPS or explicit loopback HTTP")
+
+
+MAESTRO_URL = _panel_url(os.getenv("MAESTRO_URL"))
 
 try:
     # ADMIN_IDS lives on the Config INSTANCE (config.config.ADMIN_IDS), not as a
@@ -64,11 +89,14 @@ async def confirm_order(cb: CallbackQuery):
         return
     order_id = cb.data.split(":", 1)[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{MAESTRO_URL}/admin/order/confirm",
                 json={"order_id": order_id},
-                headers={"Authorization": f"Bearer {_maestro_token()}"},
+                headers={
+                    "Authorization": f"Bearer {_maestro_token()}",
+                    "Idempotency-Key": f"telegram-admin-confirm-{order_id}",
+                },
             )
         if r.status_code == 200:
             base = cb.message.text or ""
@@ -87,11 +115,14 @@ async def cancel_order(cb: CallbackQuery):
         return
     order_id = cb.data.split(":", 1)[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                f"{MAESTRO_URL}/admin/order/cancel",
-                json={"order_id": order_id},
-                headers={"Authorization": f"Bearer {_maestro_token()}"},
+                f"{MAESTRO_URL}/admin/order/{order_id}/reject",
+                json={},
+                headers={
+                    "Authorization": f"Bearer {_maestro_token()}",
+                    "Idempotency-Key": f"telegram-admin-reject-{order_id}",
+                },
             )
         if r.status_code == 200:
             base = cb.message.text or ""
@@ -104,6 +135,40 @@ async def cancel_order(cb: CallbackQuery):
         await cb.answer(f"Ошибка: {e}", show_alert=True)
 
 
+@router.callback_query(F.data.func(
+    lambda d: bool(d) and (d.startswith(TOPUP_CONFIRM_PREFIX) or d.startswith(TOPUP_REJECT_PREFIX))
+))
+async def decide_whitelist_topup(cb: CallbackQuery):
+    if str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
+        return
+    try:
+        request = topup_admin_request(cb.data)
+    except ValueError:
+        await cb.answer("Некорректная заявка", show_alert=True)
+        return
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{MAESTRO_URL}{request.path}",
+                json={},
+                headers={
+                    "Authorization": f"Bearer {_maestro_token()}",
+                    "Idempotency-Key": request.idempotency_key,
+                },
+            )
+        if response.status_code == 200:
+            base = cb.message.text or ""
+            result = "✅ Гигабайты начислены" if request.decision == "confirm" else "❌ Покупка гигабайтов отклонена"
+            await cb.message.edit_text(base + "\n\n" + result)
+        elif response.status_code == 409:
+            await cb.answer("Решение по заявке уже принято.", show_alert=True)
+        else:
+            await cb.answer(f"Панель вернула HTTP {response.status_code}", show_alert=True)
+    except Exception:  # noqa: BLE001
+        await cb.answer("Не удалось связаться с панелью", show_alert=True)
+
+
 @router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("aclsub:")))
 async def show_app_subscription(cb: CallbackQuery):
     """Admin button «🔗 Подписка (приложение)» on a client card → MaestroVPN app sub."""
@@ -112,7 +177,7 @@ async def show_app_subscription(cb: CallbackQuery):
         return
     login = cb.data.split(":", 1)[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(
                 f"{MAESTRO_URL}/admin/customer",
                 params={"login": login},
@@ -129,6 +194,7 @@ async def show_app_subscription(cb: CallbackQuery):
         if not sub_url:
             await cb.answer("У клиента нет ссылки на подписку.", show_alert=True)
             return
+        deliveries = admin_delivery_choices(d.get("deliveries") or {})
         exp = d.get("expires", "") or ""
         exp_disp = "—"
         days_disp = ""
@@ -151,19 +217,19 @@ async def show_app_subscription(cb: CallbackQuery):
             "naive": "NaiveProxy", "mieru": "Mieru",
         }
         protos = ", ".join(proto_names.get(p, p) for p in (d.get("protocols") or [])) or "—"
-        caption = (
-            f"🦊 <b>MaestroVPN — подписка</b>\n"
-            f"Клиент: <code>{login}</code>\n"
-            f"Статус: {status}  •  до {exp_disp}{days_disp}\n"
-            f"Протоколы ({len(d.get('protocols') or [])}): {protos}\n\n"
-            f"🔗 Ссылка на подписку (все протоколы):\n<code>{sub_url}</code>\n\n"
-            f"📲 В приложении MaestroVPN — отсканируй этот QR или вставь ссылку.\n"
-            f"Для Karing/Hiddify добавь к ссылке <code>?app=karing</code>."
+        caption = admin_subscription_caption(
+            login, status, exp_disp, days_disp, protos, len(d.get("protocols") or []),
+            sub_url, deliveries,
         )
+        buttons = admin_delivery_button_urls(deliveries)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=label, url=value)] for label, value in buttons
+        ]) if buttons else None
         await cb.message.answer_photo(
-            BufferedInputFile(_qr_png(sub_url), filename="maestrovpn_sub.png"),
+            BufferedInputFile(_qr_png(deliveries.happ_url), filename="maestrovpn_sub.png"),
             caption=caption,
             parse_mode="HTML",
+            reply_markup=keyboard,
         )
         await cb.answer()
     except Exception as e:  # noqa: BLE001

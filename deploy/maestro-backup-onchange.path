@@ -1,5 +1,8 @@
 [Unit]
 Description=Back up MaestroVPN state immediately when it changes (provision/order)
+Before=maestro-ha-backup.service maestro-ha-backup.timer
+Conflicts=maestro-ha-backup.service maestro-ha-backup.timer
+ConditionPathExists=/etc/maestro/control-plane-mode.env
 
 [Path]
 PathChanged=/var/lib/maestro/customers.json

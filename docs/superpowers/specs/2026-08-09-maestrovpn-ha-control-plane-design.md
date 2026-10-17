@@ -331,7 +331,11 @@ Stale S1 JSON/x-ui никогда не импортируется назад.
 
 ### 12.1 S1 VLESS
 
-До cutover под общим SpaceWeb lock создаётся ровно `s1-vless.wapmixx.ru -> 194.48.141.106` и фиксируется signed provider/TTL proof; доступность S1 не требуется, потому что rescue несут S2/S3/S4. Во время freeze resumable CAS меняет у всех только server host S1 VLESS `wapmixx.ru -> s1-vless.wapmixx.ru`, сохраняя UUID/SubID/SubToken/password/SNI/PBK/SID/fingerprint/flow, один раз повышает generation и создаёт desired/outbox. Apex gate требует zero new `wapmixx.ru:443` VLESS и независимый S2/S3/S4 fallback у legacy-клиентов.
+Owner checkpoint 29.08.2026 supersedes the prior S1 identity: the sole current
+future target is `193.17.183.48` (`ubuntu24`); the predecessor is permanently
+retired and must not be used for a cutover step.
+
+До cutover под общим SpaceWeb lock создаётся ровно `s1-vless.wapmixx.ru -> 193.17.183.48` и фиксируется signed provider/TTL proof; доступность S1 не требуется, потому что rescue несут S2/S3/S4. Во время freeze resumable CAS меняет у всех только server host S1 VLESS `wapmixx.ru -> s1-vless.wapmixx.ru`, сохраняя UUID/SubID/SubToken/password/SNI/PBK/SID/fingerprint/flow, один раз повышает generation и создаёт desired/outbox. Apex gate требует zero new `wapmixx.ru:443` VLESS и независимый S2/S3/S4 fallback у legacy-клиентов.
 
 ### 12.2 TLS до DNS-переключения
 

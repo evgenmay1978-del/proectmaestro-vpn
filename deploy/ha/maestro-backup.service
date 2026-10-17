@@ -1,0 +1,53 @@
+# Repository template: install with the logical name maestro-ha-backup.service.
+# Basename-preserving installation is invalid; use the checked installation map.
+[Unit]
+Description=MaestroVPN HA resumable rqlite backup worker
+Wants=network-online.target
+After=network-online.target maestro-backup.service maestro-backup.timer maestro-backup-onchange.path
+Conflicts=maestro-backup.service maestro-backup.timer maestro-backup-onchange.path
+ConditionPathExists=/etc/maestro/backup-worker.json
+StartLimitIntervalSec=1h
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+User=maestro-backup
+Group=maestro-backup
+UMask=0077
+RuntimeDirectory=maestro-backup
+RuntimeDirectoryMode=0700
+StateDirectory=maestro-backup
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/maestro-backup
+ExecStart=/usr/local/bin/maestro-backup-worker --config /etc/maestro/backup-worker.json
+TimeoutStartSec=15min
+TimeoutStopSec=30s
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/maestro-backup
+ReadOnlyPaths=/etc/maestro/backup-worker.json
+KeyringMode=private
+TasksMax=64
+LimitNOFILE=1024
