@@ -259,6 +259,26 @@ func ParseOlcLogins(raw string) []string {
 	return out
 }
 
+// awgRoutersOff — аварийный рубильник AWG для роутеров (MAESTRO_AWG_ROUTERS=0). Приложение он не трогает.
+var awgRoutersOff = os.Getenv("MAESTRO_AWG_ROUTERS") == "0"
+
+// routerAwgCapable — роутерный пакет MaestroVPN (maestrovpn-router 0.1.31+) на движке с with_awg
+// (sing-box 1.12.25-mvpn-awg31) помечает это в User-Agent запроса подписки:
+//
+//	"MaestroVPN-Router/0.1.31 (sing-box 1.12.25-mvpn-awg31; awg)"
+//
+// Метку ставит update.sh ТОЛЬКО если `sing-box version` показывает with_awg (и uci awg≠0), поэтому старые
+// роутеры (curl/Wget/MaestroVPN-Router без метки) awg не получат и их 1.12.25 не упадёт на «unknown endpoint type».
+func routerAwgCapable(ua string) bool {
+	return !awgRoutersOff && strings.HasPrefix(ua, "MaestroVPN-Router/") && strings.Contains(ua, "; awg)")
+}
+
+// awgAllowed — единый гейт «можно ли отдать awg-endpoint этому клиенту»: приложение по versionCode,
+// роутер — по метке в UA. Используется и старым HTTP-обработчиком, и control-plane рендером.
+func awgAllowed(ua string) bool {
+	return appVersionCode(ua) >= awgMinVC || routerAwgCapable(ua)
+}
+
 // appVersionCode parses the SFA app versionCode from the User-Agent, e.g.
 // "SFA/1.0.106 (106; sing-box 1.14.0-alpha.31; language ru_RU)" → 106. Returns 0 for any
 // non-SFA client (Karing, v2rayN, curl…) so they never qualify for the awg endpoint.
@@ -341,7 +361,7 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	sc := c.ToSubgen()
 	// Схема fakeip — поведение ПО УМОЛЧАНИЮ. Выключается только аварийным рубильником.
 	sc.DNSFakeIP = !dnsFakeIPOff
-	if sc.WG != nil && appVersionCode(r.UserAgent()) < awgMinVC {
+	if sc.WG != nil && !awgAllowed(r.UserAgent()) {
 		sc.WG = nil
 	}
 	// olcRTC creds-gate: emit the olcRTC socks outbound ONLY for the owner's logins, and ONLY
