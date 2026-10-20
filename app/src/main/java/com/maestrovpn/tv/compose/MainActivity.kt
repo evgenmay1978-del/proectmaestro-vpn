@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -267,6 +268,13 @@ class MainActivity :
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The handset UI is drawn for a portrait window only: in landscape the medallion, the server
+        // picker and the buy button slide off-screen (owner report, 20.10.2026). Lock phones to
+        // portrait. TV shares this activity and must stay untouched — it is always landscape and
+        // gets the 10-foot UI, so it is excluded by the same form-factor check that picks that UI.
+        if (!isTelevision(this)) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
         enableEdgeToEdge()
 
         connection.reconnect()
