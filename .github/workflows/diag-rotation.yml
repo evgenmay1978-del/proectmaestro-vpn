@@ -1,0 +1,93 @@
+name: Diag — phone UI rotation (released APK, read-only)
+
+# Диагностика жалобы владельца 20.10.2026: «при повороте экрана с интерфейсом беда».
+# Ставит в эмулятор телефона РЕЛИЗНЫЙ APK с публичного OTA-зеркала (ровно то, что у клиентов),
+# снимает каждый экран: портрет → альбом → снова портрет. Ничего не собирает и не публикует:
+# ни релиза, ни зеркала, ни панели. Без входа в аккаунт, без триала, без заказа, без VPN.
+
+on:
+  push:
+    branches: [claude/diag-rotation-20261020]
+    paths: ['.github/workflows/diag-rotation.yml', 'ops/diag-rotation-capture.py']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ops/diag-rotation-capture.py
+          sparse-checkout-cone-mode: false
+
+      - name: Released APK from the public OTA mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out "$RUNNER_TEMP/apk"
+          curl -fsSL https://storage.yandexcloud.net/maestro-apk/update.json -o out/update.json
+          curl -fsSL https://storage.yandexcloud.net/maestro-apk/latest.apk -o "$RUNNER_TEMP/apk/app.apk"
+          want=$(python3 -c "import json;print(json.load(open('out/update.json'))['sha256'])")
+          got=$(sha256sum "$RUNNER_TEMP/apk/app.apk" | cut -d' ' -f1)
+          echo "manifest=$want apk=$got" | tee out/apk-sha.txt
+          [ "$want" = "$got" ]
+
+      - name: Phone emulator, tour in portrait and landscape
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/out"
+          collect() {
+            status=$?
+            set +e
+            timeout 15 adb logcat -b crash -d > "$out/crash-logcat.txt" 2>&1
+            timeout 20 adb logcat -d -v threadtime > "$out/logcat.txt" 2>&1
+            timeout 10 adb emu kill >/dev/null 2>&1
+            exit "$status"
+          }
+          trap collect EXIT
+          export ANDROID_USER_HOME="$RUNNER_TEMP/android-34"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+          sdkmanager 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
+          echo 'no' | avdmanager create avd -n phone -k 'system-images;android-34;google_apis;x86_64' \
+            --device 'pixel_4' --path "$ANDROID_AVD_HOME/phone.avd" --force
+          printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-34\n' "$ANDROID_AVD_HOME/phone.avd" > "$ANDROID_AVD_HOME/phone.ini"
+          python3 - <<'PY'
+          import os, pathlib
+          path = pathlib.Path(os.environ['ANDROID_AVD_HOME']) / 'phone.avd/config.ini'
+          settings = {'hw.lcd.width': '1080', 'hw.lcd.height': '2340', 'hw.lcd.density': '450', 'hw.keyboard': 'no'}
+          lines = [l for l in path.read_text().splitlines() if l.partition('=')[0].strip() not in settings]
+          path.write_text('\n'.join(lines + [f'{k}={v}' for k, v in settings.items()]) + '\n')
+          PY
+          sudo chmod 666 /dev/kvm
+          "$ANDROID_SDK_ROOT/emulator/emulator" -avd phone -port 5554 -no-window -no-audio -no-snapshot \
+            -no-boot-anim -gpu swiftshader_indirect -memory 3072 > "$out/emulator.log" 2>&1 &
+          deadline=$((SECONDS + 300))
+          timeout 90 adb wait-for-device
+          while [ "$(timeout 5 adb shell getprop sys.boot_completed | tr -d '\r')" != 1 ]; do
+            [ "$SECONDS" -lt "$deadline" ]; sleep 3
+          done
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb shell input keyevent 82
+          adb install -r "$RUNNER_TEMP/apk/app.apk"
+          adb shell pm grant com.maestrovpn.tv android.permission.POST_NOTIFICATIONS || true
+          adb shell pm grant com.maestrovpn.tv android.permission.CAMERA || true
+          adb shell wm size > "$out/wm-size.txt"; adb shell wm density >> "$out/wm-size.txt"
+          python3 ops/diag-rotation-capture.py "$out/screens"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-rotation-screens
+          path: out
+          retention-days: 7
