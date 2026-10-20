@@ -28,7 +28,34 @@ def adb(*args, binary=False, timeout=60):
     return subprocess.run(['adb', *args], capture_output=True, timeout=timeout, text=not binary).stdout
 
 
+SYSTEM_BUTTONS = ['Do not add tile', 'Не добавлять', 'Allow', 'Разрешить', 'OK', 'Close app', 'Wait']
+
+
+def dismiss_system(tree):
+    """First-run system dialogs (Quick Settings tile request, battery optimisation) cover the app."""
+    for label in SYSTEM_BUTTONS:
+        for node in tree.iter('node'):
+            if node.get('package') != PKG and (node.get('text') or '').strip() == label:
+                rect = list(map(int, re.findall(r'\d+', node.get('bounds', ''))))
+                if len(rect) == 4 and rect[2] > rect[0]:
+                    adb('shell', 'input', 'tap', str((rect[0] + rect[2]) // 2), str((rect[1] + rect[3]) // 2))
+                    print(f'dismissed system dialog: {label}', flush=True)
+                    time.sleep(2)
+                    return True
+    return False
+
+
 def dump():
+    for _ in range(6):
+        xml, tree = raw_dump()
+        if xml and dismiss_system(tree):
+            continue
+        if xml:
+            return xml, tree
+    return raw_dump()
+
+
+def raw_dump():
     for _ in range(4):
         adb('shell', 'rm', '-f', '/sdcard/d.xml')
         adb('shell', 'uiautomator', 'dump', '/sdcard/d.xml')
@@ -75,6 +102,9 @@ def triple(name):
     p = shot(f'{name}-1-portrait')
     rotate(1)
     land = shot(f'{name}-2-landscape')
+    # What sits below the fold in landscape (1080 px tall): one swipe up the middle of the screen.
+    adb('shell', 'input', 'swipe', '1170', '760', '1170', '300', '400')
+    shot(f'{name}-2b-landscape-scrolled')
     rotate(0)
     back = shot(f'{name}-3-portrait-again')
     pt = [x['text'] for x in labels(p)]
