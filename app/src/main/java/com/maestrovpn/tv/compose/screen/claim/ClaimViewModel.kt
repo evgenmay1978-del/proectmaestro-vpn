@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.screen.claim
 
 import android.app.Application
 import android.util.Base64
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.maestrovpn.tv.BuildConfig
@@ -10,7 +11,9 @@ import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.httpGetStringTimed
+import com.maestrovpn.tv.utils.SubscriptionFetch
+import com.maestrovpn.tv.utils.SubscriptionHealth
+import com.maestrovpn.tv.utils.httpFetchSubscription
 import com.maestrovpn.tv.utils.MaestroSub
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
@@ -80,6 +83,7 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun fetchSubUrl(code: String): String {
+        var panelFailure: IOException? = null
         for (cdn in listOf(false, true)) {
             val endpoint = if (cdn) MaestroSub.CDN_ORIGIN + "/cabinet/api/claim"
                 else BuildConfig.BACKEND_URL.trimEnd('/') + "/claim"
@@ -91,8 +95,8 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
                 request.requestMethod = if (cdn) "GET" else "POST"
                 request.instanceFollowRedirects = false
                 request.useCaches = false
-                request.connectTimeout = 15000
-                request.readTimeout = 15000
+                request.connectTimeout = 10_000
+                request.readTimeout = 10_000
                 request.setRequestProperty("Accept", "application/json")
                 request.setRequestProperty("Cache-Control", "no-store")
                 if (cdn) {
@@ -116,17 +120,34 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
                     else -> throw IOException("сервер: HTTP $status")
                 }
             } catch (error: IOException) {
+                if (!cdn) panelFailure = error
                 if (cdn || (status != 0 && status != -1 && status != 200 && status !in 500..599)) throw error
             } finally {
                 conn?.disconnect()
             }
         }
-        throw IOException("сервис временно недоступен")
+        // Both legs died at the transport level. Log the panel leg for diagnosis and show one
+        // short user-facing line: before this the raw CDN-leg OkHttp text ("Failed to connect to
+        // cdn-test…") was displayed even when the panel leg was the one that failed, which read
+        // as "CDN is broken" and hid the real cause (21.10.2026).
+        Log.w("ClaimViewModel", "claim: panel leg failed", panelFailure)
+        throw IOException("Сервер недоступен. Проверьте интернет и повторите.")
     }
 
     private suspend fun createRemoteProfile(subUrl: String) {
         val context = getApplication<Application>()
-        val content = httpGetStringTimed(subUrl) ?: error("подписка недоступна (таймаут)")
+        val content = when (val fetch = httpFetchSubscription(subUrl)) {
+            is SubscriptionFetch.Ok -> fetch.body
+            is SubscriptionFetch.HttpError -> error(
+                when (fetch.status) {
+                    402 -> "подписка истекла — продлите её"
+                    404, 410 -> "подписка не найдена на сервере — активируйте заново"
+                    else -> "сервер вернул HTTP ${fetch.status}"
+                },
+            )
+            SubscriptionFetch.Network -> error("подписка недоступна — нет связи с сервером")
+        }
+        SubscriptionHealth.clear()
         Libbox.checkConfig(content)
         // DEDUPE: if a profile for this same account already exists (match by sub TOKEN —
         // the device query differs), refresh it in place instead of piling up a 2nd

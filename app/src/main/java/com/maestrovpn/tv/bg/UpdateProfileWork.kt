@@ -13,7 +13,9 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.httpGetStringTimed
+import com.maestrovpn.tv.utils.SubscriptionFetch
+import com.maestrovpn.tv.utils.SubscriptionHealth
+import com.maestrovpn.tv.utils.httpFetchSubscription
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -95,7 +97,14 @@ class UpdateProfileWork {
                 var selectedUpdated = false
                 for (profile in remoteProfiles) {
                     if (!isTrustedSubUrl(profile.typed.remoteURL)) continue
-                    val content = httpGetStringTimed(profile.typed.remoteURL, 6_000) ?: continue
+                    val fetch = httpFetchSubscription(profile.typed.remoteURL, 6_000)
+                    if (fetch is SubscriptionFetch.HttpError) {
+                        SubscriptionHealth.report(fetch.status)
+                        Log.w(TAG, "refreshNow: sub HTTP ${fetch.status} profile=${profile.name}")
+                        continue
+                    }
+                    val content = (fetch as? SubscriptionFetch.Ok)?.body ?: continue
+                    if (fetch is SubscriptionFetch.Ok && profile.id == selectedProfile) SubscriptionHealth.clear()
                     try {
                         Libbox.checkConfig(content)
                     } catch (_: Exception) {
@@ -177,18 +186,26 @@ class UpdateProfileWork {
                     // (and thus the updater) forever. null = unreachable → fail this profile,
                     // Result.retry() reschedules. The config is overwritten only AFTER a good
                     // fetch + checkConfig, so a timed-out fetch never disturbs the live tunnel.
-                    val content = httpGetStringTimed(profile.typed.remoteURL)
-                        ?: error("sub fetch timed out / panel unreachable")
-                    Libbox.checkConfig(content)
-                    val file = File(profile.typed.path)
-                    if (file.readText() != content) {
-                        writeAtomic(file, content)
-                        if (profile.id == selectedProfile) {
-                            selectedProfileUpdated = true
+                    val fetch = httpFetchSubscription(profile.typed.remoteURL)
+                    if (fetch is SubscriptionFetch.HttpError) {
+                        SubscriptionHealth.report(fetch.status)
+                        Log.w(TAG, "sub HTTP ${fetch.status} profile=${profile.name}")
+                        success = false
+                    } else {
+                        val content = (fetch as? SubscriptionFetch.Ok)?.body
+                            ?: error("sub fetch timed out / panel unreachable")
+                        if (fetch is SubscriptionFetch.Ok && profile.id == selectedProfile) SubscriptionHealth.clear()
+                        Libbox.checkConfig(content)
+                        val file = File(profile.typed.path)
+                        if (file.readText() != content) {
+                            writeAtomic(file, content)
+                            if (profile.id == selectedProfile) {
+                                selectedProfileUpdated = true
+                            }
                         }
+                        profile.typed.lastUpdated = Date()
+                        ProfileManager.update(profile)
                     }
-                    profile.typed.lastUpdated = Date()
-                    ProfileManager.update(profile)
                 } catch (e: Exception) {
                     Log.e(TAG, "update profile ${profile.name}", e)
                     success = false
