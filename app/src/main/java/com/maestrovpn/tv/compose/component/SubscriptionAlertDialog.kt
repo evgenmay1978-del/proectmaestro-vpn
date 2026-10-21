@@ -20,20 +20,17 @@ fun SubscriptionAlertDialog(
     onPrimary: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val title: String
-    val body: String
-    val primary: String
-    when (alert.kind) {
-        SubscriptionHealth.Kind.EXPIRED -> {
-            title = "Подписка истекла"
-            body = "Срок действия закончился. Продлите подписку, чтобы снова подключиться."
-            primary = "Продлить"
-        }
-        SubscriptionHealth.Kind.REVOKED -> {
-            title = "Подписка не найдена"
-            body = "Сервер больше не знает этот ключ. Активируйте заново по логину или коду."
-            primary = "Активировать"
-        }
+    val (title, body, primary) = when (alert.kind) {
+        SubscriptionHealth.Kind.EXPIRED -> Triple(
+            "Подписка истекла",
+            "Срок действия закончился. Продлите подписку, чтобы снова подключиться.",
+            "Продлить",
+        )
+        SubscriptionHealth.Kind.REVOKED -> Triple(
+            "Подписка не найдена",
+            "Сервер больше не знает этот ключ. Активируйте заново по логину или коду.",
+            "Активировать",
+        )
     }
     AlertDialog(
         onDismissRequest = onDismiss,
