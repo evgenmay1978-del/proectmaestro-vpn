@@ -91,6 +91,26 @@ func (s *Server) handleOrderGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// orderNotifyText собирает уведомление владельцу о заявке «Я оплатил».
+// Клиент пишет в комментарии к переводу свой логин — так его просят и приложение,
+// и бот. Поэтому логин идёт первым ключом для сверки с выпиской по СБП, а код
+// заказа остаётся вторым: по нему владелец жмёт «Подтвердить», и он же —
+// единственный ориентир для нового клиента, у которого логина ещё нет.
+func orderNotifyText(o *order.Order) string {
+	login := strings.TrimSpace(o.Login)
+	if login == "" || strings.HasPrefix(login, "tv-") {
+		login = "не привязан — новый клиент (в комментарии код)"
+	}
+	tariff := o.Tariff
+	if t, ok := order.TariffByKey(o.Tariff); ok {
+		tariff = t.Name
+	}
+	return fmt.Sprintf(
+		"💳 Оплата подписки\nТариф: %s · %d ₽\n🔑 Логин клиента: %s\nКод платежа: %s\nЗаказ: %s\n\n"+
+			"Клиент нажал «Я оплатил». Проверьте поступление по СБП и подтвердите.",
+		tariff, o.Rub, login, o.Code, o.ID)
+}
+
 // handleOrderPaidClaim (public): the customer pressed «Я оплатил» — notify the
 // owner via the bot with a one-tap confirm button. The order stays pending until
 // the owner confirms; the app keeps polling /order/<id>.
@@ -119,8 +139,7 @@ func (s *Server) handleOrderPaidClaim(w http.ResponseWriter, r *http.Request) {
 	if claimed, err := s.orders.MarkPaidClaimed(o.ID); err == nil {
 		o = claimed
 	}
-	text := fmt.Sprintf("💳 Оплата подписки\nТариф: %s · %d ₽\nКод платежа: %s\nЗаказ: %s\n\nКлиент нажал «Я оплатил». Проверьте поступление по СБП и подтвердите.",
-		o.Tariff, o.Rub, o.Code, o.ID)
+	text := orderNotifyText(o)
 	_ = s.tg.NotifyOrder(s.cfg.TGAdminID, text, o.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "awaiting_confirm"})
 }
