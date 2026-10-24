@@ -235,7 +235,14 @@ fun SFANavHost(
             enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
             popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
         ) {
-            BuyScreen(onDone = { navController.popBackStack() })
+            // Owner 2026-10-25: на экране оплаты клиент показывает свой ЛОГИН, а не код
+            // заказа. Логин берём из того же /info, что и домашний экран; недоступен —
+            // BuyScreen покажет код заказа, как раньше.
+            val buyAccount by rememberAccountInfo(serviceStatus)
+            BuyScreen(
+                onDone = { navController.popBackStack() },
+                accountLogin = buyAccount.login,
+            )
         }
 
         composable(

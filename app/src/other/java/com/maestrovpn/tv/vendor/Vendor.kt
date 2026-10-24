@@ -1,7 +1,9 @@
 package com.maestrovpn.tv.vendor
 
 import android.app.Activity
+import android.content.DialogInterface
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.camera.core.ImageAnalysis
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.maestrovpn.tv.Application
@@ -57,19 +59,31 @@ object Vendor : VendorInterface {
     }
 
     private fun showNoUpdatesDialog(activity: Activity) {
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(R.string.check_update)
-            .setMessage(R.string.no_updates_available)
-            .setPositiveButton(R.string.ok, null)
-            .show()
+        showMessageDialog(activity, R.string.no_updates_available)
     }
 
     private fun showTrackNotSupportedDialog(activity: Activity) {
-        MaterialAlertDialogBuilder(activity)
+        showMessageDialog(activity, R.string.update_track_not_supported)
+    }
+
+    /**
+     * Информационное окно с единственной кнопкой OK.
+     *
+     * На ТВ (пульт!) фокус по умолчанию встаёт на контейнер кнопок, и первое нажатие OK
+     * только переводит фокус на саму кнопку — окно закрывалось СО ВТОРОГО нажатия (жалоба
+     * владельца). Поэтому явно ставим фокус на кнопку сразу после показа: одно нажатие =
+     * закрыть.
+     */
+    private fun showMessageDialog(activity: Activity, @StringRes messageRes: Int) {
+        val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(R.string.check_update)
-            .setMessage(R.string.update_track_not_supported)
+            .setMessage(messageRes)
             .setPositiveButton(R.string.ok, null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(DialogInterface.BUTTON_POSITIVE)?.requestFocus()
+        }
+        dialog.show()
     }
 
     override fun createQRCodeAnalyzer(

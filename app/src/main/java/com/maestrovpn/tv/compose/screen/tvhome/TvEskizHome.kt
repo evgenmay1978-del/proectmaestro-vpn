@@ -27,15 +27,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -185,9 +182,6 @@ internal fun TvEskizHome(
         val gap = if (compact) 7.dp else 10.dp
         val actionHeight = if (compact) 64.dp else 72.dp
         val smallButtonHeight = if (compact) 44.dp else 50.dp
-        val protocolButtonHeight = if (compact) 52.dp else 58.dp
-        val protocolRowGap = if (compact) 6.dp else 8.dp
-        val phoneWeight = if (compact) 1.65f else 1.55f
 
         Image(
             painter = painterResource(R.mipmap.ic_launcher_foreground),
@@ -240,26 +234,22 @@ internal fun TvEskizHome(
                     TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
                 }
 
+                // Telegram / WhatsApp / МАКС убраны с ТВ (owner 2026-10-25): на боксе без
+                // браузера и звонилки они открывали только заглушку frameworkpackagestubs.
+                // Телефон поддержки остался и переехал в этот ряд — так освободившееся место
+                // уходит сетке протоколов, а не пустой полосе «ПОДДЕРЖКА».
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1f), height = smallButtonHeight)
-                    TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1f), height = smallButtonHeight)
-                }
-
-                TvSectionTitle("ПОДДЕРЖКА")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(phoneWeight), height = smallButtonHeight)
-                    TvSmallButton("Telegram", Icons.Filled.Send, { open("https://t.me/wapmixx") }, Modifier.weight(1f), iconTint = Color(0xFF2AABEE), height = smallButtonHeight)
-                    TvSmallButton("WhatsApp", Icons.Filled.Chat, { open("https://wa.me/79778116564") }, Modifier.weight(1f), iconTint = Color(0xFF25D366), height = smallButtonHeight)
-                    TvSmallButton("МАКС", Icons.Filled.Forum, { open("https://max.ru/") }, Modifier.weight(0.75f), iconTint = Color(0xFF4C9EFF), height = smallButtonHeight)
+                    TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1.25f), height = smallButtonHeight)
+                    TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1.25f), height = smallButtonHeight)
+                    TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(1f), height = smallButtonHeight)
                 }
 
                 TvSectionTitle("ПРОТОКОЛЫ")
+                // weight(1f): сетка забирает всю оставшуюся высоту и заканчивается на одной
+                // линии с левой панелью — крупные плашки вместо мелких с пустотой внизу.
                 TvProtocolGrid(
                     protocols = protocols,
                     selected = selected,
@@ -267,10 +257,8 @@ internal fun TvEskizHome(
                     olcrtcProvider = olcrtcProvider,
                     onSelectProtocol = onSelectProtocol,
                     onSelectOlcrtc = onSelectOlcrtc,
-                    modifier = Modifier.fillMaxWidth(),
-                    buttonHeight = protocolButtonHeight,
-                    rowGap = protocolRowGap,
-                    showBadges = !compact,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    compact = compact,
                 )
             }
         }
@@ -480,30 +468,36 @@ private fun TvProtocolGrid(
     onSelectProtocol: (String) -> Unit,
     onSelectOlcrtc: () -> Unit,
     modifier: Modifier,
-    buttonHeight: Dp = 58.dp,
-    rowGap: Dp = 10.dp,
-    showBadges: Boolean = true,
+    compact: Boolean,
 ) {
     val display = visibleTvProtocols(protocols)
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowGap)) {
-        listOf(display.take(5), display.drop(5)).filter { it.isNotEmpty() }.forEach { row ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { protocol ->
-                    val locked = protocol == "olcrtc" && !hasOlcrtcCreds
-                    val isSelected = protocol == selected && !locked
-                    TvProtocolButton(
-                        protocol = protocol,
-                        selected = isSelected,
-                        locked = locked,
-                        provider = olcrtcProvider,
-                        onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
-                        modifier = Modifier.weight(1f),
-                        height = buttonHeight,
-                        showBadge = showBadges,
-                    )
-                }
-                for (index in row.size until 5) {
-                    Spacer(Modifier.weight(1f))
+    val columns = 4
+    val rows = display.chunked(columns)
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = modifier) {
+        val gap = 10.dp
+        val rowCount = rows.size.coerceAtLeast(1)
+        val available = (maxHeight - gap * (rowCount - 1)) / rowCount
+        // На панели владельца (1920×1080 px, density 320 → 960×540 dp) выходит 129 dp —
+        // ровно как в согласованном макете. Верхняя граница нужна панелям, где dp совпадает
+        // с пикселем (1920×1080 dp): без неё карточки растянулись бы на пол-экрана.
+        val rowHeight = available.coerceIn(72.dp, if (compact) 132.dp else 150.dp)
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
+            rows.forEach { row ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    row.forEach { protocol ->
+                        val locked = protocol == "olcrtc" && !hasOlcrtcCreds
+                        TvProtocolCard(
+                            protocol = protocol,
+                            selected = protocol == selected && !locked,
+                            locked = locked,
+                            provider = olcrtcProvider,
+                            onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
+                            modifier = Modifier.weight(1f).height(rowHeight),
+                        )
+                    }
+                    for (index in row.size until columns) {
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -518,46 +512,50 @@ internal fun visibleTvProtocols(protocols: List<String>): List<String> =
     }
 
 @Composable
-private fun TvProtocolButton(
+private fun TvProtocolCard(
     protocol: String,
     selected: Boolean,
     locked: Boolean,
     provider: String?,
     onClick: () -> Unit,
     modifier: Modifier,
-    height: Dp,
-    showBadge: Boolean,
 ) {
-    TvSurfaceCard(
-        modifier = modifier.height(height),
-        selected = selected,
-        onClick = onClick,
-        contentPadding = if (showBadge) 10.dp else 8.dp,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (locked) Icons.Filled.Lock else tvProtocolIcon(protocol),
-                null,
-                tint = if (locked) TvMuted else TvGreen,
-                modifier = Modifier.size(23.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(tvProtocolLabel(protocol), color = if (selected) TvGreen else TvText, fontSize = if (showBadge) 15.sp else 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (showBadge) {
-                    Text(
-                        when {
-                            locked -> "по запросу"
-                            protocol == "olcrtc" -> if (provider == "wbstream") "через WB" else "через Яндекс"
-                            else -> tvProtocolBadge(protocol)
-                        },
-                        color = if (locked) TvMuted else TvGreen,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+    val model = tvProtocolCardModel(protocol, locked, provider)
+    TvSurfaceCard(modifier = modifier, selected = selected, onClick = onClick, contentPadding = 12.dp) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            if (model.flag.isNotEmpty()) {
+                Text(model.flag, fontSize = 30.sp, lineHeight = 34.sp, maxLines = 1)
+            } else {
+                Icon(
+                    model.icon,
+                    null,
+                    tint = if (locked) TvMuted else TvGreen,
+                    modifier = Modifier.size(32.dp),
+                )
             }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                model.title,
+                color = if (selected) TvGreen else TvText,
+                fontSize = 18.sp,
+                lineHeight = 24.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                model.subtitle,
+                color = if (selected) TvGreen else TvMuted,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -689,6 +687,53 @@ private fun tvProtocolBadge(protocol: String) = when (protocol.lowercase()) {
     "anytls" -> "стабильный"
     "awg" -> "маскировка"
     else -> "доступен"
+}
+
+/** Big protocol tile: flag (or icon) on top, then the country/name and the transport. */
+private data class TvProtocolCardModel(
+    val flag: String,
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+)
+
+private val tvServerFlags = listOf(
+    "🇪🇸" to "Испания",
+    "🇨🇿" to "Чехия",
+    "🇳🇱" to "Нидерланды",
+    "🇩🇪" to "Германия",
+)
+
+/**
+ * Maps a protocol tag to the tile. Two shapes actually reach us:
+ *  - transport keys ("auto", "vless", "vless-s3", …) when the profile lists them separately;
+ *  - server display tags, e.g. "🇪🇸 MaestroVPN VLESS S3" — that is what the live subscription
+ *    ships, and the old one-line layout truncated them to "Mae…".
+ */
+private fun tvProtocolCardModel(protocol: String, locked: Boolean, provider: String?): TvProtocolCardModel {
+    if (locked) return TvProtocolCardModel("", tvProtocolLabel(protocol), "по запросу", Icons.Filled.Lock)
+    when (protocol.trim().lowercase()) {
+        "auto", "urltest", "select" -> return TvProtocolCardModel("", "Авто", "автовыбор", Icons.Filled.Speed)
+        "awg" -> return TvProtocolCardModel("", "AmneziaWG", "маскировка", Icons.Filled.VpnLock)
+        "vless" -> return TvProtocolCardModel("🇪🇸", "Испания", "VLESS", Icons.Filled.Shield)
+        "hysteria2" -> return TvProtocolCardModel("🇨🇿", "Чехия", "Hysteria2", Icons.Filled.Layers)
+        "naive", "naiveproxy" -> return TvProtocolCardModel("🇨🇿", "Чехия", "Naive", Icons.Filled.Public)
+        "anytls" -> return TvProtocolCardModel("🇨🇿", "Чехия", "AnyTLS", Icons.Filled.Lock)
+        "vless-s3" -> return TvProtocolCardModel("🇳🇱", "Нидерланды", "VLESS S3", Icons.Filled.Shield)
+        "vless-s4" -> return TvProtocolCardModel("🇩🇪", "Германия", "VLESS S4", Icons.Filled.Shield)
+        "olcrtc", "olc rtc" -> return TvProtocolCardModel("", "OLC RTC", if (provider == "wbstream") "через WB" else "через Яндекс", Icons.Filled.Videocam)
+    }
+    val server = tvServerFlags.firstOrNull { protocol.contains(it.first) }
+    if (server != null) {
+        val transport = tvServerFlags
+            .fold(protocol) { acc, (flag, _) -> acc.replace(flag, " ") }
+            .replace("MaestroVPN", " ", ignoreCase = true)
+            .split(' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+        return TvProtocolCardModel(server.first, server.second, transport.ifBlank { "сервер" }, Icons.Filled.Shield)
+    }
+    return TvProtocolCardModel("", tvProtocolLabel(protocol), tvProtocolBadge(protocol), tvProtocolIcon(protocol))
 }
 
 private fun tvDaysWord(days: Int): String = when {
