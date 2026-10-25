@@ -36,19 +36,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set build version (monotonic — the in-app updater always sees newer)
+      - name: Set build version (single source of truth — version.properties)
         id: ver
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Версия задаётся явно: номер запуска и список релизов дают то занятый тег (tv-v1.0.167),
-          # то старый номер. versionCode держим выше тестовой сборки 1016567 — иначе встроенный
-          # апдейтер не увидит обновление. Следующий релиз: поднять обе цифры на 1.
-          VN="1.0.172"
-          VC="1017200"
-          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
-          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
+          # Единственный источник версии — version.properties: его же читает app/build.gradle.kts.
+          # Выпуск новой версии = поднять VERSION_CODE/VERSION_NAME там; CI ничего не переписывает.
+          # Прежняя жёсткая пара VN/VC давала APK одной версии с метаданными другой (1.0.173/1.0.174).
+          VN="$(sed -n 's/^[[:space:]]*VERSION_NAME[[:space:]]*=[[:space:]]*//p' version.properties | tail -n1 | tr -d '[:space:]')"
+          VC="$(sed -n 's/^[[:space:]]*VERSION_CODE[[:space:]]*=[[:space:]]*//p' version.properties | tail -n1 | tr -d '[:space:]')"
+          if [ -z "${VN}" ] || [ -z "${VC}" ]; then
+            echo "::error::version.properties must define VERSION_NAME and VERSION_CODE"; exit 1
+          fi
           echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VC}" >> "$GITHUB_OUTPUT"
           echo "MaestroVPN TV ${VN} (code ${VC})"
