@@ -1,0 +1,10 @@
+[Unit]
+Description=MaestroVPN OTA mirror: latest GitHub release -> panel manifest + Yandex Object Storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/panel_update_mirror.sh
+Nice=10
+IOSchedulingClass=idle
