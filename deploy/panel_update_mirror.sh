@@ -51,6 +51,20 @@ if [ "$cur" = "$vn" ]; then
   exit 0
 fi
 
+# Which mirrored APKs must survive pruning: the version being published, the previous one
+# (rollback) and every mandatory WAYPOINT version (MAESTRO_UPDATE_WAYPOINTS). Historical
+# files carry two naming forms — "MaestroVPN-TV-1.0.168-debug.apk" and "MaestroVPN-TV-1.0.174.apk"
+# — so the matcher accepts the optional -debug suffix; otherwise a rename between releases
+# would delete the waypoint APK that old devices still download.
+WAYPOINTS="$(grep -oP '^MAESTRO_UPDATE_WAYPOINTS=\K.*' /etc/maestro-panel.env 2>/dev/null || true)"
+keep_versions="$vn"
+[ -n "$cur" ] && keep_versions="$keep_versions $cur"
+for wp in ${WAYPOINTS//,/ }; do
+  [ -n "$wp" ] && keep_versions="$keep_versions 1.0.${wp}"
+done
+KEEP_RE="$(printf '%s\n' $keep_versions | sed 's/[.]/\\./g' | paste -sd'|' -)"
+is_kept() { printf '%s' "$1" | grep -qE "^MaestroVPN-TV-(${KEEP_RE})(-debug)?[.]apk$"; }
+
 # Resolve assets: the non-play, non-legacy .apk + the version-metadata.json.
 #
 # ⛔ Берём API-адрес ассета (a["url"]), а НЕ a["browser_download_url"]. Репозиторий приватный
@@ -79,7 +93,7 @@ if url:
 else: print(0)')"
 [ -n "$apk_url" ] || { echo "mirror: no apk asset in $vn" >&2; exit 0; }
 
-apk_name="MaestroVPN-TV-${vn}-debug.apk"
+apk_name="MaestroVPN-TV-${vn}.apk"
 tmp="$DIR/.${apk_name}.tmp"
 # Токен и Accept обязательны: ассет приватного релиза иначе отдаёт 404 (см. комментарий выше).
 curl -fsSL --max-time 600 "${AUTH[@]}" -H 'Accept: application/octet-stream' "$apk_url" -o "$tmp" \
@@ -100,15 +114,10 @@ if "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" \
   # Prune older versioned APKs — but KEEP the current one AND any mandatory WAYPOINT APKs
   # (MAESTRO_UPDATE_WAYPOINTS from the panel env): a device behind a waypoint still downloads
   # that frozen version, so its APK must never be pruned (see api.go updateManifestFor).
-  WAYPOINTS="$(grep -oP '^MAESTRO_UPDATE_WAYPOINTS=\K.*' /etc/maestro-panel.env 2>/dev/null || true)"
-  keep="$apk_name"
-  for wp in ${WAYPOINTS//,/ }; do
-    [ -n "$wp" ] && keep="${keep}|MaestroVPN-TV-1.0.${wp}-debug.apk"
-  done
   old_list="$("$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 ls "s3://${YC_BUCKET}/" 2>/dev/null \
-    | awk '{print $4}' | grep -E '^MaestroVPN-TV-.*\.apk$' | grep -vE "^(${keep})$" || true)"
+    | awk '{print $4}' | grep -E '^MaestroVPN-TV-.*[.]apk$' || true)"
   for old in $old_list; do
-    "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 rm "s3://${YC_BUCKET}/${old}" >/dev/null 2>&1 || true
+    is_kept "$old" || "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 rm "s3://${YC_BUCKET}/${old}" >/dev/null 2>&1 || true
   done
 else
   echo "mirror: Yandex upload failed — using panel-hosted apk_url fallback" >&2
@@ -141,7 +150,9 @@ if [ "$apk_path_url" != "/update/${apk_name}" ]; then
     --acl public-read --content-type application/vnd.android.package-archive >/dev/null 2>&1 || true
 fi
 
-# Prune older mirrored APKs locally (keep the current one + latest.apk).
-find "$DIR" -maxdepth 1 -name 'MaestroVPN-TV-*-debug.apk' ! -name "$apk_name" -delete 2>/dev/null || true
+# Prune older mirrored APKs locally (keeps the current, the previous and every waypoint).
+find "$DIR" -maxdepth 1 -name 'MaestroVPN-TV-*.apk' 2>/dev/null | while IFS= read -r f; do
+  is_kept "$(basename "$f")" || rm -f "$f"
+done
 
 echo "mirror: published $vn (code ${vc:-0}, ${sz} bytes) — apk_url=$apk_path_url"
