@@ -90,6 +90,7 @@ import kotlin.math.roundToInt
 @Composable
 fun BuyScreen(
     onDone: () -> Unit,
+    accountLogin: String? = null,
     viewModel: BuyViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -299,6 +300,7 @@ fun BuyScreen(
                         val payCtx = LocalContext.current
                         PhonePaymentContent(
                             state = s,
+                            accountLogin = accountLogin,
                             onOpenPayment = { payUrl ->
                                 runCatching {
                                     payCtx.startActivity(
@@ -322,20 +324,23 @@ fun BuyScreen(
                     // the amount off the top: the focusable "Я оплатил" button auto-scrolls into
                     // view, dragging the top of a too-tall column above the viewport. Drop it on
                     // TV so the amount line is the top. Phone (tall, no focus-scroll) keeps it.
-                    if (!isTv) {
-                        Text(
-                            "Оплата",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontFamily = PlayfairFamily,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFE8C877),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
                     Text(
                         "Сумма: ${s.rub} ₽",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
+                        color = NeonGreen,
+                        textAlign = TextAlign.Center,
+                    )
+                    // Логин (или код заказа) — СРАЗУ под суммой: клиент читает его и вписывает
+                    // в сообщение к переводу, ещё до сканирования QR. Раньше это была отдельная
+                    // пара строк под QR, и из-за неё экран не влезал в короткий ТВ-вьюпорт.
+                    Text(
+                        if (accountLogin.isNullOrBlank()) {
+                            "Код для сообщения к переводу: ${s.code}"
+                        } else {
+                            "Логин для сообщения к переводу: $accountLogin"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
                         color = NeonGreen,
                         textAlign = TextAlign.Center,
                     )
@@ -356,14 +361,14 @@ fun BuyScreen(
                                     .clip(RoundedCornerShape(8.dp))
                                     // Smaller on TV so the whole payment card fits the short
                                     // landscape viewport WITHOUT scrolling (scrolling hid the
-                                    // amount). 170dp ≈ 340px on 1080p — still easily phone-scannable.
-                                    .size(if (isTv) 170.dp else 220.dp),
+                                    // amount). 150dp ≈ 300px on 1080p — still easily phone-scannable.
+                                    .size(if (isTv) 150.dp else 220.dp),
                             )
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
                             if (s.payUrl.isNotBlank()) {
-                                "Отсканируйте телефоном — откроется оплата (СБП или картой, из любого банка)"
+                                "Отсканируйте телефоном — откроется оплата по СБП"
                             } else {
                                 "Отсканируйте телефоном — номер вводить не нужно"
                             },
@@ -374,47 +379,19 @@ fun BuyScreen(
                     // Открыть страницу оплаты ПРЯМО с устройства (owner: «приложение должно
                     // открывать страницу оплаты»). На телефоне откроется банковская страница
                     // pay_url; на ТВ-боксе без браузера — ловим и подсказываем платить по QR.
-                    if (s.payUrl.isNotBlank()) {
-                        val payCtx = LocalContext.current
-                        Spacer(Modifier.height(if (isTv) 10.dp else 14.dp))
-                        GlossyButton(
-                            label = "Открыть страницу оплаты",
-                            onClick = {
-                                runCatching {
-                                    payCtx.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(s.payUrl))
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                    )
-                                }.onFailure {
-                                    Toast.makeText(
-                                        payCtx,
-                                        "Браузер не найден — отсканируйте QR телефоном",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                }
-                            },
-                            accent = NeonGreen,
-                            icon = Icons.Filled.ShoppingCart,
-                            wood = true,
-                            modifier = Modifier.widthIn(min = 260.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Код заказа (укажите в сообщении к переводу, если есть поле):",
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(s.code, style = MaterialTheme.typography.headlineMedium, color = NeonGreen)
+                    // Кнопку «Открыть страницу оплаты» на ТВ убрали (owner 2026-10-25): на
+                    // боксе без браузера она давала только Toast «Браузер не найден», зато
+                    // занимала фокус и была единственным узлом между QR и «Я оплатил» —
+                    // из-за неё возврат вверх по пульту не доскролливал к QR.
                     if (s.phone.isNotBlank()) {
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             "Или вручную по СБП на номер: ${s.phone}",
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                         )
                     }
-                    Spacer(Modifier.height(if (isTv) 16.dp else 24.dp))
+                    Spacer(Modifier.height(12.dp))
                     GlossyButton(
                         label = "Я оплатил",
                         onClick = { viewModel.iPaid() },
@@ -424,7 +401,7 @@ fun BuyScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "После нажатия заявка уйдёт владельцу. Подписка активируется после подтверждения — оставьте экран открытым.",
+                        "Заявка уйдёт владельцу — подписка включится после подтверждения",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                     )
@@ -496,6 +473,7 @@ internal fun PhonePaymentContent(
     onOpenPayment: (String) -> Unit,
     onPaid: () -> Unit,
     modifier: Modifier = Modifier,
+    accountLogin: String? = null,
 ) {
     MobilePremiumPanel(
         modifier = modifier.testTag("premium-payment"),
@@ -564,17 +542,33 @@ internal fun PhonePaymentContent(
             }
 
             Spacer(Modifier.height(12.dp))
-            Text(
-                "Код заказа (укажите в сообщении к переводу, если есть поле):",
-                color = PremiumText,
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                state.code,
-                style = MaterialTheme.typography.headlineMedium,
-                color = PremiumEmerald,
-            )
+            val payId = accountLogin?.takeIf { it.isNotBlank() }
+            if (payId != null) {
+                // Owner 2026-10-25: вместо кода заказа клиент показывает свой логин.
+                Text(
+                    "Логин (укажите в сообщении к переводу):",
+                    color = PremiumText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    payId,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = PremiumEmerald,
+                )
+            } else {
+                Text(
+                    "Код заказа (укажите в сообщении к переводу, если есть поле):",
+                    color = PremiumText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    state.code,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = PremiumEmerald,
+                )
+            }
             if (state.phone.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Text(

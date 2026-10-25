@@ -161,15 +161,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             autoRedirect = Settings.autoRedirect
             val appPackage = Application.application.packageName
             val perAppEnabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
-            if (perAppEnabled) {
-                // The app's own uid is never excluded: include mode always adds it, exclude mode
-                // always keeps it out of the exclude list.
-                val appList = Settings.getEffectivePerAppProxyList()
-                if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                    includePackage = PlatformInterfaceWrapper.StringArray((appList + appPackage).iterator())
-                } else {
-                    excludePackage = PlatformInterfaceWrapper.StringArray((appList - appPackage).iterator())
-                }
+            // The app itself never rides its own tunnel: claim / sub / OTA must survive a dead
+            // config (see PackagePolicy; incident 21.10.2026).
+            val policy = PackagePolicy.decide(
+                appPackage = appPackage,
+                perAppEnabled = perAppEnabled,
+                includeMode = Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE,
+                appList = Settings.getEffectivePerAppProxyList(),
+            )
+            if (policy.include.isNotEmpty()) {
+                includePackage = PlatformInterfaceWrapper.StringArray(policy.include.iterator())
+            }
+            if (policy.exclude.isNotEmpty()) {
+                excludePackage = PlatformInterfaceWrapper.StringArray(policy.exclude.iterator())
             }
         }
 

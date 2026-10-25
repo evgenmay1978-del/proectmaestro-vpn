@@ -24,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.maestrovpn.tv.compose.screen.configuration.NewProfileScreen
+import com.maestrovpn.tv.compose.component.SubscriptionAlertDialog
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
 import com.maestrovpn.tv.compose.screen.qrscan.ScanQrActivateScreen
 import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
@@ -39,6 +40,7 @@ import com.maestrovpn.tv.compose.screen.log.LogViewModel
 import com.maestrovpn.tv.compose.screen.profile.EditProfileRoute
 import com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyScreen
 import com.maestrovpn.tv.database.Settings
+import com.maestrovpn.tv.utils.SubscriptionHealth
 import com.maestrovpn.tv.compose.screen.settings.AppSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.CoreSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.EditRemoteServerScreen
@@ -233,7 +235,14 @@ fun SFANavHost(
             enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
             popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
         ) {
-            BuyScreen(onDone = { navController.popBackStack() })
+            // Owner 2026-10-25: на экране оплаты клиент показывает свой ЛОГИН, а не код
+            // заказа. Логин берём из того же /info, что и домашний экран; недоступен —
+            // BuyScreen покажет код заказа, как раньше.
+            val buyAccount by rememberAccountInfo(serviceStatus)
+            BuyScreen(
+                onDone = { navController.popBackStack() },
+                accountLogin = buyAccount.login,
+            )
         }
 
         composable(
@@ -431,5 +440,21 @@ fun SFANavHost(
             EditRemoteServerScreen(navController = navController, serverId = serverId)
         }
 
+    }
+
+    // Authoritative panel verdict about this subscription (402 expired / 404-410 gone).
+    // Shown above every destination so a dead profile cannot silently masquerade as a
+    // transport error; network failures and 5xx never set it (SubscriptionHealth).
+    val subscriptionAlert by SubscriptionHealth.alert.collectAsState()
+    subscriptionAlert?.let { alert ->
+        SubscriptionAlertDialog(
+            alert = alert,
+            onPrimary = {
+                SubscriptionHealth.clear()
+                val route = if (alert.kind == SubscriptionHealth.Kind.EXPIRED) "buy" else "claim"
+                navController.navigate(route) { launchSingleTop = true }
+            },
+            onDismiss = { SubscriptionHealth.clear() },
+        )
     }
 }

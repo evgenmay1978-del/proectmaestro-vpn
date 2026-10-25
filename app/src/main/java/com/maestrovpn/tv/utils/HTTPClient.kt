@@ -17,6 +17,20 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.HttpsURLConnection
 
+/**
+ * /sub answered with a non-200 status. The status IS the diagnosis: 402 expired,
+ * 404/410 the token no longer exists, 5xx the panel is sick. Collapsing it into
+ * "null = timeout" hid a deleted subscription behind a fake network error (21.10.2026).
+ */
+class SubscriptionHttpException(val status: Int) : IOException("subscription HTTP $status")
+
+/** Outcome of a control-plane subscription fetch with the HTTP status preserved. */
+sealed interface SubscriptionFetch {
+    data class Ok(val body: String) : SubscriptionFetch
+    data class HttpError(val status: Int) : SubscriptionFetch
+    data object Network : SubscriptionFetch
+}
+
 class HTTPClient : Closeable {
     companion object {
         val userAgent by lazy {
@@ -68,7 +82,7 @@ class HTTPClient : Closeable {
                         timeoutMs.coerceIn(1, Int.MAX_VALUE.toLong()).toInt(), SUBSCRIPTION_LIMIT)
                         ?: throw IOException("subscription edge unreachable")
                     status = response.status
-                    if (status != 200) throw IOException("subscription HTTP $status")
+                    if (status != 200) throw SubscriptionHttpException(status)
                     return response.body
                 }
                 val connection = URL(endpoint.url).openConnection() as HttpsURLConnection
@@ -107,35 +121,38 @@ class HTTPClient : Closeable {
 }
 
 /**
- * Fetch [url] with a HARD caller-side timeout, returning null on timeout or any error.
+ * Fetch a subscription (or any control-plane URL) and keep the HTTP status.
  *
- * libbox's HTTPClient sets no http.Client.Timeout, so a panel that completes the TLS
- * handshake and then stalls would hang the caller FOREVER — this is the root cause of the
- * "spinner never finishes / app freezes" reports (the update worker, claim, edit/new-profile
- * and the home account card all fetch /sub this way). The native execute() is a blocking call
- * that coroutine cancellation can't interrupt, so we run it on a DETACHED job and bound only
- * the WAIT: on timeout the caller gets null immediately (treat as "panel unreachable") while
- * the abandoned native socket is left for the OS to time out. Callers MUST treat null as a
- * normal failure (retry / show an error / fall back to cached) — never as success.
+ * Same hard caller-side timeout as before: libbox's HTTPClient sets no client timeout, so a
+ * panel that completes TLS and then stalls would hang the caller forever. The native call is
+ * blocking and ignores cancellation — run it detached and bound only the WAIT; the client is
+ * closed on timeout, which aborts the in-flight request.
  */
 @OptIn(DelicateCoroutinesApi::class)
-suspend fun httpGetStringTimed(url: String, timeoutMs: Long = 15_000): String? {
-    val result = CompletableDeferred<String?>()
-    // Hold the client OUTSIDE the detached job so the caller can close() it on timeout,
-    // aborting the in-flight native request and releasing its socket FD instead of leaking
-    // it until the OS times out (the leak piled up on slow TVs that hit this path often).
+suspend fun httpFetchSubscription(url: String, timeoutMs: Long = 15_000): SubscriptionFetch {
+    val result = CompletableDeferred<SubscriptionFetch>()
     val client = HTTPClient()
     GlobalScope.launch(Dispatchers.IO) {
-        try {
-            result.complete(client.getString(url, timeoutMs))
+        val value = try {
+            SubscriptionFetch.Ok(client.getString(url, timeoutMs))
+        } catch (e: SubscriptionHttpException) {
+            SubscriptionFetch.HttpError(e.status)
         } catch (t: Throwable) {
-            result.complete(null)
+            SubscriptionFetch.Network
         }
+        result.complete(value)
     }
     return try {
         val waitMs = if (MaestroSub.cdnFallbackUrl(url) != null) timeoutMs * 2 else timeoutMs
-        withTimeoutOrNull(waitMs) { result.await() }
+        withTimeoutOrNull(waitMs) { result.await() } ?: SubscriptionFetch.Network
     } finally {
         runCatching { client.close() }
     }
 }
+
+/**
+ * Legacy nullable wrapper for callers that only need the body. Prefer
+ * [httpFetchSubscription] where the status matters (subscription health, activation).
+ */
+suspend fun httpGetStringTimed(url: String, timeoutMs: Long = 15_000): String? =
+    (httpFetchSubscription(url, timeoutMs) as? SubscriptionFetch.Ok)?.body
