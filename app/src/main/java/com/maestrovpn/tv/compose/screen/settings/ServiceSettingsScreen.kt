@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.PhoneScreenHeader
 import com.maestrovpn.tv.compose.premium.approvedMobilePanel
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -80,31 +82,40 @@ fun ServiceSettingsScreen(
 ) {
     val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
-        TopAppBar(
-            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
-            title = {
-                Text(
-                    stringResource(R.string.service),
-                    fontFamily = PlayfairFamily,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE8C877),
-                    letterSpacing = 1.sp,
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = { navController.navigateUp() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.content_description_back),
-                        tint = Color(0xFFE8C877),
+        if (phoneArtwork) {
+            PhoneScreenHeader(
+                title = stringResource(R.string.service),
+                onBack = { navController.navigateUp() },
+                modifier = Modifier.padding(horizontal = PremiumPhoneContentInset),
+                backContentDescription = stringResource(R.string.content_description_back),
+            )
+        } else {
+            TopAppBar(
+                modifier = if (phoneArtwork) Modifier.padding(horizontal = PremiumPhoneContentInset).approvedMobilePanel() else Modifier,
+                title = {
+                    Text(
+                        stringResource(R.string.service),
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE8C877),
+                        letterSpacing = 1.sp,
                     )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
-                titleContentColor = Color(0xFFE8C877),
-            ),
-        )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                            tint = Color(0xFFE8C877),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
+                    titleContentColor = Color(0xFFE8C877),
+                ),
+            )
+        }
     }
 
     val context = LocalContext.current
@@ -160,7 +171,7 @@ fun ServiceSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = PremiumPhoneContentInset, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (!isBatteryOptimizationIgnored && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

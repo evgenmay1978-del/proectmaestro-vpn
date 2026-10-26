@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.profileoverride
 
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -523,9 +524,11 @@ fun PerAppProxyScreen(
                     }
                 }
 
+                // Нижний отступ контента: последняя карточка не должна упираться в панель
+                // «Сохранить» и в подпись под ней.
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(currentPackages, key = { it.packageName }) { packageCache ->
@@ -557,8 +560,10 @@ fun PerAppProxyScreen(
                     Text("Сохранить", color = PremiumText, fontSize = 16.sp, lineHeight = 22.sp,
                         fontWeight = FontWeight.SemiBold)
                 }
+                // Подпись лежит на собственной панели, а не на орнаменте фона.
                 Text(if (!phoneAllApps && selectedUids.isEmpty()) "Выберите хотя бы одно приложение" else "Изменения применяются после сохранения", color = PremiumTextMuted,
-                    modifier = Modifier.padding(vertical = 6.dp), fontSize = 11.sp, lineHeight = 15.sp)
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).approvedMobilePanel()
+                        .padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 11.sp, lineHeight = 15.sp)
             }
         }
     } else {
@@ -731,7 +736,7 @@ fun PerAppProxyScreen(
             shape = if (isTv) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraSmall,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 14.dp else 10.dp),
+                modifier = Modifier.padding(horizontal = if (isTv) 20.dp else PremiumPhoneContentInset, vertical = if (isTv) 14.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -778,7 +783,7 @@ fun PerAppProxyScreen(
                 modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = if (isTv) 34.dp else 16.dp, vertical = if (isTv) 10.dp else 8.dp)
+                    .padding(horizontal = if (isTv) 34.dp else PremiumPhoneContentInset, vertical = if (isTv) 10.dp else 8.dp)
                     .focusRequester(focusRequester),
                 placeholder = { Text(stringResource(R.string.search)) },
                 leadingIcon = {
@@ -809,7 +814,7 @@ fun PerAppProxyScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding =
             androidx.compose.foundation.layout.PaddingValues(
-                horizontal = if (isTv) 34.dp else 16.dp,
+                horizontal = if (isTv) 34.dp else PremiumPhoneContentInset,
                 vertical = if (isTv) 14.dp else 12.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 8.dp),

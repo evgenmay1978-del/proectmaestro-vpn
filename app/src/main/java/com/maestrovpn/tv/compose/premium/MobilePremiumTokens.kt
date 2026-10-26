@@ -9,10 +9,14 @@ internal val PremiumLeather = Color(0xFF1D1510)
 internal val PremiumGold = Color(0xFFE0BD70)
 internal val PremiumGoldMuted = Color(0xFFA8874A)
 internal val PremiumEmerald = Color(0xFF29C965)
-internal val PremiumRuby = Color(0xFFC9564D)
+// Осветлён с 0xFFC9564D: на тёмном дереве прежний оттенок давал контраст 3,6–4,5 при норме 4,5.
+internal val PremiumRuby = Color(0xFFE0705F)
 internal val PremiumText = Color(0xFFF1E8D0)
 internal val PremiumTextMuted = Color(0xFFBDB5A7)
 internal val PremiumTouchTarget = 48.dp
+// Вкладки телефона считают отступ как 8,5% ширины (24…42dp) — на SM-S948B это 35dp. Экраны настроек
+// должны попадать в ту же рамку, иначе плашки шире и наезжают на резную лозу.
+internal val PremiumPhoneContentInset = 35.dp
 internal val PremiumPanelCorner = 18.dp
 
 // Nine-patch artwork is visual-only; callers use these explicit content insets.
