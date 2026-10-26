@@ -291,7 +291,7 @@ internal fun PhoneDashboard(
                     }
                 }
                 PhoneBottomNavigation(activeTab, { navigate("home") }, { navigate("servers") }, { navigate("account") }, { navigate("settings") },
-                    Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 5.dp))
+                    Modifier.fillMaxWidth().padding(horizontal = 15.dp).padding(bottom = 5.dp))
             }
         }
     }

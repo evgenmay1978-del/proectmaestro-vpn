@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.profileoverride
 
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -735,7 +736,7 @@ fun PerAppProxyScreen(
             shape = if (isTv) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraSmall,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 14.dp else 10.dp),
+                modifier = Modifier.padding(horizontal = if (isTv) 20.dp else PremiumPhoneContentInset, vertical = if (isTv) 14.dp else 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -782,7 +783,7 @@ fun PerAppProxyScreen(
                 modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = if (isTv) 34.dp else 16.dp, vertical = if (isTv) 10.dp else 8.dp)
+                    .padding(horizontal = if (isTv) 34.dp else PremiumPhoneContentInset, vertical = if (isTv) 10.dp else 8.dp)
                     .focusRequester(focusRequester),
                 placeholder = { Text(stringResource(R.string.search)) },
                 leadingIcon = {
@@ -813,7 +814,7 @@ fun PerAppProxyScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding =
             androidx.compose.foundation.layout.PaddingValues(
-                horizontal = if (isTv) 34.dp else 16.dp,
+                horizontal = if (isTv) 34.dp else PremiumPhoneContentInset,
                 vertical = if (isTv) 14.dp else 12.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 8.dp),
