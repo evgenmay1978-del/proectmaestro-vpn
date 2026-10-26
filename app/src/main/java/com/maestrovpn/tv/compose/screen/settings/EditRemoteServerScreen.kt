@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.PhoneScreenHeader
 import com.maestrovpn.tv.compose.premium.approvedMobilePanel
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,37 +68,52 @@ fun EditRemoteServerScreen(navController: NavController, serverId: Long = -1L) {
 
     val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
-        TopAppBar(
-            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
-            title = {
-                Text(
-                    stringResource(
-                        if (isNewServer) {
-                            R.string.remote_new_server
-                        } else {
-                            R.string.remote_edit_server
-                        },
-                    ),
-                    fontFamily = PlayfairFamily,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE8C877),
-                    letterSpacing = 1.sp,
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = { navController.navigateUp() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.content_description_back),
-                        tint = GoldMid,
+        if (phoneArtwork) {
+            PhoneScreenHeader(
+                title = stringResource(
+                    if (isNewServer) {
+                        R.string.remote_new_server
+                    } else {
+                        R.string.remote_edit_server
+                    },
+                ),
+                onBack = { navController.navigateUp() },
+                modifier = Modifier.padding(horizontal = PremiumPhoneContentInset),
+                backContentDescription = stringResource(R.string.content_description_back),
+            )
+        } else {
+            TopAppBar(
+                modifier = if (phoneArtwork) Modifier.padding(horizontal = PremiumPhoneContentInset).approvedMobilePanel() else Modifier,
+                title = {
+                    Text(
+                        stringResource(
+                            if (isNewServer) {
+                                R.string.remote_new_server
+                            } else {
+                                R.string.remote_edit_server
+                            },
+                        ),
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE8C877),
+                        letterSpacing = 1.sp,
                     )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
-                titleContentColor = Color(0xFFE8C877),
-            ),
-        )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                            tint = GoldMid,
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
+                    titleContentColor = Color(0xFFE8C877),
+                ),
+            )
+        }
     }
 
     val scope = rememberCoroutineScope()

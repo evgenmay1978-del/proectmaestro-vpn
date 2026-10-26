@@ -299,7 +299,7 @@ internal fun PhoneDashboard(
 
 @Composable
 private fun PhonePageTitle(title: String, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 50.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 50.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад", tint = PremiumGold) }
         Text(title, color = PremiumText, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold)
     }
@@ -318,7 +318,7 @@ private fun PhoneNotice(text: String) { MobilePremiumPanel { PhoneText(text) } }
 @Composable
 private fun PhoneAction(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier, active: Boolean = false, trailingIcon: ImageVector? = null) {
     Row(modifier.approvedMobilePanel(selected = active).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+        .padding(horizontal = 18.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(21.dp))
         Spacer(Modifier.width(7.dp))
         Text(label, modifier = Modifier.weight(1f, fill = false), color = PremiumText, fontSize = 14.sp, lineHeight = 18.sp,
@@ -332,7 +332,7 @@ private fun PhoneAction(label: String, icon: ImageVector, onClick: () -> Unit, m
 
 @Composable
 private fun PhoneWallet(label: String, value: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
-    Row(modifier.approvedMobilePanel().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 11.dp, vertical = 10.dp),
+    Row(modifier.approvedMobilePanel().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(7.dp))
@@ -343,7 +343,7 @@ private fun PhoneWallet(label: String, value: String, icon: ImageVector, modifie
 
 @Composable
 private fun PhoneModes(cdn: Boolean, onOrdinary: () -> Unit, onCdn: () -> Unit) {
-    Row(Modifier.fillMaxWidth().approvedMobilePanel().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Row(Modifier.fillMaxWidth().approvedMobilePanel().padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         PhoneAction("Обычный VPN", Icons.Default.Shield, onOrdinary, Modifier.weight(1.3f), !cdn)
         PhoneAction("CDN", Icons.Default.Storage, onCdn, Modifier.weight(1f), cdn)
     }
@@ -401,7 +401,7 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
 @Composable
 private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
-        .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         if (server.flag.isNotEmpty()) Box(Modifier.size(32.dp).border(1.dp, PremiumGold, CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
             Text(server.flag, fontSize = 29.sp)
         } else Icon(server.icon, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
@@ -417,7 +417,7 @@ private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boo
 @Composable
 private fun PhoneSettingsRow(title: String, detail: String?, icon: ImageVector, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 52.dp)
-        .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 13.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(25.dp))
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(title, color = PremiumText, fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold)
@@ -429,12 +429,14 @@ private fun PhoneSettingsRow(title: String, detail: String?, icon: ImageVector, 
 
 @Composable
 internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: () -> Unit, account: () -> Unit, settings: () -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.approvedMobilePanel(navigation = true).padding(horizontal = 13.dp, vertical = 11.dp)) {
+    // 20dp по бокам и 12dp снизу: угловые волюты и нижняя гирлянда пластины теперь фиксированного
+    // размера (9-patch), и подпись/подчёркивание активной вкладки не должны на них наезжать.
+    Row(modifier.approvedMobilePanel(navigation = true).padding(horizontal = 20.dp, vertical = 12.dp)) {
         listOf(Triple("Главная", Icons.Default.Home, "home"), Triple("Серверы", Icons.Default.Public, "servers"),
             Triple("Подписка", MaestroCrown, "account"), Triple("Настройки", Icons.Default.Settings, "settings"))
             .zip(listOf(home, servers, account, settings)).forEach { (item, action) ->
                 Column(Modifier.weight(1f).heightIn(min = 44.dp).clickable(role = Role.Tab, onClick = action),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     val color = if (active == item.third) PremiumEmerald else PremiumGold
                     Icon(item.second, null, tint = color, modifier = Modifier.size(23.dp))
                     Text(item.first, color = color, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)

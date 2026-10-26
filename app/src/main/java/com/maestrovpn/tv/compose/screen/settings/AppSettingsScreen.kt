@@ -98,7 +98,9 @@ import com.maestrovpn.tv.ktx.clipboardText
 import com.maestrovpn.tv.update.UpdateCheckException
 import com.maestrovpn.tv.update.UpdatePromptProvenance
 import com.maestrovpn.tv.update.UpdateSource
+import com.maestrovpn.tv.compose.premium.PhoneScreenHeader
 import com.maestrovpn.tv.compose.premium.approvedMobilePanel
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
@@ -119,19 +121,28 @@ fun AppSettingsScreen(
 ) {
     val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
-        TopAppBar(
-            colors = if (phoneArtwork) androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent) else androidx.compose.material3.TopAppBarDefaults.topAppBarColors(),
-            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
-            title = { Text(stringResource(R.string.title_app_settings)) },
-            navigationIcon = {
-                IconButton(onClick = { navController.navigateUp() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.content_description_back),
-                    )
-                }
-            },
-        )
+        if (phoneArtwork) {
+            PhoneScreenHeader(
+                title = stringResource(R.string.title_app_settings),
+                onBack = { navController.navigateUp() },
+                modifier = Modifier.padding(horizontal = PremiumPhoneContentInset),
+                backContentDescription = stringResource(R.string.content_description_back),
+            )
+        } else {
+            TopAppBar(
+                colors = if (phoneArtwork) androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent) else androidx.compose.material3.TopAppBarDefaults.topAppBarColors(),
+                modifier = if (phoneArtwork) Modifier.padding(horizontal = PremiumPhoneContentInset).approvedMobilePanel() else Modifier,
+                title = { Text(stringResource(R.string.title_app_settings)) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                        )
+                    }
+                },
+            )
+        }
     }
 
     val context = LocalContext.current
@@ -377,7 +388,7 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                .padding(horizontal = if (phoneArtwork) PremiumPhoneContentInset else 16.dp)
                     .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
@@ -565,7 +576,7 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                .padding(horizontal = if (phoneArtwork) PremiumPhoneContentInset else 16.dp)
                     .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
@@ -654,7 +665,7 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                .padding(horizontal = if (phoneArtwork) PremiumPhoneContentInset else 16.dp)
                     .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
@@ -1102,7 +1113,7 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                .padding(horizontal = if (phoneArtwork) PremiumPhoneContentInset else 16.dp)
                     .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(

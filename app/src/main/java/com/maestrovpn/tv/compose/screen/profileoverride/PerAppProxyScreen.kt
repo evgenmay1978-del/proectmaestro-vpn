@@ -523,9 +523,11 @@ fun PerAppProxyScreen(
                     }
                 }
 
+                // Нижний отступ контента: последняя карточка не должна упираться в панель
+                // «Сохранить» и в подпись под ней.
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(currentPackages, key = { it.packageName }) { packageCache ->
@@ -557,8 +559,10 @@ fun PerAppProxyScreen(
                     Text("Сохранить", color = PremiumText, fontSize = 16.sp, lineHeight = 22.sp,
                         fontWeight = FontWeight.SemiBold)
                 }
+                // Подпись лежит на собственной панели, а не на орнаменте фона.
                 Text(if (!phoneAllApps && selectedUids.isEmpty()) "Выберите хотя бы одно приложение" else "Изменения применяются после сохранения", color = PremiumTextMuted,
-                    modifier = Modifier.padding(vertical = 6.dp), fontSize = 11.sp, lineHeight = 15.sp)
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).approvedMobilePanel()
+                        .padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 11.sp, lineHeight = 15.sp)
             }
         }
     } else {

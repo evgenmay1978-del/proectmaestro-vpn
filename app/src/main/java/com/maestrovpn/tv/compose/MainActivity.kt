@@ -17,6 +17,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -80,7 +82,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -117,6 +121,10 @@ import com.maestrovpn.tv.compose.navigation.Screen
 import com.maestrovpn.tv.compose.navigation.bottomNavigationScreens
 import com.maestrovpn.tv.compose.premium.ApprovedMobileBackground
 import com.maestrovpn.tv.compose.premium.ApprovedMobileBrand
+import com.maestrovpn.tv.compose.premium.PremiumGold
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
+import com.maestrovpn.tv.compose.premium.PremiumText
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import com.maestrovpn.tv.compose.screen.tvhome.PhoneBottomNavigation
 import com.maestrovpn.tv.compose.screen.configuration.ProfileImportHandler
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
@@ -1010,8 +1018,8 @@ class MainActivity :
                 (currentRoute == Screen.Settings.route ||
                     (currentRoute?.startsWith("settings/") == true && !currentRoute.orEmpty().endsWith("/manage")))
             if (legacyPhoneHeader) {
-                Column(Modifier.background(Color(0xFF120D09)).statusBarsPadding()) {
-                    ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = 30.dp).height(62.dp))
+                Column(Modifier.statusBarsPadding()) {
+                    ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = PremiumPhoneContentInset).height(62.dp))
                     topBarOverride?.invoke()
                 }
             } else topBarOverride?.invoke()
@@ -1024,7 +1032,6 @@ class MainActivity :
                     .padding(paddingValues)
                     .then(if (!isTelevision(this@MainActivity)) Modifier.consumeWindowInsets(paddingValues) else Modifier),
             ) {
-                if (!isTelevision(this@MainActivity)) ApprovedMobileBackground(Modifier.fillMaxSize())
                 // TV routes share the same graphite base as the premium home. Individual
                 // screens may add their own subtle lighting, but the legacy wood artwork must
                 // never show through while navigating away from home. Phone rendering is
@@ -1215,14 +1222,28 @@ class MainActivity :
                             .align(Alignment.BottomEnd)
                             .padding(16.dp),
                     ) {
-                        FloatingActionButton(
-                            onClick = { startService() },
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        // Плоский Material-FAB выглядел коричневой заплаткой поверх резного дерева:
+                        // вместо него та же пластина, что у кнопок на экранах, с подписью «Начать».
+                        Row(
+                            modifier = Modifier
+                                .heightIn(min = 54.dp)
+                                .approvedMobilePanel(selected = true)
+                                .clickable(role = Role.Button, onClick = { startService() })
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
-                                contentDescription = stringResource(R.string.action_start),
+                                contentDescription = null,
+                                tint = PremiumGold,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.action_start),
+                                color = PremiumText,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
@@ -1243,6 +1264,11 @@ class MainActivity :
         }
 
         CompositionLocalProvider(LocalTopBarController provides topBarController) {
+            // Резная подложка лежит ПОД всем экраном (включая полосу статус-бара и область под нижней
+            // навигацией), а не только внутри контента Scaffold: иначе сверху и снизу на «Приложениях
+            // и VPN» и «Параметрах» оставались чёрные полосы.
+            Box(Modifier.fillMaxSize()) {
+                if (!isTelevision(this@MainActivity)) ApprovedMobileBackground(Modifier.fillMaxSize())
             if (useNavigationRail) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     if (railScreens.isNotEmpty()) Surface(tonalElevation = 1.dp) {
@@ -1285,6 +1311,7 @@ class MainActivity :
 
                     Scaffold(
                         modifier = Modifier.weight(1f),
+                        containerColor = if (isTelevision(this@MainActivity)) MaterialTheme.colorScheme.background else Color.Transparent,
                         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                         topBar = topBarContent,
                     ) { paddingValues ->
@@ -1294,6 +1321,7 @@ class MainActivity :
             } else {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    containerColor = if (isTelevision(this@MainActivity)) MaterialTheme.colorScheme.background else Color.Transparent,
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     topBar = topBarContent,
                     contentWindowInsets = if (mobileHomeUsesFullWindow(
@@ -1367,6 +1395,7 @@ class MainActivity :
                 ) { paddingValues ->
                     scaffoldContent(paddingValues)
                 }
+            }
             }
         }
 

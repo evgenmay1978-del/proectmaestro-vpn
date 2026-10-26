@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.PhoneScreenHeader
 import com.maestrovpn.tv.compose.premium.approvedMobilePanel
+import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,23 +56,31 @@ fun SettingsScreen(navController: NavController) {
     val isTv = rememberIsTv()
     val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
-        TopAppBar(
-            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
-            title = {
-                Text(
-                    stringResource(R.string.title_settings),
-                    fontFamily = if (isTv) FontFamily.SansSerif else PlayfairFamily,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
-                    letterSpacing = if (isTv) 0.sp else 1.sp,
-                    modifier = if (isTv) Modifier.padding(start = 32.dp) else Modifier,
-                )
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color.Transparent,
-                titleContentColor = Color(0xFFE8C877),
-            ),
-        )
+        if (isTv) {
+            TopAppBar(
+                modifier = if (phoneArtwork) Modifier.padding(horizontal = PremiumPhoneContentInset).approvedMobilePanel() else Modifier,
+                title = {
+                    Text(
+                        stringResource(R.string.title_settings),
+                        fontFamily = if (isTv) FontFamily.SansSerif else PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
+                        letterSpacing = if (isTv) 0.sp else 1.sp,
+                        modifier = if (isTv) Modifier.padding(start = 32.dp) else Modifier,
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = Color(0xFFE8C877),
+                ),
+            )
+        } else {
+            PhoneScreenHeader(
+                title = stringResource(R.string.title_settings),
+                onBack = { navController.navigateUp() },
+                modifier = Modifier.padding(horizontal = PremiumPhoneContentInset),
+            )
+        }
     }
 
     val hasUpdate by UpdateState.hasUpdate
