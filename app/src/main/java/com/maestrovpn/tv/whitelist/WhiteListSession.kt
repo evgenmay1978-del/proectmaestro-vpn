@@ -158,7 +158,10 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                 val waitMs = remaining - lastFetchMs - 250L
                 if (waitMs >= 100L) delay(waitMs.coerceAtMost(1_000L))
                 if (!valid(live)) {
-                    expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+                    // Same reasoning as in armExpiry (D2): the lease lapsing is not a network change,
+                    // so the ordinary (paid) nodes are still usable and the tunnel must fall back to
+                    // them instead of being torn down with them.
+                    expire(live, restoreOrdinary = true)
                     break
                 }
                 val fetchStarted = SystemClock.elapsedRealtime()
@@ -235,7 +238,14 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
             (live.deadline - SystemClock.elapsedRealtime()))
         expiryExecutor.schedule({
             synchronized(live) {
-                if (permit.get() === live && !valid(live)) expire(live, restoreOrdinary = network() != live.network)
+                // D2 (audit 28.10.2026): a lapsed CDN lease used to tear down the WHOLE tunnel when
+                // the network had not changed — restoreOrdinary was false, so BoxService got a null
+                // ordinary tag, stopped the box and wiped startedByUser (no autostart after reboot),
+                // taking the paid ordinary nodes down with the CDN session. The lease lapsing only
+                // revokes the CDN node: ask for the ordinary rollback unconditionally and let
+                // expire()/restoreOrdinary decide (ordinaryTag == null → nothing to restore → the
+                // old stop path stays).
+                if (permit.get() === live && !valid(live)) expire(live, restoreOrdinary = true)
             }
         }, delayMs, TimeUnit.MILLISECONDS)
     }
