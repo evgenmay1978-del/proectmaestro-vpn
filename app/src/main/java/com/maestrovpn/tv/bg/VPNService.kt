@@ -79,16 +79,25 @@ class VPNService :
         }
 
         val inet4Address = options.inet4Address
+        var inet4Count = 0
         while (inet4Address.hasNext()) {
             val address = inet4Address.next()
             builder.addAddress(address.address(), address.prefix())
+            inet4Count++
         }
 
         val inet6Address = options.inet6Address
+        var inet6Count = 0
         while (inet6Address.hasNext()) {
             val address = inet6Address.next()
             builder.addAddress(address.address(), address.prefix())
+            inet6Count++
         }
+
+        // The device-side proof that the tun captured both families; the engine log cannot be read
+        // after a failed start, so the counts go to the diary as well.
+        Log.d("VPNService", "tun families: inet4=" + inet4Count + " inet6=" + inet6Count + " mtu=" + tunMtu)
+        StartupDiag.log("tun", "families inet4=" + inet4Count + " inet6=" + inet6Count + " mtu=" + tunMtu)
 
         if (options.autoRoute) {
             if (options.dnsMode.value != Libbox.DNSModeDisabled) {

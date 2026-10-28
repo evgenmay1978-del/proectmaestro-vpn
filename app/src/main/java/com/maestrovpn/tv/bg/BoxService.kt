@@ -37,12 +37,14 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.vendor.Vendor
+import com.maestrovpn.tv.whitelist.TunIpv6
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.whitelist.WhiteListSession
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -195,19 +197,42 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
                 })
+                // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
+                // untouched. The engine merges all "address" entries into the device, so the family is
+                // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and
+                // rejected the whole config (1.0.177).
+                val withIpv6 = TunIpv6.ensure(effective).let { candidate ->
+                    when {
+                        candidate === effective -> effective
+                        // The engine's own verdict on the exact bytes is the only proof they are accepted;
+                        // a rejected rewrite must never reach the tunnel.
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tun IPv6: injected")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "ipv6 rejected by the engine — kept the original config")
+                            effective
+                        }
+                    }
+                }
+                StartupDiag.log(
+                    "apply",
+                    "cdn=" + cdn + " bytes=" + withIpv6.length + " ipv6Injected=" + (withIpv6 !== effective),
+                )
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
                 if (cdn) {
                     // Diagnose-02.10.2026: a valid injected CDN config was never used by the engine
                     // (traffic stayed on the ordinary nodes while the UI showed CDN connected), so the
                     // engine's own verdict on the exact bytes we hand over is logged before the call.
-                    val verdict = runCatching { Libbox.checkConfig(effective) }.exceptionOrNull()
-                    Log.d(TAG, "cdn apply: bytes=" + effective.length + " hasCdnTag=" + effective.contains("cdn:") +
+                    val verdict = runCatching { Libbox.checkConfig(withIpv6) }.exceptionOrNull()
+                    Log.d(TAG, "cdn apply: bytes=" + withIpv6.length + " hasCdnTag=" + withIpv6.contains("cdn:") +
                         " checkConfig=" + (verdict?.message ?: "ok"))
                     if (verdict != null) throw IllegalStateException("CDN: конфигурация отклонена ядром", verdict)
                 }
-                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + effective.length)
-                commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
+                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + withIpv6.length)
+                commandServer.startOrReloadService(withIpv6, buildOverrideOptions(withIpv6, cdn))
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()
                     closeService()
@@ -242,6 +267,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun startService() {
+        StartupDiag.init(runCatching { service.getExternalFilesDir(null) }.getOrNull() ?: service.filesDir)
+        StartupDiag.log("start", "requested")
         try {
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
@@ -297,6 +324,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 if (status.value == Status.Stopping || status.value == Status.Stopped) return@withContext false
                 status.value = Status.Started
                 notification.show(lastProfileName, R.string.status_started)
+                StartupDiag.log("status", "started")
                 true
             }
             if (!started) return
@@ -459,6 +487,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // nothing ("иногда невозможно отключить"). Idempotent: skip only if already
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
+        StartupDiag.log("stop", "requested")
         status.value = Status.Stopping
         whiteListSession?.close()
         WhiteListSelection.clear()
@@ -496,6 +525,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             withContext(Dispatchers.Main) {
                 status.value = Status.Stopped
+                StartupDiag.log("status", "stopped")
                 // stopForeground(REMOVE) + stopSelf() ALWAYS run, even if the close above
                 // timed out — destroying the VPNService is what guarantees Android tears down
                 // the tun interface, so the VPN can never get stuck "on".
@@ -514,6 +544,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
+        // The message can carry a config fragment, so only the alert kind is recorded.
+        StartupDiag.log("alert", type.name)
+        StartupDiag.publish(service)
         whiteListSession?.close()
         WhiteListSelection.clear()
         // Only failures that need the USER to act (no profile, a missing permission) cancel
@@ -558,7 +591,22 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // re-establishes the tunnel. Closes the one survivability gap of the old
         // START_NOT_STICKY (a low-memory mid-session kill stayed dead until reopen); reboots
         // are already covered by BootReceiver.
-        if (status.value != Status.Stopped) return Service.START_STICKY
+        if (status.value == Status.Stopping) {
+            // The teardown is bounded but the user can tap connect inside it. Dropping that request
+            // left the UI dark until an app restart ("выключил и не включилось"). Defer it instead.
+            StartupDiag.log("start", "deferred: stopping")
+            GlobalScope.launch(Dispatchers.IO) {
+                withTimeoutOrNull(STOP_CLOSE_TIMEOUT + 2_000L) {
+                    while (status.value == Status.Stopping) delay(100)
+                }
+                if (status.value == Status.Stopped) onStartCommand()
+            }
+            return Service.START_STICKY
+        }
+        if (status.value != Status.Stopped) {
+            StartupDiag.log("start", "ignored: status=" + status.value)
+            return Service.START_STICKY
+        }
         status.value = Status.Starting
 
         if (!receiverRegistered) {
