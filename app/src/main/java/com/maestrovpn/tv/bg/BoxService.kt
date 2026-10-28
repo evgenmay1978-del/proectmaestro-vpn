@@ -50,7 +50,6 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -82,14 +81,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // asynchronously would race with the next start and could silently drop the fresh one.
         private val WATCHDOG_NETWORK = Any()
 
-        /**
-         * How long "connecting" may last before the gate gives up. The probe runs within ~2 s of the
-         * start and every 3-35 s after a failure, so a healthy start reports "connected" in seconds;
-         * this bound only exists so that a device with no usable path cannot sit in the very same
-         * endless "connecting" state this defect is about.
-         */
-        private const val STARTUP_GATE_MS = 30_000L
-
         fun start() {
             val intent =
                 runBlocking {
@@ -117,16 +108,15 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private lateinit var commandServer: CommandServer
     private val contentMutex = Mutex()
 
-    // D3 (audit 28.10.2026): "Started" used to be posted as soon as the engine accepted the config
-    // — a REQUEST, not proof that a single byte can cross the tunnel. Every applied config now
-    // carries a loopback SOCKS5 entry (ProbeInbound) and the status follows a real HTTPS request
-    // through it. probeEndpoint stays null when the config cannot carry the entry or the engine
-    // rejects it; the pre-D3 immediate start is kept then, because a probe we cannot run must never
-    // wedge every client on "Подключение…".
+    // D3 (audit 28.10.2026) asked for proof that traffic crosses the tunnel; 1.0.178 shipped it as a
+    // HARD gate and the owner's own LTE disproved the premise: the same healthy nodes stall a TLS
+    // handshake past 4.5 s often enough that "probe failed" is NOT evidence of a dead tunnel — the gate
+    // then stopped a working tunnel. 1.0.179 keeps the probe channel and the watchdog as a MONITOR that
+    // may reshuffle the path, while status follows the engine's acceptance of the config (the 1.0.176
+    // behaviour the fleet runs today). Every decision is recorded in StartupDiag.
     @Volatile
     private var probeEndpoint: ProbeInbound.Endpoint? = null
     private var tunnelWatchdog: TunnelWatchdog? = null
-    private var watchdogGate: Job? = null
 
     // DefaultNetworkListener re-delivers the same Network on every capability change; only a genuinely
     // different network (or losing it) is worth a watchdog event — otherwise every capabilities update
@@ -253,6 +243,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     if (verdict != null) throw IllegalStateException("CDN: конфигурация отклонена ядром", verdict)
                 }
                 Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + applied.length)
+                StartupDiag.log(
+                    "apply",
+                    "cdn=" + cdn + " bytes=" + applied.length + " ipv6Injected=" + (withIpv6 !== effective),
+                )
                 commandServer.startOrReloadService(applied, buildOverrideOptions(applied, cdn))
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()
@@ -295,6 +289,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun startService() {
+        StartupDiag.init(runCatching { service.getExternalFilesDir(null) }.getOrNull() ?: service.filesDir)
+        StartupDiag.log("start", "requested")
         try {
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
@@ -371,15 +367,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val probed = ProbeInbound.attach(config)
         if (probed == null) {
             probeEndpoint = null
+            StartupDiag.log("probe-inbound", "not attached (config shape)")
             return config
         }
         val defect = runCatching { Libbox.checkConfig(probed.config) }.exceptionOrNull()
         if (defect != null) {
             probeEndpoint = null
             Log.w(TAG, "probe inbound rejected by the engine: " + defect.message + " — liveness probe disabled")
+            StartupDiag.log("probe-inbound", "rejected by the engine: " + defect.message)
             return config
         }
         probeEndpoint = probed.endpoint
+        StartupDiag.log("probe-inbound", "attached port=" + probed.endpoint.port)
         return probed.config
     }
 
@@ -395,19 +394,24 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             true
         }
         if (!started) return
-        watchdogGate?.cancel()
-        watchdogGate = null
+        StartupDiag.log("status", "started: the engine accepted the applied config")
         acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
         notification.start()
     }
 
     /**
-     * Watches the applied config: probes every 25-35 s and, when the path dies, redials once, waits,
-     * then leaves a dead CDN edge for the ordinary nodes (or stops honestly). One edge per session:
-     * per-edge advance needs WhiteListSession to open a session for a different transport profile,
-     * which it does not support yet — the ordinary rollback is the safer second step today.
+     * Watches the applied config: probes every 25-35 s and, when the path looks dead, redials once and
+     * then leaves the CDN edge for the ordinary nodes (the D2 rollback). It NEVER stops the tunnel and
+     * never publishes a probe verdict as "the tunnel is down": measured on the owner's LTE
+     * (28.10.2026) a healthy handshake stalls past 4.5 s on a sizeable minority of attempts, and
+     * 1.0.178 killed a WORKING tunnel on exactly that evidence. A monitor may reshuffle the path; it
+     * may not pull the plug.
      */
     private suspend fun startTunnelWatchdog() {
+        // Status does NOT wait for proof (1.0.179): the engine accepted the config, so the user is
+        // connected — the same moment 1.0.176 reported. Verification keeps running in the background
+        // and is recorded in StartupDiag instead of gating the UI.
+        markStarted()
         if (probeEndpoint == null) return
         stopTunnelWatchdog()
         val host = TunnelWatchdog(
@@ -426,15 +430,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         tunnelWatchdog = host
         host.start(1)
         DefaultNetworkListener.start(WATCHDOG_NETWORK) { network -> onWatchdogNetwork(network) }
-        // Bound the "connecting" state: with no path at all the machine just waits for a network, so
-        // without this timer the UI would show "connecting" forever — the symptom this work removes.
-        watchdogGate = GlobalScope.launch(Dispatchers.IO) {
-            delay(STARTUP_GATE_MS)
-            if (status.value != Status.Starting || tunnelWatchdog == null) return@launch
-            Log.w(TAG, "startup gate: no live traffic in ${STARTUP_GATE_MS / 1000}s — giving up on this start")
-            watchdogGate = null   // this job is the caller: stopTunnelWatchdog must not cancel it mid-fallback
-            runCatching { fallbackOrGiveUp() }
-        }
+        StartupDiag.log("watchdog", "armed")
     }
 
     /** Forwards ONLY changes: the listener also re-delivers the same network on capability updates. */
@@ -446,12 +442,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             previous != network
         }
         if (!changed) return
+        StartupDiag.log("network", if (network != null) "available (transport changed)" else "lost")
         if (network != null) host.networkAvailable() else host.networkLost()
     }
 
     private fun stopTunnelWatchdog() {
-        watchdogGate?.cancel()
-        watchdogGate = null
         tunnelWatchdog?.stop()
         tunnelWatchdog = null
     }
@@ -471,8 +466,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         if (result.ok) {
             Log.d(TAG, "probe ok status=" + result.status + " in " + result.elapsedMs + "ms")
+            StartupDiag.log("probe", "ok status=" + result.status + " in " + result.elapsedMs + "ms")
         } else {
             Log.d(TAG, "probe failed failure=" + result.failure + " elapsed=" + result.elapsedMs + "ms")
+            StartupDiag.log("probe", "failed failure=" + result.failure + " elapsed=" + result.elapsedMs + "ms")
         }
         return result.ok
     }
@@ -484,14 +481,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val sourceAccount = WhiteListSelection.account()
         val profile = ProfileManager.get(request?.profileId ?: sourceAccount.first) ?: return
         Log.d(TAG, "watchdog redial edge=" + edge + " profile=" + profile.id)
+        StartupDiag.log("redial", "edge=" + edge + " profile=" + profile.id)
         applySelectedContent(File(profile.typed.path).readText(), sourceAccount, request)
     }
 
     /**
-     * The current path is proven dead. Leave a CDN edge for the ordinary nodes when the selector has
-     * them (the D2 rollback machinery), then keep watching the ordinary path; with nothing to fall
-     * back to, stop honestly — a green UI over a dead tunnel is the defect being fixed. startedByUser
-     * is NOT cleared: this failure is not the user's to fix, so autostart after reboot must survive.
+     * The watchdog has run out of patience with the current path. Leave a CDN edge for the ordinary
+     * nodes when the selector has them (the D2 rollback machinery), then keep watching the ordinary
+     * path. With nothing to fall back to the tunnel is KEPT and watched again: 1.0.179 removed the
+     * "stop honestly" branch of 1.0.178 because a probe timeout is not proof of a dead tunnel (see
+     * startTunnelWatchdog). startedByUser is NOT cleared: this failure is not the user's to fix, so
+     * autostart after reboot must survive.
      */
     private suspend fun fallbackOrGiveUp() {
         stopTunnelWatchdog()
@@ -506,6 +506,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 if (restored != null) {
                     val applied = runCatching { applySelectedContent(content, sourceAccount, restored) }.getOrDefault(false)
                     if (applied) {
+                        StartupDiag.log("fallback", "rolled back to the ordinary nodes")
                         Log.d(TAG, "watchdog fell back to ordinary nodes")
                         startTunnelWatchdog()
                         return
@@ -513,8 +514,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
         }
+        StartupDiag.log("fallback", "no ordinary path available — tunnel kept, watchdog re-armed")
+        Log.w(TAG, "watchdog: no fallback available — keeping the tunnel and watching it")
         if (status.value == Status.Starting || status.value == Status.Started) {
-            stopAndAlert(Alert.CreateService, "Туннель не пропускает трафик: подключение остановлено")
+            startTunnelWatchdog()
         }
     }
 

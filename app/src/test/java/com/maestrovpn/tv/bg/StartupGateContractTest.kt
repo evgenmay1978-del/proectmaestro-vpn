@@ -1,63 +1,66 @@
 package com.maestrovpn.tv.bg
 
 import java.io.File
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * D3 contract, second half: gating "connected" behind a real probe must not recreate the endless
- * "connecting" state that D1 fixed. The probe starts within ~2 s and keeps retrying with backoff, so
- * a healthy start reports "connected" in seconds. If NO path exists at all the watchdog machine merely
- * waits for a network (state WAITING_NETWORK), so without a bound the UI would spin forever.
+ * 1.0.179 contract, and the reason 1.0.178 is not shippable: a probe timeout is NOT proof of a dead
+ * tunnel. Measured on the owner's LTE (28.10.2026) the same healthy nodes complete a TLS handshake in
+ * 0.2-0.6 s most of the time and stall past 4.5 s on a sizable minority of attempts, so the 30 s
+ * "startup gate" stopped a WORKING tunnel and showed "Туннель не пропускает трафик".
  *
- * The gate is a 30 s timer armed together with the watchdog, cancelled when the tunnel proves live
- * (markStarted) and whenever the watchdog is torn down.
+ * The startup path may therefore publish Started when the engine accepted the config (the 1.0.176
+ * behaviour) and must never stop the tunnel on probe evidence. Verification stays as a background
+ * monitor whose decisions go to StartupDiag.
  */
 class StartupGateContractTest {
     @Test
-    fun theStartupGateIsArmedWithTheWatchdog() {
-        val body = startWatchdogBody(source())
-
-        assertTrue("gate constant must exist", source().contains("STARTUP_GATE_MS = 30_000L"))
-        assertTrue("watchdog start must arm the gate timer", body.contains("watchdogGate = GlobalScope.launch"))
-        assertTrue("gate must wait before giving up", body.contains("delay(STARTUP_GATE_MS)"))
-    }
-
-    @Test
-    fun theGateOnlyGivesUpWhileStillConnecting() {
-        val body = startWatchdogBody(source())
-
-        assertTrue(
-            "gate must re-check that the service is still connecting",
-            body.contains("if (status.value != Status.Starting || tunnelWatchdog == null) return@launch"),
-        )
-        assertTrue("gate must fall back instead of lying about the status", body.contains("fallbackOrGiveUp()"))
-        assertFalse("gate must never publish Started by itself", body.contains("status.value = Status.Started"))
-    }
-
-    @Test
-    fun theGateIsClearedWhenTheTunnelProvesLiveOrStops() {
+    fun theDestructiveGateIsGone() {
         val whole = source()
-        val started = section(whole, "private suspend fun markStarted()", "private suspend fun startTunnelWatchdog()")
-        val stopped = section(whole, "private fun stopTunnelWatchdog()", "private suspend fun probeTunnel(")
 
-        val gate = startWatchdogBody(whole).substringAfter("watchdogGate = GlobalScope.launch")
-
-        assertEquals("markStarted must cancel the gate", 1, count(started, "watchdogGate?.cancel()"))
-        assertEquals("teardown must cancel the gate", 1, count(stopped, "watchdogGate?.cancel()"))
-        val dropped = gate.indexOf("watchdogGate = null")
-        val fallback = gate.indexOf("fallbackOrGiveUp()")
-        assertTrue(
-            "the timer must drop its own reference before falling back ($dropped vs $fallback)",
-            dropped >= 0 && fallback > dropped,
-        )
+        assertFalse("no 30 s give-up timer", whole.contains("STARTUP_GATE_MS"))
+        assertFalse("no gate job", whole.contains("watchdogGate"))
     }
 
-    /** startTunnelWatchdog() body: from its declaration to the next declaration. */
-    private fun startWatchdogBody(source: String): String =
-        section(source, "private suspend fun startTunnelWatchdog()", "private fun onWatchdogNetwork(")
+    @Test
+    fun noStartupPathStopsTheTunnelOnProbeEvidence() {
+        val whole = source()
+
+        assertFalse(
+            "the 1.0.178 alert text must be gone",
+            whole.contains("Туннель не пропускает трафик"),
+        )
+        val fallback = section(whole, "private suspend fun fallbackOrGiveUp()", "override fun serviceStop()")
+        assertFalse("the fallback may not stop the service", fallback.contains("stopAndAlert"))
+        assertTrue("the fallback must re-arm the watchdog", fallback.contains("startTunnelWatchdog()"))
+    }
+
+    @Test
+    fun statusDoesNotWaitForTheProbe() {
+        val whole = source()
+        val body = section(whole, "private suspend fun startTunnelWatchdog()", "private fun onWatchdogNetwork(")
+
+        val started = body.indexOf("markStarted()")
+        val gated = body.indexOf("if (probeEndpoint == null) return")
+        assertTrue("the watchdog start must publish Started ($started)", started >= 0)
+        assertTrue("Started must come before the probe channel check ($started vs $gated)", gated > started)
+    }
+
+    @Test
+    fun theProbeChannelStaysAMonitor() {
+        val whole = source()
+
+        assertTrue(
+            "the config still carries the probe inbound",
+            whole.contains("attachProbeInbound("),
+        )
+        assertTrue(
+            "probe decisions are recorded for post-mortem",
+            whole.contains("StartupDiag.log(\"probe\""),
+        )
+    }
 
     private fun section(source: String, from: String, to: String): String {
         val start = source.indexOf(from)
@@ -66,8 +69,6 @@ class StartupGateContractTest {
         require(end > start) { "cannot delimit $from" }
         return source.substring(start, end)
     }
-
-    private fun count(haystack: String, needle: String): Int = haystack.windowed(needle.length).count { it == needle }
 
     private fun source(): String = appFile("src/main/java/com/maestrovpn/tv/bg/BoxService.kt").readText()
 

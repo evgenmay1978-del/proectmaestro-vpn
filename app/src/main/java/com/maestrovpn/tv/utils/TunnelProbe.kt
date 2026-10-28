@@ -33,10 +33,16 @@ internal object TunnelProbe {
     /**
      * Matches WhiteListWatchdogPolicy.probeTimeoutMillis so a probe can never outlive the watchdog
      * cycle that started it.
+     *
+     * 20 s total and 10 s per target, NOT 9 s/4.5 s: measured on the owner's LTE (28.10.2026) the
+     * SAME healthy nodes completed TLS handshakes in 0.2-0.6 s most of the time and stalled for
+     * 4.5-9+ s on a sizeable minority of attempts (CZ AnyTLS: 2 of 4 probes to one host sat until
+     * the 4.5 s budget expired). A 4.5 s per-target budget therefore reported a WORKING tunnel as
+     * dead, and 1.0.178 stopped the tunnel on that verdict. A mobile path needs slack, not speed.
      */
-    const val TIMEOUT_MS = 9_000
+    const val TIMEOUT_MS = 20_000
     private const val MAX_STATUS_LINE = 256
-    private const val MIN_TARGET_MS = 2_500
+    internal const val MIN_TARGET_MS = 10_000
     private const val DEADLINE_MESSAGE = "tunnel probe deadline"
 
     private class Deadline : IOException(DEADLINE_MESSAGE)
@@ -65,6 +71,13 @@ internal object TunnelProbe {
     fun targets(): List<TunnelProbeTarget> = listOf(neutralTarget(), gstaticTarget()).distinct()
 
     /**
+     * Per-target budget: the shared timeout split between the targets, but never below
+     * MIN_TARGET_MS, so a slow-but-alive handshake is not cut short by the split itself.
+     * Pure, so the arithmetic is covered by a unit test instead of a live network.
+     */
+    fun perTargetBudget(timeoutMs: Int, count: Int): Int = maxOf(MIN_TARGET_MS, timeoutMs / count.coerceAtLeast(1))
+
+    /**
      * Tries every target inside ONE shared budget so a watchdog cycle can never be stretched past
      * probeTimeoutMillis. Any valid HTTP status counts as proof: the request left the device through
      * the tunnel and came back.
@@ -77,7 +90,7 @@ internal object TunnelProbe {
     ): TunnelProbeResult {
         if (candidates.isEmpty()) return TunnelProbeResult(false, null, 0, "no-target")
         val started = System.nanoTime()
-        val perTarget = maxOf(MIN_TARGET_MS, timeoutMs / candidates.size)
+        val perTarget = perTargetBudget(timeoutMs, candidates.size)
         var last: TunnelProbeResult? = null
         for (target in candidates) {
             val result = probe(socksPort, credentials, target, perTarget)

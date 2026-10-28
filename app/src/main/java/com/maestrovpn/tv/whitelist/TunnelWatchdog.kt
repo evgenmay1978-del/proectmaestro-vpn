@@ -40,18 +40,21 @@ internal class TunnelWatchdog(
 ) {
     companion object {
         /**
-         * Startup must converge in ~30 s: the first failure redials at once (the usual cause is a
-         * stale edge or a race with the tun coming up), the third one abandons this path. Steady
-         * state probes every 25-35 s — the same cadence the state machine ships with.
+         * Monitor cadence, not a kill switch: the watchdog reshuffles the path and never stops the
+         * tunnel (see BoxService.startTunnelWatchdog). The thresholds assume a flaky mobile path, not
+         * an idle lab one — measured on the owner's LTE a healthy node stalls a handshake past 4.5 s
+         * on a minority of attempts, so ONE failed probe must not restart the engine (that would drop
+         * live connections every half minute). Two consecutive failures redial, four leave the CDN
+         * edge; probes run every 25-35 s with a 20 s budget.
          */
         val POLICY = WhiteListWatchdogPolicy(
             intervalMinMillis = 25_000,
             intervalMaxMillis = 35_000,
-            probeTimeoutMillis = 9_000,
+            probeTimeoutMillis = 20_000,
             baseBackoffMillis = 3_000,
             maxBackoffMillis = 12_000,
-            redialAfterFailures = 1,
-            advanceEdgeAfterFailures = 3,
+            redialAfterFailures = 2,
+            advanceEdgeAfterFailures = 4,
         )
     }
 

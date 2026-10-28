@@ -3,7 +3,9 @@ package com.maestrovpn.tv.whitelist
 data class WhiteListWatchdogPolicy(
     val intervalMinMillis: Long = 25_000,
     val intervalMaxMillis: Long = 35_000,
-    val probeTimeoutMillis: Long = 9_000,
+    // Matches TunnelProbe.TIMEOUT_MS (20 s, 10 s per target). 9 s/4.5 s produced false "dead
+    // tunnel" verdicts on the owner's LTE, where a healthy handshake may stall for several seconds.
+    val probeTimeoutMillis: Long = 20_000,
     val baseBackoffMillis: Long = 5_000,
     val maxBackoffMillis: Long = 120_000,
     val redialAfterFailures: Int = 3,
