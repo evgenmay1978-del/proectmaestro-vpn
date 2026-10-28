@@ -16,3 +16,5 @@ graphify-out/
 __pycache__/
 *.pyc
 .maestro-state/
+# pinned sing-box binary fetched by the CI engine gate (never committed)
+.sbx/

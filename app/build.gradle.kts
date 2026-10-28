@@ -382,3 +382,12 @@ spotless {
         googleJavaFormat()
     }
 }
+
+// Engine gate (28.10.2026): SingBoxEngineGateTest asks the pinned sing-box binary whether the bytes
+// this app hands over are accepted at all. Both are forwarded explicitly — with nothing forwarded
+// the worker would see no engine and the gate would pass by skipping, which is exactly the hole the
+// 404-green-unit-test release slipped through.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty("sbx.bin", System.getenv("SINGBOX_BIN") ?: "")
+    systemProperty("sbx.gate", (findProperty("sbxGate") as String?) ?: "")
+}
