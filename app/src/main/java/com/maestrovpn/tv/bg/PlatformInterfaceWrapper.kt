@@ -33,12 +33,23 @@ import java.net.InetSocketAddress
 import java.net.InterfaceAddress
 import java.net.NetworkInterface
 import java.security.KeyStore
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import io.nekohasekai.libbox.NeighborEntry as LibboxNeighborEntry
 import io.nekohasekai.libbox.NetworkInterface as LibboxNetworkInterface
 
 private var neighborCallback: INeighborTableCallback.Stub? = null
+
+/**
+ * "Owner unknown" is the ordinary answer for sockets the kernel cannot attribute (a few hundred a
+ * minute on a busy TV box) and libbox expects it as an exception. Logging each one with a stack
+ * trace flooded logcat with W/System.err and buried the lines that mattered; keep the first hit and
+ * then one per [UNRESOLVED_OWNER_LOG_EVERY] so the channel stays observable without the flood.
+ */
+private val unresolvedOwnerHits = AtomicInteger()
+
+private const val UNRESOLVED_OWNER_LOG_EVERY = 200
 
 interface PlatformInterfaceWrapper : PlatformInterface {
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
@@ -75,8 +86,14 @@ interface PlatformInterfaceWrapper : PlatformInterface {
             owner.setAndroidPackageNames(StringArray(packages?.toList()?.iterator() ?: emptyList<String>().iterator()))
             return owner
         } catch (e: Exception) {
-            Log.e("PlatformInterface", "getConnectionOwnerUid", e)
-            e.printStackTrace(System.err)
+            val hits = unresolvedOwnerHits.incrementAndGet()
+            if (hits == 1 || hits % UNRESOLVED_OWNER_LOG_EVERY == 0) {
+                Log.d(
+                    "PlatformInterface",
+                    "connection owner unavailable (" + hits + " so far): " +
+                        (e.message ?: e.javaClass.simpleName),
+                )
+            }
             throw e
         }
     }
