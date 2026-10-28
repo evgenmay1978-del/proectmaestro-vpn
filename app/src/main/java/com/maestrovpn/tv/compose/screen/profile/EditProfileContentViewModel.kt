@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.Libbox
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.ktx.unwrap
@@ -232,7 +233,7 @@ class EditProfileContentViewModel(private val profileId: Long, initialIsReadOnly
 
                 // Save to file without validation
                 profile?.let { p ->
-                    File(p.typed.path).writeText(currentContent)
+                    UpdateProfileWork.writeAtomic(File(p.typed.path), currentContent)
                 }
 
                 _uiState.update {

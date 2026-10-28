@@ -261,7 +261,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 // Check if content changed
                 val file = File(profile.typed.path)
                 if (!file.exists() || file.readText() != content) {
-                    file.writeText(content)
+                    UpdateProfileWork.writeAtomic(file, content)
                     if (profile.id == Settings.selectedProfile) {
                         selectedProfileUpdated = true
                     }

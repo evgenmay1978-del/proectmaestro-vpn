@@ -155,7 +155,7 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
         val existing = ProfileManager.list().firstOrNull { MaestroSub.token(it.typed.remoteURL) == MaestroSub.token(subUrl) }
         if (existing != null) {
             existing.typed.remoteURL = subUrl
-            File(existing.typed.path).writeText(content)
+            UpdateProfileWork.writeAtomic(File(existing.typed.path), content)
             existing.typed.lastUpdated = Date()
             ProfileManager.update(existing)
             Settings.selectedProfile = existing.id

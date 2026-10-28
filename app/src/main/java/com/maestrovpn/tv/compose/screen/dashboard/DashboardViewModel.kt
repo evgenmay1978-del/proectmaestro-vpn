@@ -5,6 +5,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OutboundGroup
 import io.nekohasekai.libbox.StatusMessage
 import com.maestrovpn.tv.bg.BoxService
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.constant.Status
@@ -375,7 +376,7 @@ class DashboardViewModel :
                 val file = File(profile.typed.path)
                 var contentChanged = false
                 if (!file.exists() || file.readText() != content) {
-                    file.writeText(content)
+                    UpdateProfileWork.writeAtomic(file, content)
                     contentChanged = true
                 }
 

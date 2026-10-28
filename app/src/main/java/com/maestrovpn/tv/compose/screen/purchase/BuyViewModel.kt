@@ -222,7 +222,7 @@ class BuyViewModel @JvmOverloads constructor(
         val existing = ProfileManager.list().firstOrNull { MaestroSub.token(it.typed.remoteURL) == MaestroSub.token(devUrl) }
         if (existing != null) {
             existing.typed.remoteURL = devUrl
-            File(existing.typed.path).writeText(content)
+            UpdateProfileWork.writeAtomic(File(existing.typed.path), content)
             existing.typed.lastUpdated = Date()
             ProfileManager.update(existing)
             Settings.selectedProfile = existing.id

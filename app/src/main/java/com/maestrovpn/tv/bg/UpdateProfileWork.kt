@@ -76,7 +76,7 @@ class UpdateProfileWork {
          * profile file bare, no checkConfig) — a torn read stops a live tunnel with an error, so
          * all writers go through [writeAtomic]: every reader sees old or new, never a mix.
          */
-        private fun writeAtomic(file: File, content: String) {
+        internal fun writeAtomic(file: File, content: String) {
             val tmp = File(file.parentFile, file.name + ".tmp")
             tmp.writeText(content)
             if (!tmp.renameTo(file)) { // some vendor ROMs fail renameTo → degrade to the old path
