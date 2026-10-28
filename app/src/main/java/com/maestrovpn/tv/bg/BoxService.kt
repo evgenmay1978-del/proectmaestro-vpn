@@ -49,6 +49,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -79,6 +80,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // CURRENT host (a volatile field), so a stale registration is inert, while unregistering it
         // asynchronously would race with the next start and could silently drop the fresh one.
         private val WATCHDOG_NETWORK = Any()
+
+        /**
+         * How long "connecting" may last before the gate gives up. The probe runs within ~2 s of the
+         * start and every 3-35 s after a failure, so a healthy start reports "connected" in seconds;
+         * this bound only exists so that a device with no usable path cannot sit in the very same
+         * endless "connecting" state this defect is about.
+         */
+        private const val STARTUP_GATE_MS = 30_000L
 
         fun start() {
             val intent =
@@ -116,6 +125,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Volatile
     private var probeEndpoint: ProbeInbound.Endpoint? = null
     private var tunnelWatchdog: TunnelWatchdog? = null
+    private var watchdogGate: Job? = null
 
     // DefaultNetworkListener re-delivers the same Network on every capability change; only a genuinely
     // different network (or losing it) is worth a watchdog event — otherwise every capabilities update
@@ -379,6 +389,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             true
         }
         if (!started) return
+        watchdogGate?.cancel()
+        watchdogGate = null
         acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
         notification.start()
     }
@@ -408,6 +420,15 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         tunnelWatchdog = host
         host.start(1)
         DefaultNetworkListener.start(WATCHDOG_NETWORK) { network -> onWatchdogNetwork(network) }
+        // Bound the "connecting" state: with no path at all the machine just waits for a network, so
+        // without this timer the UI would show "connecting" forever — the symptom this work removes.
+        watchdogGate = GlobalScope.launch(Dispatchers.IO) {
+            delay(STARTUP_GATE_MS)
+            if (status.value != Status.Starting || tunnelWatchdog == null) return@launch
+            Log.w(TAG, "startup gate: no live traffic in ${STARTUP_GATE_MS / 1000}s — giving up on this start")
+            watchdogGate = null   // this job is the caller: stopTunnelWatchdog must not cancel it mid-fallback
+            runCatching { fallbackOrGiveUp() }
+        }
     }
 
     /** Forwards ONLY changes: the listener also re-delivers the same network on capability updates. */
@@ -423,6 +444,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun stopTunnelWatchdog() {
+        watchdogGate?.cancel()
+        watchdogGate = null
         tunnelWatchdog?.stop()
         tunnelWatchdog = null
     }
