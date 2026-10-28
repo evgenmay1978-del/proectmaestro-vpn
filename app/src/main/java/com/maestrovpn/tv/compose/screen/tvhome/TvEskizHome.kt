@@ -120,7 +120,7 @@ internal fun TvEskizHome(
         scope.launch(Dispatchers.IO) {
             val ok = ConnectivityCheck.isOnline()
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, if (ok) "Соединение работает" else "Нет соединения", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, ConnectivityCheck.verdict(ok, connected), Toast.LENGTH_LONG).show()
             }
         }
     }
