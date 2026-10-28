@@ -22,7 +22,7 @@ class ProbeLoopbackContractTest {
     fun theMainSourcesNeverDialTheSystemLoopbackAddress() {
         val sources = sources()
         assertTrue("the scan must see the app sources, saw " + sources.size, sources.size > 150)
-        val offenders = sources.filter { it.readText().contains(SYSTEM_LOOPBACK) }
+        val offenders = sources.filter { file -> codeLines(file).any { it.contains(SYSTEM_LOOPBACK) } }
             .map { it.relativeTo(moduleDir()).path }
         assertTrue(
             "on Android " + SYSTEM_LOOPBACK + " is the IPv6 loopback (::1) and never reaches the " +
@@ -41,6 +41,16 @@ class ProbeLoopbackContractTest {
             listener.readText().contains("""put("listen", "127.0.0.1")"""),
         )
     }
+
+    /**
+     * The contract is about code, not prose: the KDoc in Socks5Tunnel that explains why the helper is
+     * banned has to name it. A call cannot live on a line that begins with a comment marker, while a
+     * call followed by a trailing comment ("...getLoopbackAddress() // why") stays a code line and is
+     * still caught.
+     */
+    private fun codeLines(file: File): List<String> =
+        file.readLines().map { it.trim() }
+            .filterNot { it.startsWith("//") || it.startsWith("*") || it.startsWith("/*") }
 
     private fun sources(): List<File> =
         moduleDir().resolve("src/main").walkTopDown()
