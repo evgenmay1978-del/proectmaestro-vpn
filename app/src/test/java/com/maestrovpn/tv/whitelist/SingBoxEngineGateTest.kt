@@ -61,6 +61,48 @@ class SingBoxEngineGateTest {
         assertAccepted(engine, applied, "cdn")
     }
 
+    /**
+     * The panel serves a DIFFERENT profile to our own client (User-Agent SFA/…): 8513 B with a naive
+     * outbound and a top-level "endpoints" array holding the AmneziaWG endpoint — our libbox is
+     * built with the with_awg tag and accepts it, the upstream pin does not. This test pins that
+     * split instead of hiding it: if the upstream binary ever starts to accept "awg", the gate must
+     * be re-read, not silently "fixed".
+     */
+    @Test
+    fun theRealProfileShapeIsRejectedUpstreamOnlyBecauseOfAwg() {
+        val engine = requireEngine()
+        val applied = TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(realProfile))
+        val (code, output) = check(engine, applied, "real-awg")
+        assertTrue("upstream must stop at the awg endpoint, rc=" + code + " output:\n" + output, code != 0)
+        assertTrue("only the awg endpoint may be the complaint, output:\n" + output, output.contains(AWG_REJECTED))
+    }
+
+    /** Everything else of the real profile shape must still be valid for the pinned engine. */
+    @Test
+    fun theRealProfileShapeWithoutAwgIsAccepted() {
+        val engine = requireEngine()
+        val applied = TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(withoutAwgEndpoint(realProfile)))
+        assertAccepted(engine, applied, "real-noawg")
+    }
+
+    /**
+     * The engine cannot check the awg endpoint, and our client must not mangle it either: the
+     * rewrite is allowed to touch the tun "address" list only.
+     */
+    @Test
+    fun ourRewriteKeepsTheAwgEndpointIntact() {
+        val original = Json.parseToJsonElement(realProfile) as JsonObject
+        val applied = Json.parseToJsonElement(
+            TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(realProfile)),
+        ) as JsonObject
+        assertEquals("the endpoints array must survive the rewrite unchanged", original["endpoints"], applied["endpoints"])
+        val tun = (applied["inbounds"] as JsonArray)
+            .single { ((it as JsonObject)["type"] as? JsonPrimitive)?.content == "tun" } as JsonObject
+        val addresses = (tun["address"] as JsonArray).map { it.toString() }
+        assertEquals("the IPv6 prefix must be appended to the existing list", 2, addresses.size)
+        assertTrue("the panel prefix must stay first, got " + addresses, addresses.first().contains("172.19.0.1/30"))
+    }
+
     @Test
     fun aRemovedFamilyKeyIsRejectedWithTheLegacyError() {
         val engine = requireEngine()
@@ -221,6 +263,59 @@ class SingBoxEngineGateTest {
         }
     """.trimIndent()
 
+    /**
+     * Shape of the profile the panel hands to our own app: selector/urltest that also list the awg
+     * endpoint, a naive outbound, and the AmneziaWG endpoint in the top-level "endpoints" array.
+     * Keys and tags are synthetic; the point is the shape, which upstream cannot validate.
+     */
+    private val realProfile = """
+        {
+          "log": {"level": "warn"},
+          "inbounds": [
+            {"type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30"],
+             "auto_route": true, "endpoint_independent_nat": true, "stack": "system", "strict_route": true}
+          ],
+          "outbounds": [
+            {"type": "direct", "tag": "direct"},
+            {"type": "vless", "tag": "es", "server": "203.0.113.10", "server_port": 2096,
+             "uuid": "00000000-0000-4000-8000-000000000001", "tls": {"enabled": true, "server_name": "es.example"}},
+            {"type": "naive", "tag": "cz-naive", "server": "203.0.113.11", "server_port": 443,
+             "username": "user", "password": "pass", "tls": {"enabled": true, "server_name": "cz.example"}},
+            {"type": "urltest", "tag": "auto", "outbounds": ["es", "awg"],
+             "url": "https://www.gstatic.com/generate_204"},
+            {"type": "selector", "tag": "select", "outbounds": ["auto", "es", "cz-naive", "awg", "direct"],
+             "default": "auto"}
+          ],
+          "endpoints": [
+            {"type": "awg", "tag": "awg", "mtu": 1280,
+             "private_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+             "peers": [{"address": "203.0.113.12", "port": 51820,
+                        "public_key": "Hx8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgEA",
+                        "allowed_ips": ["0.0.0.0/0", "::/0"], "persistent_keepalive_interval": 25}]}
+          ],
+          "route": {
+            "final": "select",
+            "rules": [{"action": "route", "ip_is_private": true, "outbound": "direct"}]
+          }
+        }
+    """.trimIndent()
+
+    /** Drops the awg endpoint and every reference to its tag, for the upstream validation stage. */
+    private fun withoutAwgEndpoint(base: String): String {
+        val root = Json.parseToJsonElement(base) as JsonObject
+        val endpoints = (root["endpoints"] as JsonArray).filterNot { element ->
+            (element as? JsonObject)?.let { (it["type"] as? JsonPrimitive)?.content } == "awg"
+        }
+        val outbounds = (root["outbounds"] as JsonArray).map { element ->
+            val outbound = element as JsonObject
+            val choices = outbound["outbounds"] as? JsonArray ?: return@map element
+            if (choices.none { (it as? JsonPrimitive)?.content == "awg" }) return@map element
+            val kept = choices.filterNot { (it as? JsonPrimitive)?.content == "awg" }
+            JsonObject(outbound + ("outbounds" to JsonArray(kept)))
+        }
+        return (root + ("endpoints" to JsonArray(endpoints)) + ("outbounds" to JsonArray(outbounds))).toString()
+    }
+
     private val cdnRoute = WhiteListRuntimeRoute(
         routeId = "r1",
         label = "gate",
@@ -243,5 +338,6 @@ class SingBoxEngineGateTest {
         const val LEGACY_ERROR =
             "legacy tun address fields are deprecated in sing-box 1.10.0 and removed in sing-box 1.12.0"
         val REMOVED_KEY = "inet6" + "_" + "address"
+        const val AWG_REJECTED = "unknown endpoint type: awg"
     }
 }
