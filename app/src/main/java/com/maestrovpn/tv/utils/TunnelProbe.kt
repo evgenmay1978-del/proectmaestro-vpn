@@ -1,11 +1,13 @@
 package com.maestrovpn.tv.utils
 
+import android.os.Build
 import com.maestrovpn.tv.BuildConfig
 import java.io.IOException
 import java.io.InputStream
 import java.net.URL
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
@@ -118,11 +120,20 @@ internal object TunnelProbe {
         val tls = factory.createSocket(tunnel, target.host, target.port, false) as SSLSocket
         try {
             tls.soTimeout = remaining(deadline)
-            val parameters = tls.sslParameters
             // A probe that a MITM can answer with any valid certificate is worthless as evidence.
-            parameters.endpointIdentificationAlgorithm = "HTTPS"
-            tls.sslParameters = parameters
+            // Endpoint identification inside the handshake needs API 24; on 23 the handshake is
+            // verified against the same host right after it, so minSdk 23 keeps a checked probe.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val parameters = tls.sslParameters
+                parameters.endpointIdentificationAlgorithm = "HTTPS"
+                tls.sslParameters = parameters
+            }
             tls.startHandshake()
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(target.host, tls.session)) {
+                    throw IOException("probe hostname mismatch")
+                }
+            }
             val request = "GET " + target.path + " HTTP/1.1\r\nHost: " + target.host +
                 "\r\nUser-Agent: maestro-probe\r\nAccept: */*\r\nConnection: close\r\n\r\n"
             val output = tls.outputStream
