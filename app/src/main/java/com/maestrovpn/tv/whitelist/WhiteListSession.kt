@@ -101,7 +101,14 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         var lastFetchMs = (SystemClock.elapsedRealtime() - initialFetchStarted).coerceAtLeast(0L)
         val route = runtime.profiles.singleOrNull { it.tag == request.tag } ?: return null
         val lookup = dnsExecutor.submit<Array<InetAddress>> { network.getAllByName(route.address) }
-        val addresses = try { lookup.get(1, TimeUnit.SECONDS) } finally { lookup.cancel(true) }
+        // The edge DNS lookup gets the same budget as the panel request itself: on cellular the panel
+        // round trip measures 2.4-2.8 s (CDN-APP-164-DEFECTS-2026-10-02), so a 1 s lookup budget was
+        // systematically out of reach. prepare() then threw TimeoutException, BoxService reported
+        // "CDN: подключение недоступно" and stopAndAlert tore down the WHOLE tunnel — paid ordinary
+        // nodes included (D7 audit 28.10.2026).
+        val addresses = try {
+            lookup.get(WhiteListRuntimeClient.REQUEST_LIMIT_MS, TimeUnit.MILLISECONDS)
+        } finally { lookup.cancel(true) }
         val address = addresses.filterIsInstance<Inet4Address>().firstOrNull {
             !it.isAnyLocalAddress && !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isSiteLocalAddress && !it.isMulticastAddress
         }?.hostAddress ?: return null

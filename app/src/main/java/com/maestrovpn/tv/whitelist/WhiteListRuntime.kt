@@ -40,7 +40,8 @@ internal data class WhiteListRuntime(
 
 internal object WhiteListRuntimeClient {
     private const val LIMIT = 65_536
-    private const val REQUEST_LIMIT_MS = 3_000L
+    /** One budget for the whole control-plane round trip; WhiteListSession reuses it for the edge DNS lookup. */
+    internal const val REQUEST_LIMIT_MS = 3_000L
     private val deadlineExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "cdn-request-deadline").apply { isDaemon = true }
     }
