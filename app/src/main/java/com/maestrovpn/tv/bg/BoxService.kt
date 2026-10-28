@@ -221,7 +221,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             } catch (e: Exception) {
                 whiteListSession?.close()
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
-                if (cdn && WhiteListSession.network() == null) {
+                // D2 root, startup half: a CDN session that failed to come up (DNS budget, rejected
+                // bytes, a dead edge, the native client not starting) used to stop the whole box
+                // whenever cellular was present — the ordinary nodes were alive but never tried.
+                // Roll back whenever a rollback target exists; only a config without ordinary nodes
+                // (ordinaryTag == null) stops the tunnel.
+                // The account guard stays authoritative: a switched account still aborts instead of
+                // silently rolling an old account's selection back.
+                if (cdn && WhiteListSelection.account() == sourceAccount) {
                     val ordinaryTag = WhiteListConfig.ordinaryTag(content)
                     if (ordinaryTag != null && WhiteListSelection.restoreOrdinary(requireNotNull(request), ordinaryTag) != null) return@repeat
                 }

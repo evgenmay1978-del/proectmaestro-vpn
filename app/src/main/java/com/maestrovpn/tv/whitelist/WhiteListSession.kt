@@ -131,7 +131,10 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         }
         if (!watchWifi(live) || !valid(live)) {
             DefaultNetworkListener.stop(live)
-            expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+            // D2 root: a CDN session that never came up must not take the paid ordinary nodes down
+            // with it. The rollback target comes from the original config (WhiteListConfig.ordinaryTag)
+            // — with no target the tunnel still stops, the stop path stays for ordinaryTag == null.
+            expire(live, restoreOrdinary = true)
             return null
         }
         // The native client is a separate process now: a mobile round trip to the panel (~2 s) plus
@@ -177,7 +180,9 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                     val foreign = fresh != null && (fresh.desiredGeneration != live.desiredGeneration ||
                         fresh.profiles.singleOrNull { it.tag == request.tag } != live.route)
                     when {
-                        foreign -> expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+                        // D2 root: the panel rotating the projection or the route is a CDN-side
+                        // event, not a reason to drop the ordinary nodes the client paid for.
+                        foreign -> expire(live, restoreOrdinary = true)
                         fresh == null || !fresh.fresh(SystemClock.elapsedRealtime()) || !valid(live) -> Unit
                         else -> {
                             live.deadline = fresh.deadlineMillis
@@ -190,7 +195,9 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val payload = WhiteListConfig.payload(route, address, port, user, pass)
         val result = try { XhttpProcess.start(id, payload) } finally { payload.fill(0) }
         if (result != 0 || !valid(live)) {
-            expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+            // D2 root: the native client failing to start is a CDN-side failure as well — ordinary
+            // nodes still work, so ask for the rollback instead of tearing the box down.
+            expire(live, restoreOrdinary = true)
             stopPending = stopExecutor.submit { XhttpProcess.stop(id) }
             return null
         }

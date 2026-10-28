@@ -36,13 +36,29 @@ class WhiteListLeaseFallbackContractTest {
     }
 
     @Test
-    fun renewalLoopAsksForTheOrdinaryRollbackWhenTheLeaseLapses() {
+    fun renewalLoopAsksForTheOrdinaryRollbackOnEveryTeardown() {
         val renewalBody = session.substringAfter("renewal = scope.launch {").substringBefore("val payload")
         assertEquals(
-            "the lapsed-lease branch must fall back to ordinary (D2)",
-            1,
+            "both renewal teardowns (lapsed lease and a foreign projection) must fall back to ordinary (D2)",
+            2,
             Regex("expire\\(live, restoreOrdinary = true\\)").findAll(renewalBody).count(),
         )
+        assertFalse(
+            "the renewal loop must not derive the rollback from the network — that was the defect",
+            renewalBody.contains("live.network"),
+        )
+    }
+
+    @Test
+    fun everySessionTeardownAsksForTheOrdinaryRollback() {
+        val sites = session.lines().filter { it.contains("expire(live, restoreOrdinary") }
+        assertEquals("every expire() call site is pinned here", 7, sites.size)
+        sites.forEach { line ->
+            assertTrue(
+                "all teardown paths must request the ordinary rollback: $line",
+                line.contains("restoreOrdinary = true"),
+            )
+        }
     }
 
     @Test
