@@ -79,9 +79,11 @@ class VPNService :
         }
 
         val inet4Address = options.inet4Address
+        var inet4Count = 0
         while (inet4Address.hasNext()) {
             val address = inet4Address.next()
             builder.addAddress(address.address(), address.prefix())
+            inet4Count++
         }
 
         val inet6Address = options.inet6Address
@@ -99,6 +101,12 @@ class VPNService :
             "VPNService",
             if (inet6Count == 0) "tun families: inet6=0 (IPv6 NOT captured — config declares no IPv6 address)"
             else "tun families: inet6=" + inet6Count,
+        )
+        // The same fact in the on-device diary: logcat is unreadable after the fact (read-only adb
+        // shell, 256 KiB window), so every claim about captured families must survive in a file.
+        StartupDiag.log(
+            "tun",
+            "families inet4=" + inet4Count + " inet6=" + inet6Count + " mtu=" + tunMtu,
         )
 
         if (options.autoRoute) {
