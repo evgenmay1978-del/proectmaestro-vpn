@@ -39,6 +39,18 @@ internal object Socks5Tunnel {
     private const val MAX_HOST_BYTES = 255
     private const val MAX_CREDENTIAL_BYTES = 255
 
+    /**
+     * The exact address the probe inbound ([com.maestrovpn.tv.whitelist.ProbeInbound] binds
+     * "listen": "127.0.0.1") and the CDN helper listen on, as a plain IPv4 literal.
+     *
+     * NOT InetAddress.getLoopbackAddress(): on Android that returns the IPv6 loopback (::1) while the
+     * IPv6 stack is up, so the dial never reached the IPv4-only listener. Measured on the owner's
+     * device with 1.0.179 (28.10.2026): /proc/net/tcp showed uid 10525 LISTEN on 0100007F:<probe port>
+     * and startup.log recorded "probe failed failure=connect elapsed=1ms" on every cycle, so the
+     * watchdog re-applied the config every ~25 s forever. A literal needs no DNS.
+     */
+    private val PROXY_ADDRESS: InetAddress = InetAddress.getByName("127.0.0.1")
+
     /** Only used for the CDN helper process; the probe inbound has no authentication. */
     data class Credentials(val username: String, val password: String) {
         override fun toString(): String = "Credentials(redacted)"
@@ -73,7 +85,7 @@ internal object Socks5Tunnel {
         var failure = Failure.CONNECT
         try {
             socket.tcpNoDelay = true
-            socket.connect(InetSocketAddress(InetAddress.getLoopbackAddress(), proxyPort), remainingMillis(deadline))
+            socket.connect(InetSocketAddress(PROXY_ADDRESS, proxyPort), remainingMillis(deadline))
             socket.soTimeout = remainingMillis(deadline)
             val output = socket.getOutputStream()
             val input = socket.getInputStream()
