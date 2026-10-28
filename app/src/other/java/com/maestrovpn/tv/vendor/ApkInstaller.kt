@@ -156,6 +156,14 @@ object ApkInstaller {
                 Log.w(TAG, "VPN service still running after stop timeout; aborting install")
                 throw IOException("VPN service still running; install aborted")
             }
+            // D5 (аудит 28.10.2026): успешная установка убивает процесс на коммите пакетной сессии;
+            // система шлёт MY_PACKAGE_REPLACED, и BootReceiver поднимает VPN только при
+            // Settings.startedByUser=true. stopService() ТОЛЬКО ЧТО стёр этот флаг
+            // (BoxService.kt:469), потому что остановка неотличима от пользовательской — но она
+            // наша, ради обновления, и интент пользователя обязан её пережить; иначе КАЖДЫЙ
+            // успешный OTA тихо выключает автостарт («после обновления VPN сам не поднимается»).
+            // Условие то же, что у восстановления после срыва: гасили мы + юзер включал.
+            if (shouldRestoreTunnel) Settings.startedByUser = true
             when (method) {
                 InstallMethod.SHIZUKU -> ShizukuInstaller.install(apkFile)
                 InstallMethod.ROOT -> RootInstaller.install(apkFile)
