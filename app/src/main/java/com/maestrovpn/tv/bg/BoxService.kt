@@ -318,7 +318,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         WhiteListSelection.clear()
         releaseWakeLock()
         notification.close()
-        status.postValue(Status.Starting)
+        // The core stopped the box on its own (config rejected, outbound unavailable).
+        // Upstream (io.nekohasekai/sfa bg/BoxService.kt:183) posts Starting here because it
+        // immediately re-starts the engine; we never do, so Starting was a dead end: the UI
+        // stuck on "Подключение…" forever (stopService() only exits on Stopping/Stopped, and
+        // onStartCommand ignores a start while status != Stopped). Report the truth instead.
+        status.postValue(Status.Stopped)
         val pfd = fileDescriptor
         if (pfd != null) {
             pfd.close()
