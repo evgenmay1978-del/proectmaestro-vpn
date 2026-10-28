@@ -25,7 +25,9 @@ class TunnelProbeBudgetTest {
 
     @Test
     fun anEmptyTargetListDoesNotDivideByZero() {
-        assertEquals(TunnelProbe.MIN_TARGET_MS, TunnelProbe.perTargetBudget(20_000, 0))
+        // Nothing to split: the whole timeout is the budget. Only the division must not throw.
+        assertEquals(20_000, TunnelProbe.perTargetBudget(20_000, 0))
+        assertEquals(20_000, TunnelProbe.perTargetBudget(20_000, -1))
     }
 
     @Test
