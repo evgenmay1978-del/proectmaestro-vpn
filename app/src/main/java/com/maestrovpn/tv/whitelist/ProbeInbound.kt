@@ -43,7 +43,9 @@ internal object ProbeInbound {
     /** Returns null when the config cannot carry the probe entry; the caller keeps the original. */
     fun attach(base: String): Attached? {
         val root = runCatching { Json.parseToJsonElement(base) as? JsonObject }.getOrNull() ?: return null
-        val inbounds = (root["inbounds"] as? JsonArray)?.toList() ?: emptyList()
+        // Only touch a shape we recognise: a config without an inbounds array is not something the
+        // app produces, and guessing what to do with it is exactly how a diagnostic breaks a tunnel.
+        val inbounds = (root["inbounds"] as? JsonArray)?.toList() ?: return null
         val tags = inbounds.mapNotNull { ((it as? JsonObject)?.get("tag") as? JsonPrimitive)?.content }
         if (TAG in tags) return null
         val port = freePort() ?: return null
