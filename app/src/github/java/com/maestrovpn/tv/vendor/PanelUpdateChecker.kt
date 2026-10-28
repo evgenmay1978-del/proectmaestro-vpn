@@ -8,7 +8,9 @@ import io.nekohasekai.libbox.Libbox
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import com.maestrovpn.tv.utils.withHttpDeadline
 import java.io.Closeable
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Panel-hosted update channel. The app prefers this over GitHub because the
@@ -29,6 +31,11 @@ class PanelUpdateChecker : Closeable {
     companion object {
         private val BASE = BuildConfig.BACKEND_URL.trimEnd('/')
         private val MANIFEST_URL = "$BASE/update/update.json"
+
+        // The manifest is a few hundred bytes and the panel answers in 2.4-2.8 s on cellular;
+        // 8 s covers a slow RU mobile round trip with margin. Without this bound a panel that
+        // accepts TLS and then stalls hangs UpdateWorker / onResume forever (D13).
+        private const val CHECK_TIMEOUT_MS = 8_000L
     }
 
     private val client = Libbox.newHTTPClient().apply {
@@ -36,9 +43,14 @@ class PanelUpdateChecker : Closeable {
         keepAlive()
     }
 
+    private val closed = AtomicBoolean(false)
+
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun checkUpdate(): UpdateInfo? {
+    fun checkUpdate(): UpdateInfo? =
+        withHttpDeadline(CHECK_TIMEOUT_MS, ::close) { fetchManifest() }
+
+    private fun fetchManifest(): UpdateInfo? {
         val request = client.newRequest()
         request.setURL(MANIFEST_URL)
         request.setUserAgent(HTTPClient.userAgent)
@@ -77,7 +89,9 @@ class PanelUpdateChecker : Closeable {
     }
 
     override fun close() {
-        client.close()
+        // Idempotent: the timeout path closes the client to abort a stalled request, and the
+        // caller's use { } closes it again.
+        if (closed.compareAndSet(false, true)) client.close()
     }
 
     @Serializable

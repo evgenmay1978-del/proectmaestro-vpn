@@ -10,12 +10,19 @@ import com.maestrovpn.tv.utils.HTTPClient
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import com.maestrovpn.tv.utils.withHttpDeadline
 import java.io.Closeable
+import java.util.concurrent.atomic.AtomicBoolean
 
 class GitHubUpdateChecker : Closeable {
     companion object {
         private const val RELEASES_URL = "https://api.github.com/repos/evgenmay1978-del/proectmaestro-vpn/releases"
         private const val METADATA_FILENAME = "version-metadata.json"
+
+        // One releases page plus one version-metadata.json per candidate release. GitHub is the
+        // fallback channel only (foreign-blocked in RU), so the bound is wider than the panel's;
+        // the point is that the caller always returns (D13).
+        private const val CHECK_TIMEOUT_MS = 20_000L
     }
 
     private val client = Libbox.newHTTPClient().apply {
@@ -23,9 +30,14 @@ class GitHubUpdateChecker : Closeable {
         keepAlive()
     }
 
+    private val closed = AtomicBoolean(false)
+
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun checkUpdate(track: UpdateTrack): UpdateInfo? {
+    fun checkUpdate(track: UpdateTrack): UpdateInfo? =
+        withHttpDeadline(CHECK_TIMEOUT_MS, ::close) { checkUpdateUnbounded(track) }
+
+    private fun checkUpdateUnbounded(track: UpdateTrack): UpdateInfo? {
         val releases = getReleases()
         var selected: ReleaseCandidate? = null
 
@@ -122,7 +134,9 @@ class GitHubUpdateChecker : Closeable {
     }
 
     override fun close() {
-        client.close()
+        // Idempotent: the timeout path closes the client to abort a stalled request, and the
+        // caller's use { } closes it again.
+        if (closed.compareAndSet(false, true)) client.close()
     }
 
     @Serializable
