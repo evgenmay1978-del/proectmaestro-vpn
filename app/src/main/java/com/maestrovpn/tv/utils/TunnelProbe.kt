@@ -36,6 +36,7 @@ internal object TunnelProbe {
      */
     const val TIMEOUT_MS = 9_000
     private const val MAX_STATUS_LINE = 256
+    private const val MIN_TARGET_MS = 2_500
     private const val DEADLINE_MESSAGE = "tunnel probe deadline"
 
     private class Deadline : IOException(DEADLINE_MESSAGE)
@@ -51,6 +52,38 @@ internal object TunnelProbe {
         val host = url.host
         if (host.isNullOrBlank()) return null
         return runCatching { TunnelProbeTarget(host, if (url.port > 0) url.port else 443, url.path) }.getOrNull()
+    }
+
+    /**
+     * Second opinion, independent of our own infrastructure: a captive portal or a broken route to
+     * one host must not be reported as "the tunnel carries no traffic".
+     */
+    fun neutralTarget(): TunnelProbeTarget = TunnelProbeTarget("www.google.com", 443, "/generate_204")
+
+    fun targets(): List<TunnelProbeTarget> = listOfNotNull(panelTarget(), neutralTarget()).distinct()
+
+    /**
+     * Tries every target inside ONE shared budget so a watchdog cycle can never be stretched past
+     * probeTimeoutMillis. Any valid HTTP status counts as proof: the request left the device through
+     * the tunnel and came back.
+     */
+    fun probeAny(
+        socksPort: Int,
+        credentials: Socks5Tunnel.Credentials? = null,
+        candidates: List<TunnelProbeTarget> = targets(),
+        timeoutMs: Int = TIMEOUT_MS,
+    ): TunnelProbeResult {
+        if (candidates.isEmpty()) return TunnelProbeResult(false, null, 0, "no-target")
+        val started = System.nanoTime()
+        val perTarget = maxOf(MIN_TARGET_MS, timeoutMs / candidates.size)
+        var last: TunnelProbeResult? = null
+        for (target in candidates) {
+            val result = probe(socksPort, credentials, target, perTarget)
+            if (result.ok) return result
+            last = result
+        }
+        val failed = last ?: return TunnelProbeResult(false, null, elapsed(started), "no-target")
+        return TunnelProbeResult(false, failed.status, elapsed(started), failed.failure)
     }
 
     fun probe(

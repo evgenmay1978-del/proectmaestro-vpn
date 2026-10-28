@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -37,11 +38,16 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.vendor.Vendor
+import com.maestrovpn.tv.utils.Socks5Tunnel
+import com.maestrovpn.tv.utils.TunnelProbe
+import com.maestrovpn.tv.whitelist.ProbeInbound
+import com.maestrovpn.tv.whitelist.TunnelWatchdog
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.whitelist.WhiteListSession
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -66,6 +72,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // libbox command thread waits before it's freed (the reload still applies when the
         // detached job finishes). 10s tolerates a legitimately-slow rebuild.
         private const val RELOAD_TIMEOUT = 10000L
+
+        // Stable key for the watchdog's network listener. DefaultNetworkListener REPLACES a listener
+        // registered under the same key, so a service restart can never accumulate stale entries. The
+        // registration itself is deliberately kept for the process lifetime: it forwards only to the
+        // CURRENT host (a volatile field), so a stale registration is inert, while unregistering it
+        // asynchronously would race with the next start and could silently drop the fresh one.
+        private val WATCHDOG_NETWORK = Any()
 
         fun start() {
             val intent =
@@ -93,6 +106,22 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
     private val contentMutex = Mutex()
+
+    // D3 (audit 28.10.2026): "Started" used to be posted as soon as the engine accepted the config
+    // — a REQUEST, not proof that a single byte can cross the tunnel. Every applied config now
+    // carries a loopback SOCKS5 entry (ProbeInbound) and the status follows a real HTTPS request
+    // through it. probeEndpoint stays null when the config cannot carry the entry or the engine
+    // rejects it; the pre-D3 immediate start is kept then, because a probe we cannot run must never
+    // wedge every client on "Подключение…".
+    @Volatile
+    private var probeEndpoint: ProbeInbound.Endpoint? = null
+    private var tunnelWatchdog: TunnelWatchdog? = null
+
+    // DefaultNetworkListener re-delivers the same Network on every capability change; only a genuinely
+    // different network (or losing it) is worth a watchdog event — otherwise every capabilities update
+    // would trigger a redial and reset the session.
+    private var watchdogNetwork: Network? = null
+    private val watchdogNetworkGuard = Any()
     private val whiteListSession = (service as? VPNService)?.let { vpn ->
         WhiteListSession(vpn) { expired, ordinaryTag ->
             val restored = ordinaryTag?.let { WhiteListSelection.restoreOrdinary(expired, it) }
@@ -197,17 +226,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 })
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
+                val applied = attachProbeInbound(effective)
                 if (cdn) {
                     // Diagnose-02.10.2026: a valid injected CDN config was never used by the engine
                     // (traffic stayed on the ordinary nodes while the UI showed CDN connected), so the
                     // engine's own verdict on the exact bytes we hand over is logged before the call.
-                    val verdict = runCatching { Libbox.checkConfig(effective) }.exceptionOrNull()
-                    Log.d(TAG, "cdn apply: bytes=" + effective.length + " hasCdnTag=" + effective.contains("cdn:") +
+                    val verdict = runCatching { Libbox.checkConfig(applied) }.exceptionOrNull()
+                    Log.d(TAG, "cdn apply: bytes=" + applied.length + " hasCdnTag=" + applied.contains("cdn:") +
                         " checkConfig=" + (verdict?.message ?: "ok"))
                     if (verdict != null) throw IllegalStateException("CDN: конфигурация отклонена ядром", verdict)
                 }
-                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + effective.length)
-                commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
+                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + applied.length)
+                commandServer.startOrReloadService(applied, buildOverrideOptions(applied, cdn))
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()
                     closeService()
@@ -293,15 +323,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
-            val started = withContext(Dispatchers.Main) {
-                if (status.value == Status.Stopping || status.value == Status.Stopped) return@withContext false
-                status.value = Status.Started
-                notification.show(lastProfileName, R.string.status_started)
-                true
-            }
-            if (!started) return
-            acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
-            notification.start()
+            // The config is applied; what remains is PROOF that it carries traffic. Status goes to
+            // Started only after a probe comes back through the tunnel — that is the D3 fix. Without
+            // a probe channel the old immediate start is kept, so a device where the engine refuses
+            // the extra inbound behaves exactly as before instead of hanging on "Подключение…".
+            if (probeEndpoint == null) markStarted() else startTunnelWatchdog()
             // A selection received after configuration applied but while status was Starting
             // has no live command feed yet. Consume it here instead of losing that wake-up.
             WhiteListSelection.current()?.let { requested ->
@@ -313,7 +339,151 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
+    /**
+     * Adds the loopback SOCKS5 entry the liveness probe dials into. The ENGINE gets the last word:
+     * if it rejects the extra inbound we hand over the untouched config and disable probing — a
+     * diagnostic channel must never cost the customer a working tunnel.
+     */
+    private fun attachProbeInbound(config: String): String {
+        val probed = ProbeInbound.attach(config)
+        if (probed == null) {
+            probeEndpoint = null
+            return config
+        }
+        val defect = runCatching { Libbox.checkConfig(probed.config) }.exceptionOrNull()
+        if (defect != null) {
+            probeEndpoint = null
+            Log.w(TAG, "probe inbound rejected by the engine: " + defect.message + " — liveness probe disabled")
+            return config
+        }
+        probeEndpoint = probed.endpoint
+        return probed.config
+    }
+
+    /**
+     * The only place that may report "connected". Idempotent: the watchdog can answer long after the
+     * user stopped the service, and both the probe and the stop race for this state.
+     */
+    private suspend fun markStarted() {
+        val started = withContext(Dispatchers.Main) {
+            if (status.value != Status.Starting) return@withContext false
+            status.value = Status.Started
+            notification.show(lastProfileName, R.string.status_started)
+            true
+        }
+        if (!started) return
+        acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
+        notification.start()
+    }
+
+    /**
+     * Watches the applied config: probes every 25-35 s and, when the path dies, redials once, waits,
+     * then leaves a dead CDN edge for the ordinary nodes (or stops honestly). One edge per session:
+     * per-edge advance needs WhiteListSession to open a session for a different transport profile,
+     * which it does not support yet — the ordinary rollback is the safer second step today.
+     */
+    private suspend fun startTunnelWatchdog() {
+        if (probeEndpoint == null) return
+        stopTunnelWatchdog()
+        val host = TunnelWatchdog(
+            probe = { timeoutMillis ->
+                val current = probeEndpoint
+                if (current == null) false else probeTunnel(current, timeoutMillis)
+            },
+            onLive = { GlobalScope.launch(Dispatchers.IO) { runCatching { markStarted() } } },
+            onRedial = { edge -> GlobalScope.launch(Dispatchers.IO) { runCatching { redialTunnel(edge) } } },
+            onFallbackOrdinary = { GlobalScope.launch(Dispatchers.IO) { runCatching { fallbackOrGiveUp() } } },
+            onClearSession = { whiteListSession?.close() },
+            log = { Log.d(TAG, it) },
+        )
+        // A fresh host must learn the current network even if it has not changed since the last one.
+        synchronized(watchdogNetworkGuard) { watchdogNetwork = null }
+        tunnelWatchdog = host
+        host.start(1)
+        DefaultNetworkListener.start(WATCHDOG_NETWORK) { network -> onWatchdogNetwork(network) }
+    }
+
+    /** Forwards ONLY changes: the listener also re-delivers the same network on capability updates. */
+    private fun onWatchdogNetwork(network: Network?) {
+        val host = tunnelWatchdog ?: return
+        val changed = synchronized(watchdogNetworkGuard) {
+            val previous = watchdogNetwork
+            watchdogNetwork = network
+            previous != network
+        }
+        if (!changed) return
+        if (network != null) host.networkAvailable() else host.networkLost()
+    }
+
+    private fun stopTunnelWatchdog() {
+        tunnelWatchdog?.stop()
+        tunnelWatchdog = null
+    }
+
+    /**
+     * One probe through the applied config. "connect" is retried once: the engine binds the probe
+     * inbound a moment after startOrReloadService returns, and a refused connect there says nothing
+     * about the tunnel itself.
+     */
+    private suspend fun probeTunnel(endpoint: ProbeInbound.Endpoint, timeoutMillis: Long): Boolean {
+        val credentials = Socks5Tunnel.Credentials(endpoint.username, endpoint.password)
+        val budget = timeoutMillis.toInt().coerceIn(1_000, TunnelProbe.TIMEOUT_MS)
+        var result = TunnelProbe.probeAny(endpoint.port, credentials, timeoutMs = budget)
+        if (!result.ok && result.failure == "connect") {
+            delay(400)
+            result = TunnelProbe.probeAny(endpoint.port, credentials, timeoutMs = minOf(budget, 3_000))
+        }
+        if (result.ok) {
+            Log.d(TAG, "probe ok status=" + result.status + " in " + result.elapsedMs + "ms")
+        } else {
+            Log.d(TAG, "probe failed failure=" + result.failure + " elapsed=" + result.elapsedMs + "ms")
+        }
+        return result.ok
+    }
+
+    /** Cheap local redial: re-apply the current selection without bugging the user. */
+    private suspend fun redialTunnel(edge: Int) {
+        if (status.value != Status.Starting && status.value != Status.Started) return
+        val request = WhiteListSelection.current()
+        val sourceAccount = WhiteListSelection.account()
+        val profile = ProfileManager.get(request?.profileId ?: sourceAccount.first) ?: return
+        Log.d(TAG, "watchdog redial edge=" + edge + " profile=" + profile.id)
+        applySelectedContent(File(profile.typed.path).readText(), sourceAccount, request)
+    }
+
+    /**
+     * The current path is proven dead. Leave a CDN edge for the ordinary nodes when the selector has
+     * them (the D2 rollback machinery), then keep watching the ordinary path; with nothing to fall
+     * back to, stop honestly — a green UI over a dead tunnel is the defect being fixed. startedByUser
+     * is NOT cleared: this failure is not the user's to fix, so autostart after reboot must survive.
+     */
+    private suspend fun fallbackOrGiveUp() {
+        stopTunnelWatchdog()
+        val request = WhiteListSelection.current()
+        val sourceAccount = WhiteListSelection.account()
+        val profile = ProfileManager.get(request?.profileId ?: sourceAccount.first)
+        val content = profile?.let { runCatching { File(it.typed.path).readText() }.getOrNull() }
+        if (request != null && content != null) {
+            val ordinaryTag = WhiteListConfig.ordinaryTag(content)
+            if (ordinaryTag != null) {
+                val restored = WhiteListSelection.restoreOrdinary(request, ordinaryTag)
+                if (restored != null) {
+                    val applied = runCatching { applySelectedContent(content, sourceAccount, restored) }.getOrDefault(false)
+                    if (applied) {
+                        Log.d(TAG, "watchdog fell back to ordinary nodes")
+                        startTunnelWatchdog()
+                        return
+                    }
+                }
+            }
+        }
+        if (status.value == Status.Starting || status.value == Status.Started) {
+            stopAndAlert(Alert.CreateService, "Туннель не пропускает трафик: подключение остановлено")
+        }
+    }
+
     override fun serviceStop() {
+        stopTunnelWatchdog()
         whiteListSession?.close()
         WhiteListSelection.clear()
         releaseWakeLock()
@@ -460,6 +630,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
         status.value = Status.Stopping
+        stopTunnelWatchdog()
         whiteListSession?.close()
         WhiteListSelection.clear()
         releaseWakeLock()
@@ -514,6 +685,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
+        stopTunnelWatchdog()
         whiteListSession?.close()
         WhiteListSelection.clear()
         // Only failures that need the USER to act (no profile, a missing permission) cancel
@@ -599,6 +771,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onBind(): IBinder = binder
 
     internal fun onDestroy() {
+        stopTunnelWatchdog()
         whiteListSession?.destroy()
         WhiteListSelection.destroyed()
         binder.close()
