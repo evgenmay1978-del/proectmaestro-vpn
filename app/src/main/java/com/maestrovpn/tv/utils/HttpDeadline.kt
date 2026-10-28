@@ -1,6 +1,6 @@
 package com.maestrovpn.tv.utils
 
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -18,18 +18,14 @@ import java.util.concurrent.TimeoutException
  * thread and only the WAIT is bounded. On timeout [onTimeout] is invoked — callers pass their
  * client's close(), which aborts the in-flight request — and null is returned. Exceptions raised by
  * [block] are rethrown unchanged, so existing runCatching fallbacks keep their semantics.
+ *
+ * Future/Callable keep this on API 1: minSdk of the "other" flavor is 23 and CompletableFuture is
+ * API 24 (lintVitalOtherDebug caught exactly that on run 40630724628).
  */
 internal fun <T> withHttpDeadline(timeoutMs: Long, onTimeout: () -> Unit = {}, block: () -> T?): T? {
-    val result = CompletableFuture<T?>()
-    deadlineExecutor.execute {
-        try {
-            result.complete(block())
-        } catch (t: Throwable) {
-            result.completeExceptionally(t)
-        }
-    }
+    val task = deadlineExecutor.submit(Callable { block() })
     return try {
-        result.get(timeoutMs, TimeUnit.MILLISECONDS)
+        task.get(timeoutMs, TimeUnit.MILLISECONDS)
     } catch (e: TimeoutException) {
         runCatching { onTimeout() }
         null
