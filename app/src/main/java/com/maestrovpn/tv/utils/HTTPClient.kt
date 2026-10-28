@@ -24,6 +24,18 @@ import javax.net.ssl.HttpsURLConnection
  */
 class SubscriptionHttpException(val status: Int) : IOException("subscription HTTP $status")
 
+/**
+ * Keep the /sub HTTP status, for BOTH transports (the pinned CDN edge and the plain
+ * HttpsURLConnection). 402 (expired) and 404/410 (token gone) are the diagnosis, not a
+ * transient network failure: collapsing them into a plain IOException hid the panel verdict
+ * (SubscriptionHealth.report never saw it) and left the in-app «подписка истекла» dialog dead.
+ * One decision point on purpose — the two branches had already drifted apart once (D4,
+ * регрессия неполного merge-фикса 96a96bd8).
+ */
+internal fun requireSubscriptionHttpStatus(status: Int) {
+    if (status != 200) throw SubscriptionHttpException(status)
+}
+
 /** Outcome of a control-plane subscription fetch with the HTTP status preserved. */
 sealed interface SubscriptionFetch {
     data class Ok(val body: String) : SubscriptionFetch
@@ -82,7 +94,7 @@ class HTTPClient : Closeable {
                         timeoutMs.coerceIn(1, Int.MAX_VALUE.toLong()).toInt(), SUBSCRIPTION_LIMIT)
                         ?: throw IOException("subscription edge unreachable")
                     status = response.status
-                    if (status != 200) throw SubscriptionHttpException(status)
+                    requireSubscriptionHttpStatus(status)
                     return response.body
                 }
                 val connection = URL(endpoint.url).openConnection() as HttpsURLConnection
@@ -98,7 +110,7 @@ class HTTPClient : Closeable {
                 connection.setRequestProperty("Accept", "application/json")
                 connection.setRequestProperty("Cache-Control", "no-store")
                 status = connection.responseCode
-                if (status != 200) throw IOException("subscription HTTP $status")
+                requireSubscriptionHttpStatus(status)
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } catch (error: IOException) {
                 failure = error
