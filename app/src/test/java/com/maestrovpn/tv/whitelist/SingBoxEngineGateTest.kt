@@ -123,6 +123,11 @@ class SingBoxEngineGateTest {
     private fun check(engine: File, config: String, label: String): Pair<Int, String> {
         val file = File.createTempFile("sbx-gate-" + label + "-", ".json")
         try {
+            assertTrue(
+                "the bytes handed to the engine for '" + label + "' are not JSON (every stage must " +
+                    "produce JSON, not a Map/toString dump):\n" + config.take(200),
+                runCatching { Json.parseToJsonElement(config) }.isSuccess,
+            )
             file.writeText(config)
             val (code, output) = run(engine, "check", "--disable-color", "-c", file.absolutePath)
             assertTrue(
@@ -313,7 +318,14 @@ class SingBoxEngineGateTest {
             val kept = choices.filterNot { (it as? JsonPrimitive)?.content == "awg" }
             JsonObject(outbound + ("outbounds" to JsonArray(kept)))
         }
-        return (root + ("endpoints" to JsonArray(endpoints)) + ("outbounds" to JsonArray(outbounds))).toString()
+        // NB: kotlinx's JsonObject.plus lives in a package this file imports by class, so "obj + pair"
+        // resolves to Map.plus and Map.toString() prints "{log={level=warn}}" — the engine answered
+        // "invalid character 'l' looking for beginning of object key string" to exactly that. Build
+        // the object explicitly.
+        val updated = root.toMutableMap()
+        updated["endpoints"] = JsonArray(endpoints)
+        updated["outbounds"] = JsonArray(outbounds)
+        return JsonObject(updated).toString()
     }
 
     private val cdnRoute = WhiteListRuntimeRoute(
