@@ -41,6 +41,7 @@ import com.maestrovpn.tv.vendor.Vendor
 import com.maestrovpn.tv.utils.Socks5Tunnel
 import com.maestrovpn.tv.utils.TunnelProbe
 import com.maestrovpn.tv.whitelist.ProbeInbound
+import com.maestrovpn.tv.whitelist.TunIpv6
 import com.maestrovpn.tv.whitelist.TunnelWatchdog
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
@@ -236,7 +237,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 })
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
-                val applied = attachProbeInbound(effective)
+                // The panel's profile declares IPv4 only, and openTun adds a route per address
+                // family that EXISTS (VPNService.kt:87-118) — so without this the tun never takes
+                // ::/0 and IPv6 sockets leave the device unproxied while the UI says "connected".
+                val withIpv6 = TunIpv6.ensure(effective)
+                if (withIpv6 !== effective) Log.d(TAG, "tun IPv6: injected " + TunIpv6.DEFAULT_INET6 + " (config declared none)")
+                val applied = attachProbeInbound(withIpv6)
                 if (cdn) {
                     // Diagnose-02.10.2026: a valid injected CDN config was never used by the engine
                     // (traffic stayed on the ordinary nodes while the UI showed CDN connected), so the

@@ -85,10 +85,21 @@ class VPNService :
         }
 
         val inet6Address = options.inet6Address
+        var inet6Count = 0
         while (inet6Address.hasNext()) {
             val address = inet6Address.next()
             builder.addAddress(address.address(), address.prefix())
+            inet6Count++
         }
+
+        // Field evidence on the owner's device (28.10.2026): with the panel's IPv4-only profile the
+        // tun used to capture no IPv6 at all, so IPv6 sockets bypassed the tunnel while the UI said
+        // "connected". One line makes the captured families visible in logcat after every start.
+        Log.d(
+            "VPNService",
+            if (inet6Count == 0) "tun families: inet6=0 (IPv6 NOT captured — config declares no IPv6 address)"
+            else "tun families: inet6=" + inet6Count,
+        )
 
         if (options.autoRoute) {
             if (options.dnsMode.value != Libbox.DNSModeDisabled) {
