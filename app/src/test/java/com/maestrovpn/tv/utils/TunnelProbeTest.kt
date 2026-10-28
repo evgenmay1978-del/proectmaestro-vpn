@@ -123,12 +123,18 @@ class TunnelProbeTest {
         }
     }
 
+    /**
+     * The panel host is routed "direct" by the fleet config, so probing it proves nothing about the
+     * tunnel: a dead node would still answer 200 and the UI would claim "connected". Only hosts the
+     * config sends through the selector/CDN tag may gate the status.
+     */
     @Test
-    fun panelTargetMatchesBackendUrl() {
-        val panel = TunnelProbe.panelTarget()
-        assertNotNull(panel)
-        assertEquals(java.net.URL(com.maestrovpn.tv.BuildConfig.BACKEND_URL).host, panel!!.host)
-        assertTrue(panel.path.startsWith("/"))
+    fun probeTargetsAreRoutedThroughTheTunnel() {
+        val hosts = TunnelProbe.targets().map { it.host }
+        assertEquals(listOf("www.google.com", "connectivitycheck.gstatic.com"), hosts)
+        val panelHost = java.net.URL(com.maestrovpn.tv.BuildConfig.BACKEND_URL).host
+        assertFalse(hosts.contains(panelHost))
+        assertTrue(TunnelProbe.targets().all { it.port == 443 && it.path.startsWith("/") })
     }
 
     private fun readFully(input: InputStream, buffer: ByteArray) {

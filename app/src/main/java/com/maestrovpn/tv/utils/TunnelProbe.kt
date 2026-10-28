@@ -1,17 +1,15 @@
 package com.maestrovpn.tv.utils
 
 import android.os.Build
-import com.maestrovpn.tv.BuildConfig
 import java.io.IOException
 import java.io.InputStream
-import java.net.URL
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
-/** What the probe asks for. The panel health endpoint is the dependency the app itself needs. */
+/** What the probe asks for. Only hosts the applied config routes THROUGH the tunnel may be used. */
 internal data class TunnelProbeTarget(val host: String, val port: Int, val path: String) {
     init {
         require(host.isNotBlank() && port in 1..65535 && path.startsWith("/")) { "invalid probe target" }
@@ -20,8 +18,8 @@ internal data class TunnelProbeTarget(val host: String, val port: Int, val path:
 
 /**
  * One end-to-end probe of the tunnel: SOCKS5 handshake inside the tunnel, then TLS and a real
- * HTTP request to the panel. ok=true means bytes travelled in both directions through the whole
- * chain (app -> SOCKS5 entry -> node/edge -> panel), not merely that the engine accepted a config.
+ * HTTP request. ok=true means bytes travelled in both directions through the whole chain
+ * (app -> SOCKS5 entry -> node/edge -> destination), not merely that the engine accepted a config.
  */
 internal data class TunnelProbeResult(
     val ok: Boolean,
@@ -44,25 +42,27 @@ internal object TunnelProbe {
     private class Deadline : IOException(DEADLINE_MESSAGE)
 
     /**
-     * The panel health endpoint through the tunnel. Built from BACKEND_URL, so the probe checks the
-     * same host the subscription and update paths depend on. Returns null if BACKEND_URL is unusable
-     * — the caller then skips probing instead of probing a guessed host.
+     * ⛔ The panel health endpoint CANNOT be a liveness target, even though the audit suggested it.
+     * The panel config routes wapmixx.ru through "direct" (rule 2) so the subscription and update
+     * paths keep working with the tunnel down; a SOCKS CONNECT to that host therefore leaves the
+     * device without ever touching the node, and a perfectly dead tunnel answers 200 — the exact
+     * false "connected" this fix exists to remove. Verified against the live /sub config
+     * (route.rules: {"domain": ["wapmixx.ru"], "outbound": "direct"} precedes the google suffix rule)
+     * and against WhiteListConfig.cdnRoute (only rules pointing at "select" are retargeted; "direct"
+     * rules stay untouched, so the CDN path has the same blind spot).
      */
-    fun panelTarget(): TunnelProbeTarget? {
-        val url = runCatching { URL(BuildConfig.BACKEND_URL.trimEnd('/') + "/healthz") }.getOrNull() ?: return null
-        if (url.protocol.lowercase(Locale.ROOT) != "https") return null
-        val host = url.host
-        if (host.isNullOrBlank()) return null
-        return runCatching { TunnelProbeTarget(host, if (url.port > 0) url.port else 443, url.path) }.getOrNull()
-    }
 
     /**
-     * Second opinion, independent of our own infrastructure: a captive portal or a broken route to
-     * one host must not be reported as "the tunnel carries no traffic".
+     * Targets the fleet config routes through the tunnel: sing-box matches the domain of our SOCKS
+     * CONNECT against the google/gstatic suffix rule (outbound "select", retargeted to the CDN tag
+     * for a CDN session) BEFORE any direct rule. Two independent hosts, so a captive portal or one
+     * dead destination is not reported as "the tunnel carries no traffic".
      */
     fun neutralTarget(): TunnelProbeTarget = TunnelProbeTarget("www.google.com", 443, "/generate_204")
 
-    fun targets(): List<TunnelProbeTarget> = listOfNotNull(panelTarget(), neutralTarget()).distinct()
+    fun gstaticTarget(): TunnelProbeTarget = TunnelProbeTarget("connectivitycheck.gstatic.com", 443, "/generate_204")
+
+    fun targets(): List<TunnelProbeTarget> = listOf(neutralTarget(), gstaticTarget()).distinct()
 
     /**
      * Tries every target inside ONE shared budget so a watchdog cycle can never be stretched past
