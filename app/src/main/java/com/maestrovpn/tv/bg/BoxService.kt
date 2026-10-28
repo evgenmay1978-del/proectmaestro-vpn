@@ -81,6 +81,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // asynchronously would race with the next start and could silently drop the fresh one.
         private val WATCHDOG_NETWORK = Any()
 
+        // A loopback probe channel that keeps refusing connections says nothing about the tunnel.
+        // Measured on the owner's device with 1.0.179 (28.10.2026): the dial hit the IPv6 loopback
+        // while the inbound listened on 127.0.0.1, so every probe failed at "connect" in ~1 ms and
+        // the watchdog re-applied the config every ~25 s forever. Five consecutive refusals = broken
+        // channel, not a dead path: keep the tunnel and stop the churn.
+        private const val PROBE_CONNECT_FAILURE_LIMIT = 5
+
         fun start() {
             val intent =
                 runBlocking {
@@ -117,6 +124,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Volatile
     private var probeEndpoint: ProbeInbound.Endpoint? = null
     private var tunnelWatchdog: TunnelWatchdog? = null
+
+    /** Consecutive probe refusals at the "connect" stage; reset by any other outcome. */
+    private var probeConnectFailures = 0
 
     // DefaultNetworkListener re-delivers the same Network on every capability change; only a genuinely
     // different network (or losing it) is worth a watchdog event — otherwise every capabilities update
@@ -456,6 +466,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
      * inbound a moment after startOrReloadService returns, and a refused connect there says nothing
      * about the tunnel itself.
      */
+    @OptIn(DelicateCoroutinesApi::class)
     private suspend fun probeTunnel(endpoint: ProbeInbound.Endpoint, timeoutMillis: Long): Boolean {
         val credentials = Socks5Tunnel.Credentials(endpoint.username, endpoint.password)
         val budget = timeoutMillis.toInt().coerceIn(1_000, TunnelProbe.TIMEOUT_MS)
@@ -463,6 +474,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (!result.ok && result.failure == "connect") {
             delay(400)
             result = TunnelProbe.probeAny(endpoint.port, credentials, timeoutMs = minOf(budget, 3_000))
+        }
+        probeConnectFailures = if (!result.ok && result.failure == "connect") probeConnectFailures + 1 else 0
+        if (probeConnectFailures >= PROBE_CONNECT_FAILURE_LIMIT) {
+            probeConnectFailures = 0
+            StartupDiag.log(
+                "probe",
+                "channel unavailable (connect x" + PROBE_CONNECT_FAILURE_LIMIT + ") — watchdog paused, tunnel kept",
+            )
+            Log.w(TAG, "probe channel keeps refusing connections — watchdog paused, tunnel kept")
+            // Stopped off this coroutine: it belongs to the watchdog scope the stop() cancels.
+            GlobalScope.launch(Dispatchers.IO) { stopTunnelWatchdog() }
         }
         if (result.ok) {
             Log.d(TAG, "probe ok status=" + result.status + " in " + result.elapsedMs + "ms")
