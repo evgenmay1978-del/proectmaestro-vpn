@@ -2,6 +2,7 @@ package com.maestrovpn.tv.whitelist
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -18,12 +19,20 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * Third-party clients (v2rayNG, mihomo, NekoBox) build their tun from their OWN defaults, which
  * include an IPv6 address — that is why the same subscription works there. Upstream sing-box-for-
- * android ships the same default in its profile template. An absent `inet6_address` is therefore a
+ * android ships the same default in its profile template. An absent IPv6 prefix is therefore a
  * configuration gap, not a deliberate choice.
  *
- * Only a recognised shape is touched: no tun inbound, unparseable JSON or an address that already
- * mentions IPv6 all return the input unchanged. Pure string in, string out — the caller validates
- * with Libbox.checkConfig and keeps the original config when the engine refuses.
+ * The pinned engine (sing-box v1.14.0-alpha.31) keeps ONE address list for the tun inbound: the
+ * per-family keys are documented as deprecated and merged into it, and the engine refuses the WHOLE
+ * config while any of them is set (option/tun.go:53-64, protocol/tun/inbound.go:61-67). The engine
+ * then splits that list into the families itself and libbox hands the IPv6 part to
+ * VPNService.openTun (protocol/tun/inbound.go:80-88, experimental/libbox/tun.go:92-96). So the
+ * prefix is APPENDED to the list that is already there — never written as a separate key.
+ *
+ * Only a recognised shape is touched: no tun inbound, unparseable JSON, a tun without a non-empty
+ * `address` array, or a list that already mentions IPv6 all return the input unchanged. Pure string
+ * in, string out — the caller validates with Libbox.checkConfig and keeps the original config when
+ * the engine refuses.
  */
 internal object TunIpv6 {
     /** The address upstream sing-box-for-android puts in its default template. */
@@ -36,18 +45,14 @@ internal object TunIpv6 {
         val updated = inbounds.map { element ->
             val inbound = element as? JsonObject ?: return@map element
             if ((inbound["type"] as? JsonPrimitive)?.content != "tun") return@map element
-            if (hasIpv6(inbound)) return@map element
+            val address = inbound["address"] as? JsonArray ?: return@map element
+            if (address.isEmpty() || address.any { it.isIpv6() }) return@map element
             changed = true
-            JsonObject(inbound + ("inet6_address" to JsonPrimitive(DEFAULT_INET6)))
+            JsonObject(inbound + ("address" to JsonArray(address + JsonPrimitive(DEFAULT_INET6))))
         }
         if (!changed) return base
         return JsonObject(root + ("inbounds" to JsonArray(updated))).toString()
     }
 
-    private fun hasIpv6(inbound: JsonObject): Boolean {
-        val inet6 = (inbound["inet6_address"] as? JsonPrimitive)?.content
-        if (!inet6.isNullOrBlank()) return true
-        val address = inbound["address"] as? JsonArray ?: return false
-        return address.any { ((it as? JsonPrimitive)?.content ?: "").contains(':') }
-    }
+    private fun JsonElement.isIpv6(): Boolean = ((this as? JsonPrimitive)?.content ?: "").contains(':')
 }
