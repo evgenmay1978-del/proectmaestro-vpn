@@ -474,7 +474,9 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, r *http.Request, c *store.C
 	// where the app learns which extra transports it also has. aivpnKey applies
 	// every gate: feature on, account active, app versionCode >= the shipped AIVPN
 	// build, login whitelisted, and the key source really holding a key.
-	if key, ok := s.aivpnKey(r, c); ok {
+	// A device over the cap is NOT told here: /info still serves the account status, it
+	// just withholds the credential (same rule as /sub's /info, which is never capped).
+	if key, res := s.aivpnKey(r, c); res == aivpnOK {
 		features["aivpn"] = true
 		out["aivpn"] = map[string]any{"key": key}
 	}
@@ -531,17 +533,28 @@ func deviceID(r *http.Request) string {
 	return r.Header.Get("X-Device-Id")
 }
 
-// deviceAllowed enforces the per-account device cap. It returns true (allow) when the cap
-// is off, the provisioner is absent, no/invalid device id is sent, the device is already
-// known, or the account is below its cap (recording the new device). It returns false and
-// writes a 403 only when a NEW device would exceed the cap. wapmix/wapmixx get cap 0
-// (unlimited) via the provisioner, so they are never blocked.
-func (s *Server) deviceAllowed(w http.ResponseWriter, login, dev string) bool {
+// deviceAdmitted is deviceAllowed without the HTTP side effect: it reports whether the
+// per-account cap admits dev for login, and — when it does not — that the refusal is a NEW
+// device over the cap (the only refusal /sub reports). It allows when the cap is off, the
+// provisioner is absent, no/invalid device id is sent, the device is already known, or the
+// account is below its cap (recording the new device). wapmix/wapmixx get cap 0 (unlimited)
+// via the provisioner, so they are never blocked. /aivpn and /info need the verdict without
+// a response body, so the rules live here once instead of being duplicated per endpoint.
+func (s *Server) deviceAdmitted(login, dev string) (admitted, capped bool) {
 	if !s.cfg.EnforceDeviceLimit || s.prov == nil || dev == "" || !deviceIDRe.MatchString(dev) {
-		return true
+		return true, false
 	}
 	allowed, _, err := s.st.TouchDeviceByLogin(login, dev, s.prov.DeviceLimitFor(login))
 	if err == nil && !allowed {
+		return false, true
+	}
+	return true, false
+}
+
+// deviceAllowed enforces the per-account device cap for /sub: it writes the same 403 /aivpn
+// writes when a NEW device would exceed the cap, and returns false.
+func (s *Server) deviceAllowed(w http.ResponseWriter, login, dev string) bool {
+	if admitted, _ := s.deviceAdmitted(login, dev); !admitted {
 		http.Error(w, "device limit reached", http.StatusForbidden)
 		return false
 	}

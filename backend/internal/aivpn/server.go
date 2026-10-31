@@ -3,6 +3,8 @@ package aivpn
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,9 +41,10 @@ type ServerConfig struct {
 }
 
 // Server issues and fetches AIVPN client credentials from the AIVPN server on
-// S1: client <login> is created on first request, then its connection key is read
-// back and cached. Client names are logins, so the panel's own whitelist is the
-// authority on who may have a client at all.
+// S1: the client named after the login (legacy) or after the login's device
+// (KeyForDevice) is created on first request, then its connection key is read
+// back and cached. Every client name starts with a login, and the panel's own
+// whitelist is the authority on who may have a client at all.
 type Server struct {
 	cfg      ServerConfig
 	allowed  map[string]bool
@@ -50,7 +53,15 @@ type Server struct {
 	now      func() time.Time
 
 	mu    sync.Mutex
-	cache map[string]cachedKey
+	cache map[cacheKey]cachedKey
+}
+
+// cacheKey identifies one issued credential: the subscriber login (so
+// Invalidate can drop every device of a login) plus the AIVPN client name the
+// key was issued to (the login itself on the legacy single-client path).
+type cacheKey struct {
+	login string
+	name  string
 }
 
 type cachedKey struct {
@@ -108,7 +119,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.CacheTTL <= 0 {
 		cfg.CacheTTL = 10 * time.Minute
 	}
-	s := &Server{cfg: cfg, allowed: allowed, sockPath: cfg.SocketPath, now: time.Now, cache: map[string]cachedKey{}}
+	s := &Server{cfg: cfg, allowed: allowed, sockPath: cfg.SocketPath, now: time.Now, cache: map[cacheKey]cachedKey{}}
 	if rest {
 		s.client = unixClient(cfg.SocketPath, cfg.Timeout)
 	}
@@ -130,14 +141,51 @@ func (s *Server) MinVersionCode() int {
 func (s *Server) Allowed(login string) bool { return s != nil && s.allowed[login] }
 
 // Key implements Source: cached key, else create/fetch on the AIVPN server.
+// It is the legacy single-client path: the AIVPN client is named after the login.
 func (s *Server) Key(ctx context.Context, login string) (string, error) {
+	return s.key(ctx, login, login)
+}
+
+// KeyForDevice implements Source: the same flow as Key, but the AIVPN client is
+// named after (login, device) — see clientName — so every install of the same
+// subscription gets its own client and its own connection key. An empty device
+// is the legacy path and is exactly Key.
+func (s *Server) KeyForDevice(ctx context.Context, login, device string) (string, error) {
+	if device == "" {
+		return s.Key(ctx, login)
+	}
+	return s.key(ctx, login, clientName(login, device))
+}
+
+// maxClientName is the AIVPN client-name bound. The panel must never ask the
+// management API for a longer name: it would be rejected (or truncated) there.
+const maxClientName = 64
+
+// clientName is the per-device AIVPN client name: the login plus "--" and the
+// first 10 hex digits of sha256(device). It is deterministic (a returning device
+// finds its existing client instead of minting a duplicate on every panel
+// restart) and distinct per device. A login long enough to overflow the 64-char
+// bound keeps the digest and loses only its tail; only logins sharing a 52-char
+// prefix could collide, and the whitelist is tiny and human-chosen.
+func clientName(login, device string) string {
+	sum := sha256.Sum256([]byte(device))
+	suffix := "--" + hex.EncodeToString(sum[:])[:10]
+	if keep := maxClientName - len(suffix); len(login) > keep {
+		login = login[:keep]
+	}
+	return login + suffix
+}
+
+// key is the single issuance path: gate, cache lookup, create/fetch and cache
+// store. name is the AIVPN client name the credential belongs to.
+func (s *Server) key(ctx context.Context, login, name string) (string, error) {
 	if !s.Enabled() {
 		return "", ErrDisabled
 	}
 	if !s.Allowed(login) {
 		return "", ErrNoClient
 	}
-	if key, ok := s.cached(login); ok {
+	if key, ok := s.cached(login, name); ok {
 		return key, nil
 	}
 	var (
@@ -145,9 +193,9 @@ func (s *Server) Key(ctx context.Context, login string) (string, error) {
 		err error
 	)
 	if s.client != nil {
-		key, err = s.keyHTTP(ctx, login)
+		key, err = s.keyHTTP(ctx, name)
 	} else {
-		key, err = s.keyCLI(ctx, login)
+		key, err = s.keyCLI(ctx, name)
 	}
 	if err != nil {
 		return "", err
@@ -157,31 +205,37 @@ func (s *Server) Key(ctx context.Context, login string) (string, error) {
 		// A malformed key is a server-side fault: never cache or serve it.
 		return "", fmt.Errorf("aivpn: AIVPN server issued an unusable key: %w", perr)
 	}
-	s.remember(login, key)
+	s.remember(login, name, key)
 	return key, nil
 }
 
-// Invalidate drops a cached key (revocation, or a client reset on the server).
+// Invalidate drops every cached key of login — the legacy client and all of its
+// per-device clients — so a revocation or a client reset on the server is picked
+// up on the next request.
 func (s *Server) Invalidate(login string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.cache, login)
+	for k := range s.cache {
+		if k.login == login {
+			delete(s.cache, k)
+		}
+	}
 }
 
-func (s *Server) cached(login string) (string, bool) {
+func (s *Server) cached(login, name string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e, ok := s.cache[login]
+	e, ok := s.cache[cacheKey{login: login, name: name}]
 	if !ok || !s.now().Before(e.expires) {
 		return "", false
 	}
 	return e.key, true
 }
 
-func (s *Server) remember(login, key string) {
+func (s *Server) remember(login, name, key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cache[login] = cachedKey{key: key, expires: s.now().Add(s.cfg.CacheTTL)}
+	s.cache[cacheKey{login: login, name: name}] = cachedKey{key: key, expires: s.now().Add(s.cfg.CacheTTL)}
 }
 
 // Management REST (unix socket). The Host part of the URL is irrelevant: the
@@ -202,8 +256,8 @@ func (e *statusError) Error() string {
 
 var errAlreadyExists = errors.New("aivpn: client already exists")
 
-func (s *Server) keyHTTP(ctx context.Context, login string) (string, error) {
-	id, err := s.clientID(ctx, login)
+func (s *Server) keyHTTP(ctx context.Context, name string) (string, error) {
+	id, err := s.clientID(ctx, name)
 	if err != nil {
 		return "", err
 	}
@@ -223,28 +277,28 @@ func (s *Server) keyHTTP(ctx context.Context, login string) (string, error) {
 	return out.ConnectionKey, nil
 }
 
-// clientID returns the AIVPN client id for login, creating the client on first
+// clientID returns the AIVPN client id for name, creating the client on first
 // use. A client that exists but is disabled (revoked on the server) is treated
 // as absent: revocation must win over the panel's whitelist.
-func (s *Server) clientID(ctx context.Context, login string) (string, error) {
+func (s *Server) clientID(ctx context.Context, name string) (string, error) {
 	clients, err := s.listClients(ctx)
 	if err != nil {
 		return "", err
 	}
-	if id, ok := pickClient(clients, login); ok {
+	if id, ok := pickClient(clients, name); ok {
 		return id, nil
 	}
-	if err := s.createClient(ctx, login); err != nil && !errors.Is(err, errAlreadyExists) {
+	if err := s.createClient(ctx, name); err != nil && !errors.Is(err, errAlreadyExists) {
 		return "", err
 	}
 	clients, err = s.listClients(ctx)
 	if err != nil {
 		return "", err
 	}
-	if id, ok := pickClient(clients, login); ok {
+	if id, ok := pickClient(clients, name); ok {
 		return id, nil
 	}
-	return "", fmt.Errorf("aivpn: client %q is not visible on the AIVPN server after creation", login)
+	return "", fmt.Errorf("aivpn: client %q is not visible on the AIVPN server after creation", name)
 }
 
 func (s *Server) listClients(ctx context.Context) ([]clientView, error) {
@@ -259,8 +313,8 @@ func (s *Server) listClients(ctx context.Context) ([]clientView, error) {
 	return out, nil
 }
 
-func (s *Server) createClient(ctx context.Context, login string) error {
-	body, err := json.Marshal(map[string]string{"name": login})
+func (s *Server) createClient(ctx context.Context, name string) error {
+	body, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
 		return err
 	}
@@ -277,13 +331,13 @@ func (s *Server) createClient(ctx context.Context, login string) error {
 	return err
 }
 
-// pickClient returns the id of the enabled client named login. A disabled
+// pickClient returns the id of the enabled client named name. A disabled
 // (revoked) client yields no id: the caller then tries to create, the server
 // answers 409, and the login stays keyless — which is the intended outcome of a
 // revocation.
-func pickClient(clients []clientView, login string) (string, bool) {
+func pickClient(clients []clientView, name string) (string, bool) {
 	for _, c := range clients {
-		if c.Name != login {
+		if c.Name != name {
 			continue
 		}
 		if c.Enabled && c.ID != "" {
@@ -331,12 +385,12 @@ func unixClient(sock string, timeout time.Duration) *http.Client {
 // scraped; runCLI sanitizes everything before it can reach a log line.
 var connKeyRe = regexp.MustCompile("aivpn://[A-Za-z0-9_-]+")
 
-func (s *Server) keyCLI(ctx context.Context, login string) (string, error) {
+func (s *Server) keyCLI(ctx context.Context, name string) (string, error) {
 	// --add-client fails when the name already exists; that is expected on every
 	// request after the first, so its error is deliberately ignored. The
 	// --show-client output is what matters.
-	_, _ = s.runCLI(ctx, "--add-client", login)
-	out, err := s.runCLI(ctx, "--show-client", login, "--server-ip", s.cfg.ServerAddr)
+	_, _ = s.runCLI(ctx, "--add-client", name)
+	out, err := s.runCLI(ctx, "--show-client", name, "--server-ip", s.cfg.ServerAddr)
 	if err != nil {
 		return "", err
 	}
