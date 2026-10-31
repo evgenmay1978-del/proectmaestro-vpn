@@ -4,6 +4,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
 
@@ -379,7 +380,7 @@ val aivpnLibBytes = mapOf(
 )
 
 fun sha256Hex(file: File): String? = try {
-    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
         val buffer = ByteArray(64 * 1024)
         var read = input.read(buffer)
@@ -388,7 +389,12 @@ fun sha256Hex(file: File): String? = try {
             read = input.read(buffer)
         }
     }
-    digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    val hash = digest.digest()
+    val hex = StringBuilder(hash.size * 2)
+    for (b in hash) {
+        hex.append("%02x".format(b.toInt() and 0xff))
+    }
+    hex.toString()
 } catch (e: java.io.IOException) {
     null
 }
