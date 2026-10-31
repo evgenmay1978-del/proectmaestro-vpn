@@ -236,13 +236,15 @@ internal fun TvEskizHome(
                     TvActionButton("Приложения", "VPN-туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
                     TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
                     // AIVPN is a separate VpnService + own UDP tunnel, not a sing-box outbound, so it
-                    // gets its own tile instead of a chip inside TVProtocolGrid.
+                    // gets its own tile instead of a chip inside TVProtocolGrid. Its label
+                    // ("НейроПротокол"/"NeuroProtocol") is the longest in the row, so the tile takes a
+                    // slightly wider slot and the name is not ellipsized on a 960dp panel.
                     TvActionButton(
                         stringResource(R.string.aivpn_settings),
                         stringResource(R.string.aivpn_settings_summary),
                         Icons.Outlined.VpnKey,
                         onClick = onOpenAivpn,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.3f),
                         height = actionHeight,
                     )
                 }
