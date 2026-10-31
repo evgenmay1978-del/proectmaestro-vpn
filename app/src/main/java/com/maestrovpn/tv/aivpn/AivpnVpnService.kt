@@ -11,7 +11,10 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.aivpn.client.AivpnJni
@@ -61,6 +64,38 @@ class AivpnVpnService : VpnService() {
         internal const val ACTION_STOP = "com.maestrovpn.tv.aivpn.STOP"
         private const val STOP_JOIN_MS = 2000L
 
+        /**
+         * The live service instance, when one exists.
+         *
+         * A started VpnService stays bound to the system VPN framework, so stopService() does not
+         * run onDestroy() while the tun is up and an ACTION_STOP start request can be swallowed
+         * (owner: "Нейропротокол выключить невозможно, только запуск влесс"). The tunnel is
+         * therefore stopped by calling into this instance directly; the ACTION_STOP intent stays
+         * as the fallback for a cold process that no longer holds the instance.
+         */
+        @Volatile
+        private var instance: AivpnVpnService? = null
+
+        /** The running service, or null when it was never created or is already destroyed. */
+        internal val current: AivpnVpnService?
+            get() = instance
+
+        /** Tears the live tunnel down on the main thread; no-op signal when no service exists. */
+        internal fun requestStop() {
+            val service = instance
+            if (service == null) {
+                Log.w(TAG, "requestStop: no live service instance")
+                AivpnTunnel.publish(AivpnStatus.Stopped)
+                return
+            }
+            // Always post: shutdown() joins the native thread, and the caller is usually the UI
+            // thread, which must not block while the session unwinds.
+            Handler(Looper.getMainLooper()).post {
+                Log.i(TAG, "requestStop: stopping the live service")
+                service.shutdown()
+            }
+        }
+
         private const val DNS_PRIMARY = "1.1.1.1"
         private const val DNS_SECONDARY = "8.8.8.8"
         private const val MIN_PREFIX_LEN = 1
@@ -94,8 +129,15 @@ class AivpnVpnService : VpnService() {
     /** Set once a terminal status is published, so onDestroy() does not overwrite a failure. */
     @Volatile private var finished = false
 
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        Log.i(TAG, "service created")
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Log.i(TAG, "ACTION_STOP received")
             shutdown()
             return START_NOT_STICKY
         }
@@ -105,7 +147,10 @@ class AivpnVpnService : VpnService() {
             return START_NOT_STICKY
         }
         if (active) {
+            // The session survived while the UI thought it was off; report the truth so a stuck
+            // "Подключение…" recovers instead of waiting forever.
             Log.i(TAG, "a session is already running, ignoring the start request")
+            AivpnTunnel.publish(AivpnStatus.Running)
             return START_NOT_STICKY
         }
         beginSession()
@@ -120,6 +165,7 @@ class AivpnVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
         shutdown()
         super.onDestroy()
     }
@@ -371,6 +417,7 @@ class AivpnVpnService : VpnService() {
 
     /** Engine thread: the session ended on its own or because of a stop. */
     private fun finishSession(result: String) {
+        Log.i(TAG, "native session returned: '$result'")
         runCatching { AivpnJni.clearPendingStop() }
         synchronized(tunLock) { closeTunLocked() }
         engine = null
@@ -391,16 +438,18 @@ class AivpnVpnService : VpnService() {
 
     /** Stops the session and tears the service down; safe to call more than once. */
     private fun shutdown() {
+        val worker = engine
+        Log.i(TAG, "shutdown: begin (active=$active, closing=$closing, engineAlive=\${worker?.isAlive == true})")
         closing = true
         active = false
         if (AivpnJni.isAvailable) {
             runCatching { AivpnJni.stopTunnel() }
         }
-        val worker = engine
         if (worker != null && worker !== Thread.currentThread()) {
             // Closing the tun fd under a live epoll loop would abort in native code.
             runCatching { worker.join(STOP_JOIN_MS) }
         }
+        val hung = worker != null && worker !== Thread.currentThread() && worker.isAlive
         synchronized(tunLock) { closeTunLocked() }
         engine = null
         // A failure that already reached the UI must not be replaced by a plain "disconnected".
@@ -408,6 +457,15 @@ class AivpnVpnService : VpnService() {
         finished = true
         stopForegroundCompat()
         stopSelf()
+        if (hung) {
+            // The native session ignored stopTunnel() and still owns a dup of the tun fd, so the
+            // interface - and the system VPN key - outlives every Java-side close. Only process
+            // death closes those descriptors, and dropping the interface is what the user asked.
+            Log.e(TAG, "native session did not unwind in \${STOP_JOIN_MS} ms; killing the process")
+            Process.killProcess(Process.myPid())
+        } else {
+            Log.i(TAG, "shutdown: complete")
+        }
     }
 
     /** Caller holds [tunLock]. */

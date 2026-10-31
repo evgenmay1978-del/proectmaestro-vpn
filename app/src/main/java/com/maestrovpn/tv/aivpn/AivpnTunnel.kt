@@ -55,16 +55,19 @@ object AivpnTunnel {
 
     fun stop(context: Context) {
         val app = context.applicationContext
+        // A live VpnService stays bound to the system VPN framework: stopService() marks it
+        // stopped without running onDestroy() while the tun is up, and a start request can be
+        // swallowed entirely - that is how the interface (and the system key) survived the
+        // "disconnected" UI. Talk to the live instance instead; ACTION_STOP stays the fallback
+        // for a cold process that no longer holds one.
+        if (AivpnVpnService.current != null) {
+            AivpnVpnService.requestStop()
+            return
+        }
         val service = Intent(app, AivpnVpnService::class.java)
-        // A live VpnService stays bound to the system VPN framework, so stopService() marks it
-        // stopped but does not run onDestroy() while the tun is up: the interface then outlives
-        // the "disconnected" UI. Deliver the same explicit stop command the notification action
-        // uses, stop the native session directly as a fallback, and only then drop the service.
         runCatching { app.startService(Intent(service).setAction(AivpnVpnService.ACTION_STOP)) }
         if (AivpnJni.isAvailable) runCatching { AivpnJni.stopTunnel() }
-        runCatching { app.stopService(service) }
-        // The service tears the interface down asynchronously; flip the UI right away so a tap on
-        // "Disconnect" cannot look ignored while stopTunnel() unwinds the native session.
+        // No live service: nothing owns the tunnel, so the UI can flip right away.
         if (_status.value is AivpnStatus.Connecting || _status.value is AivpnStatus.Running) {
             _status.value = AivpnStatus.Stopped
         }

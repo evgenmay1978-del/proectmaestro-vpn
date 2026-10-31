@@ -14,7 +14,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.maestrovpn.tv.aivpn.AivpnStatus
+import com.maestrovpn.tv.aivpn.AivpnTunnel
 import com.maestrovpn.tv.compose.model.isProtocolSelectionAllowed
 import com.maestrovpn.tv.compose.model.isProtocolVisibleInUi
 import com.maestrovpn.tv.compose.model.visibleProtocolTags
@@ -94,12 +97,30 @@ fun SFANavHost(
         composable(Screen.TvHome.route) {
             val homeState = it.savedStateHandle
             val phoneSection by homeState.getStateFlow("phone_section", "home").collectAsState()
-            val tvStatusText = when (serviceStatus) {
-                Status.Starting -> "Подключение…"
-                Status.Started -> "Подключено"
+            // The experimental AIVPN tunnel is a second transport with its own VpnService, and
+            // the home screen used to ignore it: while it carried traffic the medallion stayed
+            // grey ("Отключено") and its tap started sing-box/VLESS instead - the client read
+            // that as "VPN is off" and as "NeuroProtocol can only turn VLESS on" (owner report).
+            // So treat a running AIVPN session as this home's connection, and let the medallion
+            // stop it.
+            val aivpnStatus by AivpnTunnel.status.collectAsState()
+            val aivpnConnected = aivpnStatus is AivpnStatus.Running
+            val aivpnConnecting = aivpnStatus is AivpnStatus.Connecting
+            val tvStatusText = when {
+                aivpnConnected -> "Подключено"
+                aivpnConnecting -> "Подключение…"
+                serviceStatus == Status.Starting -> "Подключение…"
+                serviceStatus == Status.Started -> "Подключено"
                 else -> "Отключено"
             }
-            val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
+            val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting || aivpnConnected
+            val connecting = serviceStatus == Status.Starting || aivpnConnecting
+            val context = LocalContext.current
+            val toggleConnect: () -> Unit = {
+                // AIVPN owns the system VPN while it runs: a sing-box start would be refused (one
+                // VPN at a time), so the same tap must stop the AIVPN tunnel instead.
+                if (AivpnTunnel.isActive) AivpnTunnel.stop(context) else dashboardViewModel?.toggleService()
+            }
             // login + days-left for the active subscription (refetched on connect change)
             val accountInfo by rememberAccountInfo(connected)
             // ⛔ Expiry gate (owner: «при истёкшей подписке открывать экран оплаты»). When the
@@ -149,7 +170,7 @@ fun SFANavHost(
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
-                    connecting = serviceStatus == Status.Starting,
+                    connecting = connecting,
                     // Each home filters before its fallback so a hidden-only profile stays empty.
                     protocols = (visibleProtocolTags(selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
                     selected = groupsUi.cdnSelected ?: selectGroup?.selected?.takeUnless { it.startsWith("cdn:") && groupsUi.cdnActive != it },
@@ -158,7 +179,7 @@ fun SFANavHost(
                     daysLeft = accountInfo.daysLeft,
                     accountExpires = accountInfo.expiresDate,
                     hasSubProfile = accountInfo.hasSubProfile,
-                    onToggleConnect = { dashboardViewModel?.toggleService() },
+                    onToggleConnect = toggleConnect,
                     onSelectProtocol = { tag ->
                         if (tag.startsWith("cdn:")) {
                             if (groupsViewModel.selectCdn(tag) && serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
@@ -193,14 +214,14 @@ fun SFANavHost(
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
-                    connecting = serviceStatus == Status.Starting,
+                    connecting = connecting,
                     protocols = emptyList(),
                     selected = null,
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
                     accountExpires = accountInfo.expiresDate,
                     hasSubProfile = accountInfo.hasSubProfile,
-                    onToggleConnect = { dashboardViewModel?.toggleService() },
+                    onToggleConnect = toggleConnect,
                     onSelectProtocol = {},
                     onBuy = { navController.navigate("buy") },
                     onEnterCode = { openLogin() },
