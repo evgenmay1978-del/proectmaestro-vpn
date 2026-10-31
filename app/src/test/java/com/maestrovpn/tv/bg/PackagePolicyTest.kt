@@ -56,6 +56,23 @@ class PackagePolicyTest {
         assertEquals(listOf(app), d.exclude)
     }
 
+    /**
+     * Regression for the AIVPN tunnel carrying every app on the device (owner, 31.10.2026: "нужно
+     * что бы только те которые отмечены в приложении"). AivpnVpnService used to hardcode
+     * addDisallowedApplication(self) instead of asking this policy, so dumpsys showed the tunnel
+     * uid set as everything-but-the-app. Both engines must resolve the same selection to the same
+     * answer: the protocol is an implementation detail of the tunnel, not of the app list.
+     */
+    @Test
+    fun aSelectionIsResolvedIdenticallyForEveryEngine() {
+        val selection = setOf("com.example.bank", "com.example.messenger")
+        val includeDecision =
+            PackagePolicy.decide(app, perAppEnabled = true, includeMode = true, appList = selection)
+        assertEquals(listOf("com.example.bank", "com.example.messenger"), includeDecision.include)
+        assertTrue("the app itself is never tunneled", includeDecision.exclude.isEmpty())
+        assertFalse("a tunnel must not carry an unticked app", includeDecision.include.contains(app))
+    }
+
     @Test
     fun includeAndExcludeAreNeverBothSet() {
         val lists = listOf(emptySet(), setOf(app), setOf("com.example.one"), setOf(app, "com.example.two"))
