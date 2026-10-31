@@ -653,20 +653,6 @@ jobs:
           sha256sum app/src/main/jniLibs/*/libmaestro_xhttp.so
           file app/src/main/jniLibs/*/libmaestro_xhttp.so
 
-      # Experimental AIVPN tunnel (aivpn:// protocol): its native core comes from the pinned
-      # upstream release and is fetched, never committed - app/src/main/jniLibs is gitignored.
-      # continue-on-error: a failed fetch must not break the sing-box gate. Without the library the
-      # app still builds and runs: AivpnJni.isAvailable == false and the AIVPN settings screen shows
-      # 'native library is not bundled' instead of crashing.
-      - name: Fetch libaivpn_core.so (AIVPN, experimental)
-        if: ${{ inputs.task != 'mobile-eye-compile' }}
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          chmod +x tools/fetch-aivpn-so.sh
-          ./tools/fetch-aivpn-so.sh
-          sha256sum app/src/main/jniLibs/*/libaivpn_core.so
-
       - name: Materialize the stable signing keystore from secret
         if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
