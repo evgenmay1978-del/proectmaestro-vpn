@@ -172,6 +172,14 @@ internal fun PhoneDashboard(
                                 if (choice == null) onEnterCode() else onSelectProtocol(choice)
                             }, onCdn = { navigate("cdn") })
                             PhoneServerRow(server, false) { showCdnServers = cdnSelected; navigate("servers") }
+                            // Экспериментальный протокол — на главной, рядом с выбором сервера
+                            // (owner 31.10.2026). Это отдельный VpnService, а не outbound sing-box.
+                            PhoneServerRow(PhoneServer(
+                                "",
+                                stringResource(R.string.aivpn_settings),
+                                stringResource(R.string.aivpn_settings_summary),
+                                Icons.Outlined.VpnKey,
+                            ), false) { onOpenAivpn() }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.weight(1f))
                                 PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.weight(1f))
@@ -180,15 +188,6 @@ internal fun PhoneDashboard(
                         "servers" -> {
                             PhoneModes(showCdnServers, { showCdnServers = false }, { showCdnServers = true })
                             if (showCdnServers) PhoneText("CDN: $balanceText")
-                            // AIVPN is not a sing-box outbound: it is its own UDP tunnel with its own
-                            // VpnService, so the row only opens the AIVPN screen and never touches the
-                            // protocol selection below.
-                            PhoneServerRow(PhoneServer(
-                                "",
-                                stringResource(R.string.aivpn_settings),
-                                stringResource(R.string.aivpn_settings_summary),
-                                Icons.Outlined.VpnKey,
-                            ), false) { onOpenAivpn() }
                             val tags = if (showCdnServers) cdnTags else ordinary
                             if (tags.isEmpty()) {
                                 PhoneNotice(if (!hasSubProfile) "Войдите в аккаунт, чтобы загрузить серверы"

@@ -61,7 +61,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Settings entry for the experimental AIVPN protocol: paste an aivpn:// key, connect, disconnect.
+ * Screen for the experimental AIVPN protocol (opened from the main-screen tile): paste an
+ * aivpn:// key, connect, disconnect.
  *
  * The screen only stores the key and forwards start/stop to [AivpnTunnel]; it never touches the
  * native library directly, so it stays usable (with a clear error) on builds that ship without

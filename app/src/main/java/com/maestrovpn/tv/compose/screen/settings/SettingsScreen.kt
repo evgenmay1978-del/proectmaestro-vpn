@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SettingsRemote
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -96,7 +95,6 @@ fun SettingsScreen(navController: NavController) {
                 TvSettingsItem(stringResource(R.string.service), Icons.Outlined.Tune, { navController.navigate("settings/service") }),
                 TvSettingsItem(stringResource(R.string.profile_override), Icons.Outlined.FilterAlt, { navController.navigate("settings/profile_override") }),
                 TvSettingsItem(stringResource(R.string.remote_control), Icons.Outlined.SettingsRemote, { navController.navigate("settings/remote_control") }),
-                TvSettingsItem(stringResource(R.string.aivpn_settings), Icons.Outlined.VpnKey, { navController.navigate("settings/aivpn") }),
             )
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -158,11 +156,6 @@ fun SettingsScreen(navController: NavController) {
                 title = stringResource(R.string.remote_control),
                 icon = Icons.Outlined.SettingsRemote,
                 onClick = { navController.navigate("settings/remote_control") },
-            )
-            FantasyListRow(
-                title = stringResource(R.string.aivpn_settings),
-                icon = Icons.Outlined.VpnKey,
-                onClick = { navController.navigate("settings/aivpn") },
             )
             Spacer(Modifier.height(16.dp))
         }
