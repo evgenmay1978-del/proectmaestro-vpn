@@ -38,23 +38,19 @@ func newLegacyShareLabeler(topology subgen.Customer) legacyShareLabeler {
 	if node := topology.VLESS; node != nil {
 		add("vless", node.Server, node.Port, "🇪🇸 Испания · VLESS")
 	}
-	if node := topology.VLESS2; node != nil {
-		add("vless", node.Server, node.Port, "🇨🇿 Чехия · VLESS")
-	}
-	if node := topology.Hy2; node != nil {
-		add("hysteria2", node.Server, node.Port, "🇨🇿 Чехия · Hysteria2")
-	}
+	// Czechia left the fleet on 31.10.2026 (host unreachable from RU on every port), so its
+	// VLESS2/Hy2 endpoints are no longer labelled. Naive/AnyTLS moved to the Italian host.
 	if node := topology.Naive; node != nil {
-		add("naive+https", node.Server, node.Port, "🇨🇿 Чехия · Naive")
+		add("naive+https", node.Server, node.Port, "🇮🇹 Италия · Naive")
 	}
 	if node := topology.AnyTLS; node != nil {
-		add("anytls", node.Server, node.Port, "🇨🇿 Чехия · AnyTLS")
+		add("anytls", node.Server, node.Port, "🇮🇹 Италия · AnyTLS")
 	}
 	if node := topology.VLESS3; node != nil {
 		add("vless", node.Server, node.Port, "🇳🇱 Нидерланды · VLESS")
 	}
 	if node := topology.VLESS4; node != nil {
-		add("vless", node.Server, node.Port, "🇩🇪 Германия · VLESS")
+		add("vless", node.Server, node.Port, "🇮🇹 Италия · VLESS")
 	}
 	if len(labels) == 0 {
 		return nil

@@ -399,13 +399,13 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
     val text = runtimeLabel ?: when (tag?.lowercase()) {
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
         "vless" -> "🇪🇸 Испания · VLESS"
-        "hysteria2" -> "🇨🇿 Чехия · Hysteria2"
-        "naive", "naiveproxy", "anytls" -> "🇨🇿 Чехия · ${tag.orEmpty().uppercase()}"
+        "hysteria2" -> "🇮🇹 Италия · Hysteria2"
+        "naive", "naiveproxy", "anytls" -> "🇮🇹 Италия · ${tag.orEmpty().uppercase()}"
         "vless-s3" -> "🇳🇱 Нидерланды · VLESS"
-        "vless-s4" -> "🇩🇪 Германия · VLESS"
+        "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()
     }
-    val country = listOf("🇪🇸" to "Испания", "🇨🇿" to "Чехия", "🇳🇱" to "Нидерланды", "🇩🇪" to "Германия").firstOrNull { text.contains(it.second) }
+    val country = listOf("🇪🇸" to "Испания", "🇳🇱" to "Нидерланды", "🇮🇹" to "Италия").firstOrNull { text.contains(it.second) }
     return PhoneServer(country?.first.orEmpty(), country?.second ?: text,
         if (tag?.startsWith("cdn:") == true) "CDN · XHTTP" else if (country != null) text.substringAfter(" · ", "Обычный VPN") else "Обычный VPN")
 }

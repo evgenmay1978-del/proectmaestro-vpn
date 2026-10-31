@@ -714,9 +714,8 @@ private data class TvProtocolCardModel(
 
 private val tvServerFlags = listOf(
     "🇪🇸" to "Испания",
-    "🇨🇿" to "Чехия",
     "🇳🇱" to "Нидерланды",
-    "🇩🇪" to "Германия",
+    "🇮🇹" to "Италия",
 )
 
 /**
@@ -731,11 +730,11 @@ private fun tvProtocolCardModel(protocol: String, locked: Boolean, provider: Str
         "auto", "urltest", "select" -> return TvProtocolCardModel("", "Авто", "автовыбор", Icons.Filled.Speed)
         "awg" -> return TvProtocolCardModel("", "AmneziaWG", "маскировка", Icons.Filled.VpnLock)
         "vless" -> return TvProtocolCardModel("🇪🇸", "Испания", "VLESS", Icons.Filled.Shield)
-        "hysteria2" -> return TvProtocolCardModel("🇨🇿", "Чехия", "Hysteria2", Icons.Filled.Layers)
-        "naive", "naiveproxy" -> return TvProtocolCardModel("🇨🇿", "Чехия", "Naive", Icons.Filled.Public)
-        "anytls" -> return TvProtocolCardModel("🇨🇿", "Чехия", "AnyTLS", Icons.Filled.Lock)
+        "hysteria2" -> return TvProtocolCardModel("🇮🇹", "Италия", "Hysteria2", Icons.Filled.Layers)
+        "naive", "naiveproxy" -> return TvProtocolCardModel("🇮🇹", "Италия", "Naive", Icons.Filled.Public)
+        "anytls" -> return TvProtocolCardModel("🇮🇹", "Италия", "AnyTLS", Icons.Filled.Lock)
         "vless-s3" -> return TvProtocolCardModel("🇳🇱", "Нидерланды", "VLESS S3", Icons.Filled.Shield)
-        "vless-s4" -> return TvProtocolCardModel("🇩🇪", "Германия", "VLESS S4", Icons.Filled.Shield)
+        "vless-s4" -> return TvProtocolCardModel("🇮🇹", "Италия", "VLESS", Icons.Filled.Shield)
         "olcrtc", "olc rtc" -> return TvProtocolCardModel("", "OLC RTC", if (provider == "wbstream") "через WB" else "через Яндекс", Icons.Filled.Videocam)
     }
     val server = tvServerFlags.firstOrNull { protocol.contains(it.first) }

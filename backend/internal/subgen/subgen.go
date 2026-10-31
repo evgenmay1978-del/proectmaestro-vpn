@@ -125,12 +125,12 @@ type WGCreds = controlplane.WGCredentialIdentity
 
 const (
 	tagVLESS  = "🇪🇸 MaestroVPN VLESS"
-	tagVLESS2 = "🇨🇿 MaestroVPN VLESS"
+	tagVLESS2 = "🇨🇿 MaestroVPN VLESS" // retired 31.10.2026: the Czech node is out of the fleet
 	tagVLESS3 = "🇳🇱 MaestroVPN VLESS S3" // VLESS-Reality on the 3rd node
-	tagVLESS4 = "🇩🇪 MaestroVPN VLESS S4" // VLESS-Reality on the 4th node (S4)
-	tagHy2    = "🇨🇿 MaestroVPN Hysteria2"
-	tagNaive  = "🇨🇿 MaestroVPN Naive"
-	tagAnyTLS = "🇨🇿 MaestroVPN AnyTLS"
+	tagVLESS4 = "🇩🇪 MaestroVPN VLESS S4" // legacy name; the 4th node is now Italy (see TAG_RELABEL in the S1 shim)
+	tagHy2    = "🇨🇿 MaestroVPN Hysteria2" // retired with the Czech node
+	tagNaive  = "🇮🇹 MaestroVPN Naive"     // NaiveProxy moved from the dead Czech host to Italy
+	tagAnyTLS = "🇮🇹 MaestroVPN AnyTLS"    // AnyTLS moved from the dead Czech host to Italy
 	tagWG     = "awg"     // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
 	tagOLC    = "olcrtc"  // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
 	tagVKTurn = "vk-turn" // WireGuard over the local WDTT VK TURN/DTLS relay
