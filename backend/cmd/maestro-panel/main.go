@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/aivpn"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
@@ -178,6 +179,20 @@ func main() {
 	vkTurn, err := vkturnconf.OpenStore(os.Getenv("MAESTRO_VKTURN_FILE"))
 	if err != nil {
 		log.Fatalf("open vkturn config: %v", err)
+	}
+
+	// AIVPN connection keys (aivpn://…). AIVPN is the app's OWN UDP protocol, not a
+	// sing-box outbound, so a key is never part of the /sub profile: it is served by
+	// GET /aivpn/<token> and, for eligible installs, alongside /sub/<token>/info.
+	// No default path and no default enable: unset MAESTRO_AIVPN_SOURCE keeps the
+	// feature off. A configured-but-broken source aborts startup (see internal/aivpn)
+	// so the panel can never advertise a key it is unable to mint.
+	aivpnSrc, err := aivpn.OpenOS(os.Getenv)
+	if err != nil {
+		log.Fatalf("open aivpn config: %v", err)
+	}
+	if aivpnSrc != nil {
+		log.Printf("AIVPN key issuance enabled (min app versionCode %d)", aivpnSrc.MinVersionCode())
 	}
 
 	// The provisioner is wired only when its dependencies are configured.
@@ -348,6 +363,7 @@ func main() {
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 			OLC:          olc,
 			VKTurn:       vkTurn,
+			AIVPN:        aivpnSrc,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

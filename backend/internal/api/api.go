@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/aivpn"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
@@ -122,6 +123,12 @@ type Config struct {
 	// means OFF. The store validates+persists edits atomically and hands out
 	// consistent snapshots, so /sub reads never see a half-applied edit.
 	VKTurn *vkturnconf.Store
+	// AIVPN is the source of AIVPN connection keys (aivpn://…). AIVPN is the app's
+	// OWN UDP protocol running in its VpnService — NOT a sing-box outbound — so the
+	// key can never ride in the /sub sing-box JSON; it is served over /info and
+	// GET /aivpn/<token>. nil (the default) means the feature is OFF: no route is
+	// registered and /info carries no key. See internal/aivpn.
+	AIVPN aivpn.Source
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -162,6 +169,11 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok " + BuildCommit))
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
+	if s.cfg.AIVPN != nil && s.cfg.AIVPN.Enabled() {
+		// AIVPN connection key (aivpn://…): a live credential, so it gets its own
+		// gated endpoint instead of riding inside the sing-box profile.
+		mux.HandleFunc("/aivpn/", s.handleAivpn)
+	}
 	mux.HandleFunc("/claim", s.handleClaim)
 	if s.cfg.UpdateDir != "" {
 		// Panel-hosted OTA update channel — the RU-reachable update source the app
@@ -444,8 +456,9 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, r *http.Request, c *store.C
 		"days_left": daysLeft,
 		"active":    c.Active(),
 	}
+	features := map[string]any{}
 	if client, vc, ok := s.vkTurnClient(r, c); ok {
-		out["features"] = map[string]any{"vk_turn": true}
+		features["vk_turn"] = true
 		out["vk_turn"] = map[string]any{
 			"server":      vc.Server,
 			"vk_hashes":   vc.VKHashes,
@@ -455,6 +468,20 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, r *http.Request, c *store.C
 			"client_ids":  vkturnconf.DefaultClientIDs,
 			"obfs_mode":   vkturnconf.DefaultObfsMode,
 		}
+	}
+	// AIVPN connection key (aivpn://…). AIVPN is the app's own UDP VpnService, not a
+	// sing-box outbound, so it can never ride in the /sub sing-box JSON; /info is
+	// where the app learns which extra transports it also has. aivpnKey applies
+	// every gate: feature on, account active, app versionCode >= the shipped AIVPN
+	// build, login whitelisted, and the key source really holding a key.
+	if key, ok := s.aivpnKey(r, c); ok {
+		features["aivpn"] = true
+		out["aivpn"] = map[string]any{"key": key}
+	}
+	// Only advertise a features object when something is actually on: older apps
+	// (and every non-AIVPN host) must see exactly the response they saw before.
+	if len(features) > 0 {
+		out["features"] = features
 	}
 	// olcRTC WebRTC params (provider/room/key/transport) — NOT sing-box fields, so they can't
 	// ride in /sub; the app writes them into the child's client.yaml. From the GLOBAL olcconf
