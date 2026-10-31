@@ -58,7 +58,7 @@ class AivpnVpnService : VpnService() {
         private const val TAG = "AivpnVpnService"
         private const val CHANNEL_ID = "aivpn"
         private const val NOTIFICATION_ID = 2
-        private const val ACTION_STOP = "com.maestrovpn.tv.aivpn.STOP"
+        internal const val ACTION_STOP = "com.maestrovpn.tv.aivpn.STOP"
         private const val STOP_JOIN_MS = 2000L
 
         private const val DNS_PRIMARY = "1.1.1.1"
