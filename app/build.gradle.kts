@@ -1,12 +1,16 @@
 import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.logging.Logger
 import org.gradle.api.tasks.Sync
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     id("com.android.application")
@@ -401,75 +405,83 @@ fun sha256Hex(file: File): String? = try {
 
 val aivpnJniLibsDir = file("src/main/jniLibs")
 val aivpnCacheDir = layout.buildDirectory.dir("aivpn").get().asFile
+
+// The work lives in an ordinary function on purpose: the Kotlin DSL script compiler rejects plain
+// "if"/"try" statements inside a script-body lambda, and "java.net"/"java.util.zip" prefixes resolve
+// to the script accessors instead of the JDK packages, so both are imported above.
+fun fetchAivpnNativeLibs(jniLibsDir: File, cacheDir: File, log: Logger) {
+    val missing = aivpnLibSha256.keys.filter { abi ->
+        val target = File(jniLibsDir, "$abi/libaivpn_core.so")
+        val okay = target.isFile &&
+            target.length() == aivpnLibBytes.getValue(abi) &&
+            sha256Hex(target) == aivpnLibSha256.getValue(abi)
+        !okay
+    }
+    if (missing.isEmpty()) {
+        log.lifecycle("AIVPN: libaivpn_core.so is already in place")
+        return
+    }
+    try {
+        val apk = File(cacheDir, "aivpn-android.apk")
+        val cached = apk.isFile &&
+            apk.length() == aivpnReleaseBytes &&
+            sha256Hex(apk) == aivpnReleaseSha256
+        if (!cached) {
+            cacheDir.mkdirs()
+            val temp = File(cacheDir, "aivpn-android.apk.part")
+            log.lifecycle("AIVPN: downloading the pinned v1.2.0 release APK")
+            val connection = URL(aivpnReleaseUrl).openConnection() as HttpURLConnection
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 120_000
+            connection.instanceFollowRedirects = true
+            connection.inputStream.use { input ->
+                temp.outputStream().use { output -> input.copyTo(output) }
+            }
+            val authentic = temp.length() == aivpnReleaseBytes &&
+                sha256Hex(temp) == aivpnReleaseSha256
+            if (!authentic) {
+                temp.delete()
+                throw IllegalStateException("the downloaded release APK does not match the pinned sha256")
+            }
+            if (!temp.renameTo(apk)) {
+                temp.copyTo(apk, overwrite = true)
+                temp.delete()
+            }
+        }
+        ZipFile(apk).use { zip ->
+            for (abi in missing) {
+                val entry = zip.getEntry("lib/$abi/libaivpn_core.so")
+                    ?: throw IllegalStateException("the release APK has no lib/$abi/libaivpn_core.so")
+                val dir = File(jniLibsDir, abi)
+                dir.mkdirs()
+                val temp = File(dir, "libaivpn_core.so.part")
+                zip.getInputStream(entry).use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                }
+                val authentic = temp.length() == aivpnLibBytes.getValue(abi) &&
+                    sha256Hex(temp) == aivpnLibSha256.getValue(abi)
+                if (!authentic) {
+                    temp.delete()
+                    throw IllegalStateException("lib/$abi/libaivpn_core.so does not match the pinned sha256")
+                }
+                val target = File(dir, "libaivpn_core.so")
+                if (!temp.renameTo(target)) {
+                    temp.copyTo(target, overwrite = true)
+                    temp.delete()
+                }
+                log.lifecycle("AIVPN: installed $abi/libaivpn_core.so")
+            }
+        }
+    } catch (t: Throwable) {
+        log.warn("AIVPN: native library not fetched (" + t.message + "); building without it")
+    }
+}
+
 val aivpnFetchTask = tasks.register("fetchAivpnNativeLibs") {
     group = "build"
     description = "Fetches libaivpn_core.so (AIVPN v1.2.0) into src/main/jniLibs/<abi>"
     doLast {
-        val missing = aivpnLibSha256.keys.filter { abi ->
-            val target = File(aivpnJniLibsDir, "$abi/libaivpn_core.so")
-            val okay = target.isFile &&
-                target.length() == aivpnLibBytes.getValue(abi) &&
-                sha256Hex(target) == aivpnLibSha256.getValue(abi)
-            !okay
-        }
-        if (missing.isEmpty()) {
-            logger.lifecycle("AIVPN: libaivpn_core.so is already in place")
-        } else {
-            try {
-                val apk = File(aivpnCacheDir, "aivpn-android.apk")
-                val cached = apk.isFile &&
-                    apk.length() == aivpnReleaseBytes &&
-                    sha256Hex(apk) == aivpnReleaseSha256
-                if (!cached) {
-                    aivpnCacheDir.mkdirs()
-                    val temp = File(aivpnCacheDir, "aivpn-android.apk.part")
-                    logger.lifecycle("AIVPN: downloading the pinned v1.2.0 release APK")
-                    val connection = java.net.URL(aivpnReleaseUrl).openConnection() as java.net.HttpURLConnection
-                    connection.connectTimeout = 20_000
-                    connection.readTimeout = 120_000
-                    connection.instanceFollowRedirects = true
-                    connection.inputStream.use { input ->
-                        temp.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    val authentic = temp.length() == aivpnReleaseBytes &&
-                        sha256Hex(temp) == aivpnReleaseSha256
-                    if (!authentic) {
-                        temp.delete()
-                        throw IllegalStateException("the downloaded release APK does not match the pinned sha256")
-                    }
-                    if (!temp.renameTo(apk)) {
-                        temp.copyTo(apk, overwrite = true)
-                        temp.delete()
-                    }
-                }
-                java.util.zip.ZipFile(apk).use { zip ->
-                    for (abi in missing) {
-                        val entry = zip.getEntry("lib/$abi/libaivpn_core.so")
-                            ?: throw IllegalStateException("the release APK has no lib/$abi/libaivpn_core.so")
-                        val dir = File(aivpnJniLibsDir, abi)
-                        dir.mkdirs()
-                        val temp = File(dir, "libaivpn_core.so.part")
-                        zip.getInputStream(entry).use { input ->
-                            temp.outputStream().use { output -> input.copyTo(output) }
-                        }
-                        val authentic = temp.length() == aivpnLibBytes.getValue(abi) &&
-                            sha256Hex(temp) == aivpnLibSha256.getValue(abi)
-                        if (!authentic) {
-                            temp.delete()
-                            throw IllegalStateException("lib/$abi/libaivpn_core.so does not match the pinned sha256")
-                        }
-                        val target = File(dir, "libaivpn_core.so")
-                        if (!temp.renameTo(target)) {
-                            temp.copyTo(target, overwrite = true)
-                            temp.delete()
-                        }
-                        logger.lifecycle("AIVPN: installed $abi/libaivpn_core.so")
-                    }
-                }
-            } catch (t: Throwable) {
-                logger.warn("AIVPN: native library not fetched (${t.message}); building without it")
-            }
-        }
+        fetchAivpnNativeLibs(aivpnJniLibsDir, aivpnCacheDir, logger)
     }
 }
 
