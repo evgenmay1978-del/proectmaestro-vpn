@@ -166,16 +166,20 @@ fun AivpnScreen(navController: NavController) {
     }
 
     /**
-     * Pulls this device's key from the subscription and stores it. [force] re-fetches over a saved
-     * key (the refresh button); otherwise a saved key wins and the network is not touched at all.
-     * Returns null when another fetch is already running.
+     * Pulls this device's key from the subscription and stores it. A key from the panel always wins
+     * over the saved one: the subscription is the source of truth. [force] re-fetches over a saved
+     * key; without it a saved key wins and the network is not touched at all.
+     *
+     * A failed attempt is only reported while the app has no key at all: an outdated saved key is
+     * kept silently. Returns null when another fetch is already running.
      */
     suspend fun provision(force: Boolean): AivpnProvisioner.Result? {
         if (provisioning) return null
         provisioning = true
         provisionMessage = null
         try {
-            if (!force && withContext(Dispatchers.IO) { Settings.aivpnKey }.isNotBlank()) return null
+            val saved = withContext(Dispatchers.IO) { Settings.aivpnKey }
+            if (!force && saved.isNotBlank()) return null
             val result = withContext(Dispatchers.IO) {
                 try {
                     val subscription = subscriptionUrl()
@@ -198,16 +202,24 @@ fun AivpnScreen(navController: NavController) {
             }
             when (result) {
                 is AivpnProvisioner.Result.Ok -> {
-                    withContext(Dispatchers.IO) { Settings.aivpnKey = result.key }
-                    keyText = result.key
+                    // The subscription always wins: an old hand-pasted key is overwritten here.
+                    val fresh = AivpnProvisioner.keyToStore(saved, result)
+                    withContext(Dispatchers.IO) { Settings.aivpnKey = fresh }
+                    keyText = fresh
                     error = null
                 }
                 is AivpnProvisioner.Result.Denied ->
-                    provisionMessage = context.getString(reasonText(result.reason))
+                    if (AivpnProvisioner.shouldReportFailure(saved, keyText)) {
+                        provisionMessage = context.getString(reasonText(result.reason))
+                    }
                 AivpnProvisioner.Result.Unavailable ->
-                    provisionMessage = context.getString(R.string.aivpn_fetch_unavailable)
+                    if (AivpnProvisioner.shouldReportFailure(saved, keyText)) {
+                        provisionMessage = context.getString(R.string.aivpn_fetch_unavailable)
+                    }
                 AivpnProvisioner.Result.NotSubscribed ->
-                    provisionMessage = context.getString(R.string.aivpn_fetch_no_subscription)
+                    if (AivpnProvisioner.shouldReportFailure(saved, keyText)) {
+                        provisionMessage = context.getString(R.string.aivpn_fetch_no_subscription)
+                    }
             }
             return result
         } finally {
@@ -232,10 +244,11 @@ fun AivpnScreen(navController: NavController) {
         }
     }
 
-    // First show of the screen: the key is meant to arrive by itself. A saved key means no network.
+    // Every open of the screen refreshes the key: the subscription is the source of truth, so a key
+    // pasted by hand once must not win over it. A running tunnel is left alone.
     LaunchedEffect(Unit) {
-        if (withContext(Dispatchers.IO) { Settings.aivpnKey }.isBlank()) {
-            provision(force = false)
+        if (status !is AivpnStatus.Connecting && status !is AivpnStatus.Running) {
+            provision(force = true)
         }
     }
 

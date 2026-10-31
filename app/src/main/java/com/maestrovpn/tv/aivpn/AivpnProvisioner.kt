@@ -155,6 +155,24 @@ object AivpnProvisioner {
         }
     }
 
+    // --------------------------------------------------------------- what to keep
+
+    /**
+     * The key the app keeps after [result]. A fresh key from the panel always wins, so a key pasted
+     * by hand before the subscription handed one out is replaced; a failed attempt keeps [saved].
+     */
+    fun keyToStore(saved: String, result: Result): String = when (result) {
+        is Result.Ok -> result.key
+        else -> saved
+    }
+
+    /**
+     * A refusal is worth a message only while the app has nothing to fall back to: with an older key
+     * on hand the screen stays quiet instead of explaining a failure the user does not feel.
+     */
+    fun shouldReportFailure(saved: String, current: String): Boolean =
+        saved.isBlank() && current.isBlank()
+
     private fun classify(body: String): Reason {
         val text = (parseServerMessage(body) ?: body).lowercase()
         return when {

@@ -172,4 +172,41 @@ class AivpnProvisionerTest {
         }
         assertEquals(AivpnProvisioner.Result.Denied(AivpnProvisioner.Reason.DeviceLimit), result)
     }
+
+    // --------------------------------------------------------------------- keeping
+
+    @Test
+    fun aFreshKeyReplacesTheHandPastedOne() {
+        assertEquals(
+            "aivpn://fresh",
+            AivpnProvisioner.keyToStore("aivpn://pasted-by-hand", AivpnProvisioner.Result.Ok("aivpn://fresh")),
+        )
+        assertEquals(
+            "aivpn://fresh",
+            AivpnProvisioner.keyToStore("", AivpnProvisioner.Result.Ok("aivpn://fresh")),
+        )
+        assertEquals(
+            "aivpn://pasted-by-hand",
+            AivpnProvisioner.keyToStore(
+                "aivpn://pasted-by-hand",
+                AivpnProvisioner.Result.Denied(AivpnProvisioner.Reason.DeviceLimit),
+            ),
+        )
+        assertEquals(
+            "aivpn://pasted-by-hand",
+            AivpnProvisioner.keyToStore("aivpn://pasted-by-hand", AivpnProvisioner.Result.Unavailable),
+        )
+        assertEquals(
+            "aivpn://pasted-by-hand",
+            AivpnProvisioner.keyToStore("aivpn://pasted-by-hand", AivpnProvisioner.Result.NotSubscribed),
+        )
+    }
+
+    @Test
+    fun aFailureIsOnlyReportedWhenNoKeyIsLeft() {
+        assertTrue(AivpnProvisioner.shouldReportFailure("", ""))
+        assertFalse(AivpnProvisioner.shouldReportFailure("aivpn://pasted-by-hand", ""))
+        assertFalse(AivpnProvisioner.shouldReportFailure("", "aivpn://typed-but-not-saved"))
+        assertFalse(AivpnProvisioner.shouldReportFailure("aivpn://pasted-by-hand", "aivpn://typed"))
+    }
 }
