@@ -99,6 +99,7 @@ import io.nekohasekai.libbox.Libbox
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.aivpn.AivpnTunnel
 import com.maestrovpn.tv.bg.BoxService
 import com.maestrovpn.tv.bg.CrashReportManager
 import com.maestrovpn.tv.bg.OOMReportManager
@@ -422,7 +423,9 @@ class MainActivity :
         }
 
         fun enqueueApplyServiceChange(mode: UiEvent.ApplyServiceChange.Mode) {
-            if (currentServiceStatus != Status.Started) {
+            // AIVPN is a separate VpnService with its own lifecycle: gating on the sing-box status
+            // alone dropped the prompt while the neuro tunnel was the one carrying traffic.
+            if (currentServiceStatus != Status.Started && !AivpnTunnel.isActive) {
                 return
             }
 
@@ -466,15 +469,23 @@ class MainActivity :
                         activeApplyServiceChangeMode = null
                         if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
                             try {
-                                when (modeToShow) {
-                                    UiEvent.ApplyServiceChange.Mode.Reload -> {
-                                        withContext(Dispatchers.IO) {
-                                            Libbox.newStandaloneCommandClient().serviceReload()
+                                if (AivpnTunnel.isActive) {
+                                    // No reload command exists for AIVPN, and the package list is
+                                    // pinned at Builder.establish(): rebuilding the interface is
+                                    // the only way a changed selection takes effect.
+                                    AivpnTunnel.reapplyPackagePolicy(this@MainActivity)
+                                }
+                                if (currentServiceStatus == Status.Started) {
+                                    when (modeToShow) {
+                                        UiEvent.ApplyServiceChange.Mode.Reload -> {
+                                            withContext(Dispatchers.IO) {
+                                                Libbox.newStandaloneCommandClient().serviceReload()
+                                            }
                                         }
-                                    }
 
-                                    UiEvent.ApplyServiceChange.Mode.Restart -> {
-                                        restartServiceForApplyChange()
+                                        UiEvent.ApplyServiceChange.Mode.Restart -> {
+                                            restartServiceForApplyChange()
+                                        }
                                     }
                                 }
                             } catch (e: Exception) {
