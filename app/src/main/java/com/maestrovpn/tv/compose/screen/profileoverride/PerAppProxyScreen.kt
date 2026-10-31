@@ -100,6 +100,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.aivpn.AivpnTunnel
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.compose.base.rememberApplyServiceChangeNotifier
 import com.maestrovpn.tv.compose.premium.MobilePremium4DShell
@@ -147,7 +148,14 @@ fun PerAppProxyScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-    val notifyApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    val notifySingBoxApplyChange = rememberApplyServiceChangeNotifier(serviceStatus)
+    // The AIVPN tunnel pins its package list at establish() time and has no reload command, so a
+    // changed selection only reaches it by rebuilding the interface. sing-box keeps its own
+    // snackbar-driven reload; both paths are notified from this single seam.
+    val notifyApplyChange: (UiEvent.ApplyServiceChange.Mode) -> Unit = { mode ->
+        notifySingBoxApplyChange(mode)
+        AivpnTunnel.reapplyPackagePolicy(context)
+    }
 
     var proxyMode by remember { mutableStateOf(Settings.perAppProxyMode) }
     var sortMode by remember { mutableStateOf(SortMode.NAME) }

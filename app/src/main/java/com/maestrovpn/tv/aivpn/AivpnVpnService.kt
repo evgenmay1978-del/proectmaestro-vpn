@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager.NameNotFoundException
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -20,8 +21,10 @@ import androidx.core.app.NotificationCompat
 import com.aivpn.client.AivpnJni
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.bg.BoxService
+import com.maestrovpn.tv.bg.PackagePolicy
 import com.maestrovpn.tv.compose.MainActivity
 import com.maestrovpn.tv.database.Settings
+import com.maestrovpn.tv.vendor.Vendor
 import org.json.JSONObject
 import java.net.InetAddress
 import kotlin.concurrent.thread
@@ -374,12 +377,51 @@ class AivpnVpnService : VpnService() {
         if (Settings.allowBypass) {
             builder.allowBypass()
         }
-        // Keep our own traffic (management calls, update checks) out of the tunnel.
-        runCatching<Unit> { builder.addDisallowedApplication(packageName) }
+        applyPackagePolicy(builder)
         val pfd = builder.establish() ?: throw IllegalStateException("establish() returned null")
         tun = pfd
         tunParams = params
         return pfd
+    }
+
+    /**
+     * Carries exactly the apps the user ticked in "Split tunneling", same as the sing-box path.
+     *
+     * The decision itself lives in [PackagePolicy] and is shared with
+     * [com.maestrovpn.tv.bg.BoxService.buildOverrideOptions] — AIVPN must not grow a second,
+     * divergent answer to "which apps ride the tunnel". Before this the service only excluded
+     * itself, so every app on the device was tunneled regardless of the user's selection.
+     *
+     * Our own package always stays outside the tunnel (claim, /sub refresh, OTA download): see
+     * the incident note in [PackagePolicy].
+     */
+    private fun applyPackagePolicy(builder: Builder) {
+        val perAppEnabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
+        val policy = PackagePolicy.decide(
+            appPackage = packageName,
+            perAppEnabled = perAppEnabled,
+            includeMode = Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE,
+            appList = Settings.getEffectivePerAppProxyList(),
+        )
+        for (name in policy.include) {
+            try {
+                builder.addAllowedApplication(name)
+            } catch (e: NameNotFoundException) {
+                // An uninstalled package must not abort the whole tunnel.
+                Log.w(TAG, "addAllowedApplication failed: $name", e)
+            }
+        }
+        for (name in policy.exclude) {
+            try {
+                builder.addDisallowedApplication(name)
+            } catch (e: NameNotFoundException) {
+                Log.w(TAG, "addDisallowedApplication failed: $name", e)
+            }
+        }
+        Log.i(
+            TAG,
+            "package policy: perApp=$perAppEnabled include=${policy.include.size} exclude=${policy.exclude.size}",
+        )
     }
 
     /** Blocking native call; runs on [engine] only. */
