@@ -311,6 +311,12 @@ func (f failingAivpn) Key(context.Context, string) (string, error) {
 	return "", f.err
 }
 
+// KeyForDevice mirrors Key: a device-scoped request degrades exactly the same
+// way, so the endpoint answers 403 and /info simply omits the feature.
+func (f failingAivpn) KeyForDevice(ctx context.Context, login, _ string) (string, error) {
+	return f.Key(ctx, login)
+}
+
 func TestAivpnSourceFailureDegrades(t *testing.T) {
 	st, _, _ := aivpnFixture(t)
 	for _, src := range []failingAivpn{

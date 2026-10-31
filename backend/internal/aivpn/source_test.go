@@ -83,6 +83,31 @@ func TestStaticServesWhitelistedKeys(t *testing.T) {
 	}
 }
 
+// TestStaticKeyForDeviceSameKey: the pilot file holds one pre-issued key per
+// login, so device scoping is a no-op there — but the method must exist, keep the
+// whitelist gate, and never invent a second credential.
+func TestStaticKeyForDeviceSameKey(t *testing.T) {
+	cfg := validConfig(t)
+	key := cfg.Keys["alice"]
+	s, err := OpenStatic(writeStaticConfig(t, cfg))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ctx := context.Background()
+	for _, dev := range []string{"dev-1", "dev-2", ""} {
+		got, err := s.KeyForDevice(ctx, "alice", dev)
+		if err != nil {
+			t.Fatalf("KeyForDevice(%q): %v", dev, err)
+		}
+		if got != key {
+			t.Fatalf("KeyForDevice(%q) = %q, want the pilot key", dev, got)
+		}
+	}
+	if _, err := s.KeyForDevice(ctx, "mallory", "dev-1"); !errors.Is(err, ErrNoClient) {
+		t.Fatalf("unknown login err = %v, want ErrNoClient", err)
+	}
+}
+
 func TestOpenStaticRejectsBrokenConfig(t *testing.T) {
 	key := testKey(t)
 	cases := map[string]Config{

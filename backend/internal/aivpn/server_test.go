@@ -24,6 +24,13 @@ type stubRest struct {
 	postHits int
 	keyHits  int
 
+	// keyByName, when set, gives each client its own key (by client name), so a
+	// test can prove two devices receive two different credentials. key stays
+	// the default for names without an entry.
+	keyByName map[string]string
+	// created records the client names the panel asked to create, in order.
+	created []string
+
 	listStatus int
 	postStatus int
 	keyStatus  int
@@ -52,6 +59,7 @@ func (s *stubRest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		view := clientView{ID: "id-" + in.Name, Name: in.Name, Enabled: true}
 		s.clients = append(s.clients, view)
+		s.created = append(s.created, in.Name)
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(view)
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/connection-key"):
@@ -60,7 +68,19 @@ func (s *stubRest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(s.keyStatus)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"connection_key": s.key})
+		// The key belongs to the client the id names: resolve id -> name so a
+		// per-device stub can answer with that device's own key.
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/clients/"), "/connection-key")
+		key := s.key
+		for _, c := range s.clients {
+			if c.ID == id {
+				if k, ok := s.keyByName[c.Name]; ok {
+					key = k
+				}
+				break
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"connection_key": key})
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -70,6 +90,13 @@ func (s *stubRest) hits() (list, post, key int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.listHits, s.postHits, s.keyHits
+}
+
+// createdNames returns the client names the panel asked to create, in order.
+func (s *stubRest) createdNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.created...)
 }
 
 // startStub serves h on a unix socket in a short temp path: unix socket paths

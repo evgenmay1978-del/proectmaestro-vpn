@@ -29,6 +29,11 @@ type Source interface {
 	Allowed(login string) bool
 	// Key returns login's connection key in aivpn:// form.
 	Key(ctx context.Context, login string) (string, error)
+	// KeyForDevice returns the connection key for one of login's devices. The
+	// device id is the app's per-install random id (never a credential): a
+	// Source may use it to give each install its own credential. An empty
+	// device means "no device scoping" and must behave exactly like Key.
+	KeyForDevice(ctx context.Context, login, device string) (string, error)
 }
 
 var (
@@ -156,6 +161,14 @@ func (s *Static) Key(ctx context.Context, login string) (string, error) {
 		return "", ErrNoClient
 	}
 	return key, nil
+}
+
+// KeyForDevice implements Source. The pilot's file holds exactly one pre-issued
+// key per login, so every device of that login gets the same key: device
+// scoping is a Server-mode (S1 management API) feature, and a pilot config must
+// never fail a device request.
+func (s *Static) KeyForDevice(ctx context.Context, login, _ string) (string, error) {
+	return s.Key(ctx, login)
 }
 
 // Environment variables read by OpenOS. Everything is opt-in: with none of them
