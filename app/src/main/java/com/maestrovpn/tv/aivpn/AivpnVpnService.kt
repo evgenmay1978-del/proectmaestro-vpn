@@ -307,7 +307,9 @@ class AivpnVpnService : VpnService() {
         runCatching { tun?.close() }
         tun = null
         tunParams = null
-        val builder = VpnService.Builder()
+        // Builder is an inner class of VpnService: it must be constructed on this instance, so the
+        // qualified form VpnService.Builder() does not compile from Kotlin.
+        val builder = Builder()
             .setSession("MaestroVPN AIVPN")
             .addAddress(params.address, params.prefixLen)
             .setMtu(params.mtu)
@@ -327,7 +329,7 @@ class AivpnVpnService : VpnService() {
             builder.allowBypass()
         }
         // Keep our own traffic (management calls, update checks) out of the tunnel.
-        runCatching { builder.addDisallowedApplication(packageName) }
+        runCatching<Unit> { builder.addDisallowedApplication(packageName) }
         val pfd = builder.establish() ?: throw IllegalStateException("establish() returned null")
         tun = pfd
         tunParams = params
