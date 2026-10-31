@@ -17,7 +17,23 @@ class WhiteListAndroidBoundaryTest {
         assertFalse(binding.contains("registerNetworkCallback"))
         assertFalse(binding.contains("requestNetwork"))
         assertFalse(binding.contains("VpnService()"))
-        assertEquals(1, Regex("android\\.net\\.VpnService").findAll(manifest).count())
+        // VPN-интерфейс в системе один, поэтому сервисов ровно два и они взаимоисключающие:
+        // рабочий sing-box (.bg.VPNService) и экспериментальный AIVPN (.aivpn.AivpnVpnService).
+        // Intent-filter android.net.VpnService обязателен для каждого — без него система не
+        // считает сервис VPN-сервисом. Инвариант поэтому не «одна строка в манифесте», а пара
+        // «intent-filter ↔ сервис с BIND_VPN_SERVICE»: посторонний VPN-сервис не проскочит.
+        assertEquals(2, Regex("android\\.net\\.VpnService").findAll(manifest).count())
+        assertEquals(
+            setOf(".bg.VPNService", ".aivpn.AivpnVpnService"),
+            vpnServiceBodies(manifest).keys,
+        )
+        vpnServiceBodies(manifest).forEach { (name, body) ->
+            assertTrue(
+                "$name is declared as a VPN service but has no android.net.VpnService intent-filter",
+                body.contains("android.net.VpnService"),
+            )
+        }
+        assertFalse(manifest.contains("android:process"))
     }
 
     @Test
@@ -61,6 +77,22 @@ class WhiteListAndroidBoundaryTest {
         assertTrue(session.contains("addTransportType(NetworkCapabilities.TRANSPORT_WIFI)"))
         assertFalse(session.contains("VpnService()"))
     }
+
+    /**
+     * Services that opt into the system VPN role: android:name → opening tag + intent-filter body.
+     * Deliberately not a string count — the manifest gains a service whenever a second engine is
+     * added, and the boundary we care about is "who may own the single VPN interface".
+     */
+    private fun vpnServiceBodies(manifest: String): Map<String, String> =
+        Regex("""<service\b([^>]*?)(?:/>|>([\s\S]*?)</service>)""").findAll(manifest)
+            .mapNotNull { match ->
+                val head = match.groupValues[1]
+                if (!head.contains("android.permission.BIND_VPN_SERVICE")) return@mapNotNull null
+                val name = Regex("""android:name="([^"]+)"""").find(head)?.groupValues?.get(1)
+                    ?: error("VPN service without android:name")
+                name to (head + match.groupValues[2])
+            }
+            .toMap()
 
     private fun appFile(path: String): File {
         val matches = listOf(File(path), File("app", path)).filter(File::isFile)

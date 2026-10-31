@@ -622,7 +622,7 @@
     <string name="aivpn_settings">AIVPN (экспериментальный)</string>
     <string name="aivpn_status_title">Статус</string>
     <string name="aivpn_status_stopped">Отключено</string>
-    <string name="aivpn_status_starting">Запуск…</string>
+    <string name="aivpn_status_connecting">Подключение…</string>
     <string name="aivpn_status_running">Туннель запущен</string>
     <string name="aivpn_status_failed">Ошибка: %1$s</string>
     <string name="aivpn_key_hint">Ключ aivpn://…</string>

@@ -112,7 +112,7 @@ fun AivpnScreen(navController: NavController) {
     var keyText by remember { mutableStateOf(Settings.aivpnKey) }
     var error by remember { mutableStateOf<String?>(null) }
     val status by AivpnTunnel.status.collectAsState()
-    val active = status is AivpnStatus.Starting || status is AivpnStatus.Running
+    val active = status is AivpnStatus.Connecting || status is AivpnStatus.Running
 
     // Bytes in an aivpn:// key carry no whitespace; pasted keys often arrive line-wrapped.
     val cleanedKey = remember(keyText) { keyText.filterNot { it.isWhitespace() } }
@@ -154,7 +154,7 @@ fun AivpnScreen(navController: NavController) {
     val statusText = when (val current = status) {
         is AivpnStatus.Failed -> stringResource(R.string.aivpn_status_failed, current.message)
         AivpnStatus.Running -> stringResource(R.string.aivpn_status_running)
-        AivpnStatus.Starting -> stringResource(R.string.aivpn_status_starting)
+        AivpnStatus.Connecting -> stringResource(R.string.aivpn_status_connecting)
         AivpnStatus.Stopped -> stringResource(R.string.aivpn_status_stopped)
     }
 

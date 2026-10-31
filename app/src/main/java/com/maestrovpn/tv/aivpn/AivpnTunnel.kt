@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Observable lifecycle of the experimental AIVPN tunnel. */
 sealed interface AivpnStatus {
     data object Stopped : AivpnStatus
-    data object Starting : AivpnStatus
+    data object Connecting : AivpnStatus
     data object Running : AivpnStatus
     data class Failed(val message: String) : AivpnStatus
 }
@@ -29,7 +29,7 @@ object AivpnTunnel {
     val status: StateFlow<AivpnStatus> = _status.asStateFlow()
 
     val isActive: Boolean
-        get() = _status.value is AivpnStatus.Starting || _status.value is AivpnStatus.Running
+        get() = _status.value is AivpnStatus.Connecting || _status.value is AivpnStatus.Running
 
     /** Called by [AivpnVpnService]; the UI only reads [status]. */
     internal fun publish(status: AivpnStatus) {
@@ -45,7 +45,7 @@ object AivpnTunnel {
             return
         }
         if (isActive) return
-        _status.value = AivpnStatus.Starting
+        _status.value = AivpnStatus.Connecting
         try {
             ContextCompat.startForegroundService(app, Intent(app, AivpnVpnService::class.java))
         } catch (e: RuntimeException) { // e.g. background FGS start restriction
@@ -56,6 +56,11 @@ object AivpnTunnel {
     fun stop(context: Context) {
         val app = context.applicationContext
         app.stopService(Intent(app, AivpnVpnService::class.java))
+        // The service tears the interface down asynchronously; flip the UI right away so a tap on
+        // "Disconnect" cannot look ignored while stopTunnel() unwinds the native session.
+        if (_status.value is AivpnStatus.Connecting || _status.value is AivpnStatus.Running) {
+            _status.value = AivpnStatus.Stopped
+        }
     }
 
     /**

@@ -625,7 +625,7 @@
     <string name="aivpn_settings">AIVPN (experimental)</string>
     <string name="aivpn_status_title">Status</string>
     <string name="aivpn_status_stopped">Disconnected</string>
-    <string name="aivpn_status_starting">Starting…</string>
+    <string name="aivpn_status_connecting">Connecting…</string>
     <string name="aivpn_status_running">Tunnel is up</string>
     <string name="aivpn_status_failed">Failed: %1$s</string>
     <string name="aivpn_key_hint">aivpn://… key</string>
