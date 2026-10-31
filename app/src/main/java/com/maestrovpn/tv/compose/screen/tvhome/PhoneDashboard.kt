@@ -400,7 +400,8 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
         "vless" -> "🇪🇸 Испания · VLESS"
         "hysteria2" -> "🇮🇹 Италия · Hysteria2"
-        "naive", "naiveproxy", "anytls" -> "🇮🇹 Италия · ${tag.orEmpty().uppercase()}"
+        "naive", "naiveproxy" -> "🇮🇹 Италия · Naive"
+        "anytls" -> "🇮🇹 Италия · AnyTLS"
         "vless-s3" -> "🇳🇱 Нидерланды · VLESS"
         "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()

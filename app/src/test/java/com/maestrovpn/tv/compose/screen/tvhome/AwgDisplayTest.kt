@@ -13,7 +13,9 @@ class AwgDisplayTest {
 
     @Test fun runtimeLabelStillWinsForCdnAndOtherTagsStayAsBefore() {
         assertEquals("Испания" to "VLESS", phoneServerTitle("vless", null))
-        assertEquals("Германия" to "VLESS", phoneServerTitle("vless-s4", null))
+        assertEquals("Италия" to "VLESS", phoneServerTitle("vless-s4", null))
+        assertEquals("Италия" to "Naive", phoneServerTitle("naive", null))
+        assertEquals("Италия" to "AnyTLS", phoneServerTitle("anytls", null))
         assertEquals("Автовыбор сервера" to "Обычный VPN", phoneServerTitle("auto", null))
         assertEquals("server-x" to "Обычный VPN", phoneServerTitle("server-x", null))
     }
