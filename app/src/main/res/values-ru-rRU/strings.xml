@@ -639,6 +639,14 @@
     <string name="aivpn_error_establish">Не удалось создать туннель: %1$s</string>
     <string name="aivpn_error_library_missing">Нативная библиотека AIVPN не входит в сборку (%1$s). Нет libaivpn_core.so.</string>
     <string name="aivpn_error_start_failed">Не удалось запустить службу AIVPN</string>
+    <string name="aivpn_fetch_progress">Запрашиваю ключ из подписки…</string>
+    <string name="aivpn_fetch_refresh">Обновить ключ из подписки</string>
+    <string name="aivpn_fetch_inactive">Подписка неактивна</string>
+    <string name="aivpn_fetch_device_limit">Превышен лимит устройств</string>
+    <string name="aivpn_fetch_gated">Обновите приложение или проверьте подписку</string>
+    <string name="aivpn_fetch_denied">Подписка отклонила запрос</string>
+    <string name="aivpn_fetch_unavailable">Не удалось получить ключ из подписки</string>
+    <string name="aivpn_fetch_no_subscription">В приложении нет подписки</string>
     <string name="aivpn_notification_channel">Туннель AIVPN</string>
     <string name="aivpn_notification_connecting">Подключение…</string>
     <string name="aivpn_notification_running">Туннель AIVPN работает</string>

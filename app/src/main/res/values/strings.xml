@@ -642,6 +642,14 @@
     <string name="aivpn_error_establish">Cannot create the tunnel: %1$s</string>
     <string name="aivpn_error_library_missing">AIVPN native library is not bundled (%1$s). This build ships without libaivpn_core.so.</string>
     <string name="aivpn_error_start_failed">Cannot start the AIVPN service</string>
+    <string name="aivpn_fetch_progress">Requesting the key from the subscription…</string>
+    <string name="aivpn_fetch_refresh">Refresh key from subscription</string>
+    <string name="aivpn_fetch_inactive">Subscription inactive</string>
+    <string name="aivpn_fetch_device_limit">Device limit reached</string>
+    <string name="aivpn_fetch_gated">Update the app or check the subscription</string>
+    <string name="aivpn_fetch_denied">Subscription refused the request</string>
+    <string name="aivpn_fetch_unavailable">Could not get the key from the subscription</string>
+    <string name="aivpn_fetch_no_subscription">No subscription found in the app</string>
     <string name="aivpn_notification_channel">AIVPN tunnel</string>
     <string name="aivpn_notification_connecting">Connecting…</string>
     <string name="aivpn_notification_running">AIVPN tunnel is running</string>
