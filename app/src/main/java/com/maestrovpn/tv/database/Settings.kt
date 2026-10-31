@@ -116,6 +116,8 @@ object Settings {
     }
 
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }
+    // Experimental AIVPN tunnel: the aivpn:// key as pasted in settings (empty = not configured).
+    var aivpnKey by dataStore.string(SettingsKey.AIVPN_KEY) { "" }
     var systemProxyEnabled by dataStore.boolean(SettingsKey.SYSTEM_PROXY_ENABLED) { true }
 
     var privilegeSettingsEnabled by dataStore.boolean(SettingsKey.PRIVILEGE_SETTINGS_ENABLED) { false }

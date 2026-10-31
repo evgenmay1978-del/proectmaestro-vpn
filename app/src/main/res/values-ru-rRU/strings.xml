@@ -618,4 +618,27 @@
     <string name="remote_invalid_url">Неверный URL сервера: %1$s, ожидается host:port, http://host:port или https://host:port</string>
     <string name="remote_connect_failed">Не удалось подключиться к удаленному серверу %1$s</string>
     <string name="remote_disconnected_from">Отключено от удаленного сервера %1$s</string>
+    <!-- AIVPN (экспериментальный): свой UDP-протокол, libaivpn_core.so, взаимоисключение с sing-box -->
+    <string name="aivpn_settings">AIVPN (экспериментальный)</string>
+    <string name="aivpn_status_title">Статус</string>
+    <string name="aivpn_status_stopped">Отключено</string>
+    <string name="aivpn_status_starting">Запуск…</string>
+    <string name="aivpn_status_running">Туннель запущен</string>
+    <string name="aivpn_status_failed">Ошибка: %1$s</string>
+    <string name="aivpn_key_hint">Ключ aivpn://…</string>
+    <string name="aivpn_server_title">Сервер</string>
+    <string name="aivpn_paste">Вставить из буфера</string>
+    <string name="aivpn_connect">Подключить</string>
+    <string name="aivpn_disconnect">Отключить</string>
+    <string name="aivpn_hint">Экспериментальный протокол. Пока он работает, sing-box остановлен: на устройстве может быть только один VPN-интерфейс. Ключ содержит PSK и хранится в настройках приложения.</string>
+    <string name="aivpn_clipboard_empty">Буфер обмена пуст</string>
+    <string name="aivpn_error_no_key">Сначала введите ключ AIVPN</string>
+    <string name="aivpn_error_bad_key">Неверный ключ: %1$s</string>
+    <string name="aivpn_error_permission">Разрешение VPN отклонено</string>
+    <string name="aivpn_error_establish">Не удалось создать туннель: %1$s</string>
+    <string name="aivpn_error_library_missing">Нативная библиотека AIVPN не входит в сборку (%1$s). Нет libaivpn_core.so.</string>
+    <string name="aivpn_error_start_failed">Не удалось запустить службу AIVPN</string>
+    <string name="aivpn_notification_channel">Туннель AIVPN</string>
+    <string name="aivpn_notification_connecting">Подключение…</string>
+    <string name="aivpn_notification_running">Туннель AIVPN работает</string>
 </resources>

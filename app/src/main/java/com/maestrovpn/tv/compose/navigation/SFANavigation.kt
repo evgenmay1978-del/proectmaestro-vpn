@@ -41,6 +41,7 @@ import com.maestrovpn.tv.compose.screen.profile.EditProfileRoute
 import com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyScreen
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.SubscriptionHealth
+import com.maestrovpn.tv.compose.screen.settings.AivpnScreen
 import com.maestrovpn.tv.compose.screen.settings.AppSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.CoreSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.EditRemoteServerScreen
@@ -376,6 +377,16 @@ fun SFANavHost(
             popExitTransition = slideOutToRight,
         ) {
             CoreSettingsScreen(navController = navController)
+        }
+
+        composable(
+            route = "settings/aivpn",
+            enterTransition = slideInFromRight,
+            exitTransition = slideOutToRight,
+            popEnterTransition = slideInFromRight,
+            popExitTransition = slideOutToRight,
+        ) {
+            AivpnScreen(navController = navController)
         }
 
         composable(

@@ -15,6 +15,9 @@ object SettingsKey {
     const val DYNAMIC_NOTIFICATION = "dynamic_notification"
     const val DISABLE_DEPRECATED_WARNINGS = "disable_deprecated_warnings"
 
+    // Experimental AIVPN protocol — raw aivpn:// connection key pasted by the user.
+    const val AIVPN_KEY = "aivpn_key"
+
     const val AUTO_REDIRECT = "auto_redirect"
     const val PER_APP_PROXY_ENABLED = "per_app_proxy_enabled"
     const val PER_APP_PROXY_MODE = "per_app_proxy_mode"

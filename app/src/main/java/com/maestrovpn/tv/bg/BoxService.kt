@@ -29,6 +29,7 @@ import io.nekohasekai.libbox.PlatformInterface
 import io.nekohasekai.libbox.SystemProxyStatus
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.aivpn.AivpnTunnel
 import com.maestrovpn.tv.compose.MainActivity
 import com.maestrovpn.tv.constant.Action
 import com.maestrovpn.tv.constant.Alert
@@ -70,6 +71,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         private const val RELOAD_TIMEOUT = 10000L
 
         fun start() {
+            // Android owns a single VPN interface: drop the experimental AIVPN tunnel first, or the
+            // engine's tun gets revoked right after it comes up and the client looks "connected but dead".
+            AivpnTunnel.stopIfActive(Application.application)
             val intent =
                 runBlocking {
                     withContext(Dispatchers.IO) {

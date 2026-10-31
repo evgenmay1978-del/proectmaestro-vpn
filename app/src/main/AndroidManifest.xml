@@ -158,6 +158,18 @@
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
+        <!-- Experimental AIVPN tunnel (native libaivpn_core). Mutually exclusive with .bg.VPNService:
+             both ask for the single system VPN interface and stop each other first. -->
+        <service
+            android:name=".aivpn.AivpnVpnService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            tools:ignore="ForegroundServicePermission">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
         <service
             android:name=".bg.ProxyService"
             android:exported="false"

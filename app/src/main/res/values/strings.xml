@@ -621,4 +621,27 @@
     <string name="remote_invalid_url">Invalid server URL: %1$s, expected host:port, http://host:port or https://host:port</string>
     <string name="remote_connect_failed">Failed to connect to remote server %1$s</string>
     <string name="remote_disconnected_from">Disconnected from remote server %1$s</string>
+    <!-- AIVPN (experimental): own UDP protocol, native libaivpn_core.so, mutually exclusive with sing-box -->
+    <string name="aivpn_settings">AIVPN (experimental)</string>
+    <string name="aivpn_status_title">Status</string>
+    <string name="aivpn_status_stopped">Disconnected</string>
+    <string name="aivpn_status_starting">Starting…</string>
+    <string name="aivpn_status_running">Tunnel is up</string>
+    <string name="aivpn_status_failed">Failed: %1$s</string>
+    <string name="aivpn_key_hint">aivpn://… key</string>
+    <string name="aivpn_server_title">Server</string>
+    <string name="aivpn_paste">Insert from clipboard</string>
+    <string name="aivpn_connect">Connect</string>
+    <string name="aivpn_disconnect">Disconnect</string>
+    <string name="aivpn_hint">Experimental protocol. While it runs, sing-box is stopped: the device can hold only one VPN interface. The key carries the PSK and stays in the app settings.</string>
+    <string name="aivpn_clipboard_empty">Clipboard is empty</string>
+    <string name="aivpn_error_no_key">Enter an AIVPN key first</string>
+    <string name="aivpn_error_bad_key">Invalid key: %1$s</string>
+    <string name="aivpn_error_permission">VPN permission was denied</string>
+    <string name="aivpn_error_establish">Cannot create the tunnel: %1$s</string>
+    <string name="aivpn_error_library_missing">AIVPN native library is not bundled (%1$s). This build ships without libaivpn_core.so.</string>
+    <string name="aivpn_error_start_failed">Cannot start the AIVPN service</string>
+    <string name="aivpn_notification_channel">AIVPN tunnel</string>
+    <string name="aivpn_notification_connecting">Connecting…</string>
+    <string name="aivpn_notification_running">AIVPN tunnel is running</string>
 </resources>
