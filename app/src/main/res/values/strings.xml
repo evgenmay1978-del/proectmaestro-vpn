@@ -622,7 +622,8 @@
     <string name="remote_connect_failed">Failed to connect to remote server %1$s</string>
     <string name="remote_disconnected_from">Disconnected from remote server %1$s</string>
     <!-- AIVPN (experimental): own UDP protocol, native libaivpn_core.so, mutually exclusive with sing-box -->
-    <string name="aivpn_settings">AIVPN (experimental)</string>
+    <string name="aivpn_settings">NeuroProtocol</string>
+    <string name="aivpn_settings_summary">own UDP protocol with a neural net, experimental</string>
     <string name="aivpn_status_title">Status</string>
     <string name="aivpn_status_stopped">Disconnected</string>
     <string name="aivpn_status_connecting">Connecting…</string>

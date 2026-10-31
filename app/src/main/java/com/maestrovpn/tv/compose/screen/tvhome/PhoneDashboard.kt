@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.BuildConfig
@@ -66,6 +69,7 @@ internal fun PhoneDashboard(
     onEnterCode: () -> Unit,
     onOpenServers: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAivpn: () -> Unit = {},
     onSplitTunnel: () -> Unit,
     onShareIos: () -> Unit,
     onScanQr: () -> Unit,
@@ -176,6 +180,15 @@ internal fun PhoneDashboard(
                         "servers" -> {
                             PhoneModes(showCdnServers, { showCdnServers = false }, { showCdnServers = true })
                             if (showCdnServers) PhoneText("CDN: $balanceText")
+                            // AIVPN is not a sing-box outbound: it is its own UDP tunnel with its own
+                            // VpnService, so the row only opens the AIVPN screen and never touches the
+                            // protocol selection below.
+                            PhoneServerRow(PhoneServer(
+                                "",
+                                stringResource(R.string.aivpn_settings),
+                                stringResource(R.string.aivpn_settings_summary),
+                                Icons.Outlined.VpnKey,
+                            ), false) { onOpenAivpn() }
                             val tags = if (showCdnServers) cdnTags else ordinary
                             if (tags.isEmpty()) {
                                 PhoneNotice(if (!hasSubProfile) "Войдите в аккаунт, чтобы загрузить серверы"

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,6 +59,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -107,6 +109,7 @@ internal fun TvEskizHome(
     onSplitTunnel: () -> Unit,
     onShareIos: () -> Unit,
     onEnterTrial: () -> Unit,
+    onOpenAivpn: () -> Unit = {},
     connectFocus: FocusRequester,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -232,6 +235,16 @@ internal fun TvEskizHome(
                     TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f), height = actionHeight)
                     TvActionButton("Приложения", "VPN-туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
                     TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
+                    // AIVPN is a separate VpnService + own UDP tunnel, not a sing-box outbound, so it
+                    // gets its own tile instead of a chip inside TVProtocolGrid.
+                    TvActionButton(
+                        stringResource(R.string.aivpn_settings),
+                        stringResource(R.string.aivpn_settings_summary),
+                        Icons.Outlined.VpnKey,
+                        onClick = onOpenAivpn,
+                        modifier = Modifier.weight(1f),
+                        height = actionHeight,
+                    )
                 }
 
                 // Telegram / WhatsApp / МАКС убраны с ТВ (owner 2026-10-25): на боксе без
