@@ -182,7 +182,7 @@ fun AivpnScreen(navController: NavController) {
                     error = null
                 },
                 placeholder = stringResource(R.string.aivpn_key_hint),
-                singleLine = false,
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
 
