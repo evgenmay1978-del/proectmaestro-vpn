@@ -206,6 +206,8 @@ fun SFANavHost(
                     onOpenServers = { navController.navigate(Screen.Groups.route) },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenAivpn = { navController.navigate("settings/aivpn") },
+                    aivpnAvailable = accountInfo.aivpn || aivpnConnected || aivpnConnecting,
+                    aivpnActive = aivpnConnected || aivpnConnecting,
                     phoneSection = phoneSection,
                     onPhoneSectionChange = { homeState["phone_section"] = it },
                     onRefreshServers = { groupsViewModel.refreshCdnMenu() },
@@ -232,6 +234,8 @@ fun SFANavHost(
                     onOpenServers = { navController.navigate(Screen.Groups.route) },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenAivpn = { navController.navigate("settings/aivpn") },
+                    aivpnAvailable = accountInfo.aivpn || aivpnConnected || aivpnConnecting,
+                    aivpnActive = aivpnConnected || aivpnConnecting,
                     phoneSection = phoneSection,
                     onPhoneSectionChange = { homeState["phone_section"] = it },
                 )

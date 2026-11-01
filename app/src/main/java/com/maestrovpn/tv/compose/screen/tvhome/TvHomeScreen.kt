@@ -89,6 +89,8 @@ fun TvHomeScreen(
     onOpenServers: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAivpn: () -> Unit = {},
+    aivpnAvailable: Boolean = false,
+    aivpnActive: Boolean = false,
     phoneSection: String = "home",
     onPhoneSectionChange: (String) -> Unit = {},
     onRefreshServers: () -> Unit = {},
@@ -143,6 +145,8 @@ fun TvHomeScreen(
                     onShareIos = onShareIos,
                     onEnterTrial = onEnterTrial,
                     onOpenAivpn = onOpenAivpn,
+                    aivpnAvailable = aivpnAvailable,
+                    aivpnActive = aivpnActive,
                     connectFocus = connectFocus,
                 )
             } else {
@@ -167,6 +171,7 @@ fun TvHomeScreen(
                     onOpenServers = onOpenServers,
                     onOpenSettings = onOpenSettings,
                     onOpenAivpn = onOpenAivpn,
+                    aivpnAvailable = aivpnAvailable,
                     entrySection = phoneSection,
                     onSectionChange = onPhoneSectionChange,
                     onRefreshServers = onRefreshServers,

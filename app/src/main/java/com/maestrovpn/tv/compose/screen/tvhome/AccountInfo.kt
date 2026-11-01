@@ -20,6 +20,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import org.json.JSONObject
 
 /** The active subscription's login + days remaining + expiry date, for the home screen. Null
@@ -31,7 +35,16 @@ data class AccountInfo(
     /** дата окончания подписки «ДД.ММ.ГГГГ» из /info `expires` (RFC3339) — для строки аккаунта */
     val expiresDate: String? = null,
     val whiteList: WhiteListDisplayModel? = null,
+    /** /info features.aivpn: the panel serves this account a NeuroProtocol key (all gates passed). */
+    val aivpn: Boolean = false,
 )
+
+/** True only for a literal `"features": {"aivpn": true}`; anything else (absent, string, junk) is false. */
+internal fun infoAdvertisesAivpn(json: String): Boolean = runCatching {
+    val features = (Json.parseToJsonElement(json) as? JsonObject)?.get("features") as? JsonObject
+    val flag = features?.get("aivpn") as? JsonPrimitive
+    flag != null && !flag.isString && flag.booleanOrNull == true
+}.getOrDefault(false)
 
 /** "2026-08-02T15:04:05Z"/"+03:00"-варианты → "02.08.2026"; мусор → null (строка просто короче). */
 private fun formatExpires(raw: String?): String? {
@@ -103,6 +116,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                             raw = json,
                             isTelevision = isTelevision,
                         ),
+                        aivpn = infoAdvertisesAivpn(json),
                     )
                 }
             } catch (cancelled: CancellationException) {

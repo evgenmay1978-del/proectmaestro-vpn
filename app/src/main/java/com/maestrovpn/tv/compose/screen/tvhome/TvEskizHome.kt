@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -41,8 +43,9 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,7 +62,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -110,6 +113,8 @@ internal fun TvEskizHome(
     onShareIos: () -> Unit,
     onEnterTrial: () -> Unit,
     onOpenAivpn: () -> Unit = {},
+    aivpnAvailable: Boolean = false,
+    aivpnActive: Boolean = false,
     connectFocus: FocusRequester,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -235,18 +240,6 @@ internal fun TvEskizHome(
                     TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f), height = actionHeight)
                     TvActionButton("Приложения", "VPN-туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
                     TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
-                    // AIVPN is a separate VpnService + own UDP tunnel, not a sing-box outbound, so it
-                    // gets its own tile instead of a chip inside TVProtocolGrid. Its label
-                    // ("НейроПротокол"/"NeuroProtocol") is the longest in the row, so the tile takes a
-                    // slightly wider slot and the name is not ellipsized on a 960dp panel.
-                    TvActionButton(
-                        stringResource(R.string.aivpn_settings),
-                        stringResource(R.string.aivpn_settings_summary),
-                        Icons.Outlined.VpnKey,
-                        onClick = onOpenAivpn,
-                        modifier = Modifier.weight(1.3f),
-                        height = actionHeight,
-                    )
                 }
 
                 // Telegram / WhatsApp / МАКС убраны с ТВ (owner 2026-10-25): на боксе без
@@ -265,12 +258,14 @@ internal fun TvEskizHome(
                 TvSectionTitle("ПРОТОКОЛЫ")
                 // weight(1f): сетка забирает всю оставшуюся высоту и заканчивается на одной
                 // линии с левой панелью — крупные плашки вместо мелких с пустотой внизу.
+                // НейроПротокол — такая же плитка в сетке протоколов (owner 01.11.2026), но это
+                // отдельный VpnService, а не outbound sing-box: плитка открывает его экран.
                 TvProtocolGrid(
-                    protocols = protocols,
-                    selected = selected,
+                    protocols = visibleTvProtocols(protocols, aivpnAvailable),
+                    selected = if (aivpnActive) AIVPN_TV_TAG else selected,
                     hasOlcrtcCreds = hasOlcrtcCreds,
                     olcrtcProvider = olcrtcProvider,
-                    onSelectProtocol = onSelectProtocol,
+                    onSelectProtocol = { if (it == AIVPN_TV_TAG) onOpenAivpn() else onSelectProtocol(it) },
                     onSelectOlcrtc = onSelectOlcrtc,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     compact = compact,
@@ -485,7 +480,7 @@ private fun TvProtocolGrid(
     modifier: Modifier,
     compact: Boolean,
 ) {
-    val display = visibleTvProtocols(protocols)
+    val display = protocols
     val columns = 4
     val rows = display.chunked(columns)
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = modifier) {
@@ -519,12 +514,18 @@ private fun TvProtocolGrid(
     }
 }
 
-internal fun visibleTvProtocols(protocols: List<String>): List<String> =
-    if (protocols.isEmpty()) {
+/** Grid tag of the NeuroProtocol (AIVPN) tile; never a sing-box outbound tag. */
+internal const val AIVPN_TV_TAG = "aivpn"
+
+/** At most 8 tiles; with [aivpnAvailable] the last slot is always the NeuroProtocol tile. */
+internal fun visibleTvProtocols(protocols: List<String>, aivpnAvailable: Boolean = false): List<String> {
+    val base = if (protocols.isEmpty()) {
         listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg")
     } else {
-        visibleProtocolTags(protocols).take(8)
-    }
+        visibleProtocolTags(protocols)
+    }.filterNot { it == AIVPN_TV_TAG }
+    return if (aivpnAvailable) base.take(7) + AIVPN_TV_TAG else base.take(8)
+}
 
 @Composable
 private fun TvProtocolCard(
@@ -553,14 +554,15 @@ private fun TvProtocolCard(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Text(
+            // «НейроПротокол» не влезает в 18sp на панели 960dp: шрифт ужимается до 12sp
+            // вместо «Нейро…»; короткие названия остаются 18sp.
+            BasicText(
                 model.title,
-                color = if (selected) TvGreen else TvText,
-                fontSize = 18.sp,
-                lineHeight = 24.sp,
-                fontWeight = FontWeight.Bold,
+                style = LocalTextStyle.current.merge(
+                    TextStyle(color = if (selected) TvGreen else TvText, lineHeight = 24.sp, fontWeight = FontWeight.Bold),
+                ),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = 18.sp, stepSize = 0.5.sp),
             )
             Spacer(Modifier.height(2.dp))
             Text(
@@ -728,6 +730,7 @@ private fun tvProtocolCardModel(protocol: String, locked: Boolean, provider: Str
     if (locked) return TvProtocolCardModel("", tvProtocolLabel(protocol), "по запросу", Icons.Filled.Lock)
     when (protocol.trim().lowercase()) {
         "auto", "urltest", "select" -> return TvProtocolCardModel("", "Авто", "автовыбор", Icons.Filled.Speed)
+        AIVPN_TV_TAG -> return TvProtocolCardModel("", "НейроПротокол", "экспериментальный", Icons.Filled.Psychology)
         "awg" -> return TvProtocolCardModel("", "AmneziaWG", "маскировка", Icons.Filled.VpnLock)
         "vless" -> return TvProtocolCardModel("🇪🇸", "Испания", "VLESS", Icons.Filled.Shield)
         "hysteria2" -> return TvProtocolCardModel("🇮🇹", "Италия", "Hysteria2", Icons.Filled.Layers)

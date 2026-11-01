@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,6 +69,7 @@ internal fun PhoneDashboard(
     onOpenServers: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAivpn: () -> Unit = {},
+    aivpnAvailable: Boolean = false,
     onSplitTunnel: () -> Unit,
     onShareIos: () -> Unit,
     onScanQr: () -> Unit,
@@ -174,11 +174,13 @@ internal fun PhoneDashboard(
                             PhoneServerRow(server, false) { showCdnServers = cdnSelected; navigate("servers") }
                             // Экспериментальный протокол — на главной, рядом с выбором сервера
                             // (owner 31.10.2026). Это отдельный VpnService, а не outbound sing-box.
-                            PhoneServerRow(PhoneServer(
+                            // Только аккаунтам, которым панель выдаёт ключ (/info features.aivpn):
+                            // остальным строка вела бы в «Подписка отклонила запрос».
+                            if (aivpnAvailable) PhoneServerRow(PhoneServer(
                                 "",
                                 stringResource(R.string.aivpn_settings),
                                 stringResource(R.string.aivpn_settings_summary),
-                                Icons.Outlined.VpnKey,
+                                Icons.Filled.Psychology,
                             ), false) { onOpenAivpn() }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.weight(1f))
