@@ -43,9 +43,34 @@ const (
 // one the legacy login-wide client is used, byte-for-byte as before.
 //
 // Any failure is a plain "no key": callers must not tell the client which gate
-// failed. Both /info and GET /aivpn/<token> go through this one function so the
-// two surfaces can never drift apart.
+// failed. /info (aivpnGate only) and GET /aivpn/<token> (aivpnKey) share the same
+// gates so the two surfaces can never drift apart.
 func (s *Server) aivpnKey(r *http.Request, c *store.Customer) (string, aivpnOutcome) {
+	dev, res := s.aivpnGate(r, c)
+	if res != aivpnOK {
+		return "", res
+	}
+	src := s.cfg.AIVPN
+	var (
+		key string
+		err error
+	)
+	if dev != "" {
+		key, err = src.KeyForDevice(r.Context(), c.Login, dev)
+	} else {
+		key, err = src.Key(r.Context(), c.Login)
+	}
+	if err != nil || key == "" {
+		return "", aivpnUnavailable
+	}
+	return key, aivpnOK
+}
+
+// aivpnGate runs every gate of aivpnKey EXCEPT the source lookup and returns the
+// (validated, possibly empty) device id. It never creates an AIVPN client: /info
+// is polled by every install on every screen refresh, so the credential is minted
+// only when the app actually asks GET /aivpn/<token> for it.
+func (s *Server) aivpnGate(r *http.Request, c *store.Customer) (string, aivpnOutcome) {
 	src := s.cfg.AIVPN
 	if src == nil || !src.Enabled() || c == nil || !c.Active() {
 		return "", aivpnUnavailable
@@ -71,19 +96,7 @@ func (s *Server) aivpnKey(r *http.Request, c *store.Customer) (string, aivpnOutc
 			return "", aivpnDeviceLimit
 		}
 	}
-	var (
-		key string
-		err error
-	)
-	if dev != "" {
-		key, err = src.KeyForDevice(r.Context(), c.Login, dev)
-	} else {
-		key, err = src.Key(r.Context(), c.Login)
-	}
-	if err != nil || key == "" {
-		return "", aivpnUnavailable
-	}
-	return key, aivpnOK
+	return dev, aivpnOK
 }
 
 // handleAivpn serves GET /aivpn/<token>: the subscriber's AIVPN connection key.

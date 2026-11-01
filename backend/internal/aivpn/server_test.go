@@ -255,6 +255,42 @@ func TestServerRESTWhitelistAndErrors(t *testing.T) {
 	}
 }
 
+// TestServerAllLogins: an explicit "*" admits every login that is a valid client
+// name, and only those; such a login gets its own client created on demand.
+func TestServerAllLogins(t *testing.T) {
+	stub := &stubRest{key: testKey(t)}
+	cfg := restConfig(startStub(t, stub))
+	cfg.Logins = []string{AllLogins}
+	s := newTestServer(t, cfg)
+	for _, login := range []string{"alice", "zed", "tv-PT9RTM2N", "a.b@c"} {
+		if !s.Allowed(login) {
+			t.Errorf("Allowed(%q) = false under %q", login, AllLogins)
+		}
+	}
+	for _, login := range []string{"", "bad login", "x/y", strings.Repeat("a", 65), AllLogins} {
+		if s.Allowed(login) {
+			t.Errorf("Allowed(%q) = true: an invalid client name must never pass", login)
+		}
+	}
+	if _, err := s.KeyForDevice(context.Background(), "zed", "dev-1"); err != nil {
+		t.Fatalf("KeyForDevice for a login outside any list: %v", err)
+	}
+	if got := stub.createdNames(); len(got) != 1 || got[0] != clientName("zed", "dev-1") {
+		t.Fatalf("created = %v, want the one per-device client of zed", got)
+	}
+
+	// "*" next to explicit logins is still "everyone".
+	cfg.Logins = []string{"alice", AllLogins}
+	if s := newTestServer(t, cfg); !s.Allowed("bob") {
+		t.Fatal("mixed list with * must admit every login")
+	}
+	// Without "*" the list stays exact.
+	cfg.Logins = []string{"alice"}
+	if s := newTestServer(t, cfg); s.Allowed("bob") {
+		t.Fatal("explicit list must not admit other logins")
+	}
+}
+
 func TestServerDisabled(t *testing.T) {
 	if _, err := NewServer(ServerConfig{Enabled: false}); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("NewServer(disabled) err = %v, want ErrDisabled", err)

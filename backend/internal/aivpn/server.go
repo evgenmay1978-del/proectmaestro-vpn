@@ -48,6 +48,7 @@ type ServerConfig struct {
 type Server struct {
 	cfg      ServerConfig
 	allowed  map[string]bool
+	allowAll bool         // Logins contained AllLogins
 	client   *http.Client // non-nil in REST mode
 	sockPath string
 	now      func() time.Time
@@ -71,9 +72,15 @@ type cachedKey struct {
 
 var _ Source = (*Server)(nil)
 
+// AllLogins as a Logins entry (MAESTRO_AIVPN_LOGINS=*) admits every login that
+// is a valid client name. It must be written explicitly: an empty list is still
+// a configuration error, so "everyone" is never reached by omission.
+const AllLogins = "*"
+
 // NewServer validates cfg and builds the source. Both modes require a non-empty
 // logins whitelist and MinVersionCode > 0: an AIVPN key is a live credential, so
-// "everyone with a subscription token" is not an acceptable default.
+// "everyone with a subscription token" is never the default — only an explicit
+// AllLogins entry opens the source to every login.
 func NewServer(cfg ServerConfig) (*Server, error) {
 	if !cfg.Enabled {
 		return nil, ErrDisabled
@@ -85,8 +92,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("aivpn: server source needs %s", EnvLogins)
 	}
 	allowed := make(map[string]bool, len(cfg.Logins))
+	allowAll := false
 	for _, login := range cfg.Logins {
 		login = strings.TrimSpace(login)
+		if login == AllLogins {
+			allowAll = true
+			continue
+		}
 		if !validLogin(login) {
 			return nil, fmt.Errorf("aivpn: %s: login %q must match [A-Za-z0-9._@-]{1,64}", EnvLogins, login)
 		}
@@ -119,7 +131,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.CacheTTL <= 0 {
 		cfg.CacheTTL = 10 * time.Minute
 	}
-	s := &Server{cfg: cfg, allowed: allowed, sockPath: cfg.SocketPath, now: time.Now, cache: map[cacheKey]cachedKey{}}
+	s := &Server{cfg: cfg, allowed: allowed, allowAll: allowAll, sockPath: cfg.SocketPath, now: time.Now, cache: map[cacheKey]cachedKey{}}
 	if rest {
 		s.client = unixClient(cfg.SocketPath, cfg.Timeout)
 	}
@@ -137,8 +149,11 @@ func (s *Server) MinVersionCode() int {
 	return s.cfg.MinVersionCode
 }
 
-// Allowed implements Source.
-func (s *Server) Allowed(login string) bool { return s != nil && s.allowed[login] }
+// Allowed implements Source. Under AllLogins a login still has to be a valid
+// client name: it becomes the AIVPN client name (and a CLI argv word).
+func (s *Server) Allowed(login string) bool {
+	return s != nil && (s.allowed[login] || s.allowAll && validLogin(login))
+}
 
 // Key implements Source: cached key, else create/fetch on the AIVPN server.
 // It is the legacy single-client path: the AIVPN client is named after the login.

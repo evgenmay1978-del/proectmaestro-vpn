@@ -238,6 +238,26 @@ func TestOpenOSServerModes(t *testing.T) {
 	if _, err := OpenOS(envFrom(e)); err == nil {
 		t.Fatal("missing logins: expected an error")
 	}
+	e[EnvLogins] = " , "
+	if _, err := OpenOS(envFrom(e)); err == nil {
+		t.Fatal("blank logins: expected an error")
+	}
+
+	// "*" is the explicit "every login" whitelist.
+	e = env()
+	e[EnvLogins] = " * "
+	s, err = OpenOS(envFrom(e))
+	if err != nil {
+		t.Fatalf("logins=*: %v", err)
+	}
+	if !s.Allowed("carol") || !s.Allowed("tv-PT9RTM2N") || s.Allowed("bad login") {
+		t.Fatal("logins=*: want every valid login and no invalid one")
+	}
+	// Only a bare "*" is special: a pattern is not a login.
+	e[EnvLogins] = "ali*"
+	if _, err := OpenOS(envFrom(e)); err == nil {
+		t.Fatal("logins=ali*: expected an error")
+	}
 	e = env()
 	delete(e, EnvMinVC)
 	if _, err := OpenOS(envFrom(e)); err == nil {

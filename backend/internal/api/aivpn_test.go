@@ -215,9 +215,9 @@ func TestAivpnRouteAbsentWhenOff(t *testing.T) {
 	}
 }
 
-// TestAivpnInfoFeatureFlag: /info advertises the AIVPN key only when the gates pass,
-// and then as features.aivpn=true plus the key itself; everyone else's /info stays
-// byte-for-byte free of the feature.
+// TestAivpnInfoFeatureFlag: /info advertises AIVPN only when the gates pass, and then
+// ONLY as features.aivpn=true — the credential itself is served by /aivpn alone;
+// everyone else's /info stays byte-for-byte free of the feature.
 func TestAivpnInfoFeatureFlag(t *testing.T) {
 	st, src, key := aivpnFixture(t)
 	srv := httptest.NewServer(New(st, nil, nil, nil, Config{AIVPN: src}).Handler())
@@ -227,20 +227,16 @@ func TestAivpnInfoFeatureFlag(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("/info status %d, want 200 (body %q)", status, body)
 	}
-	var info struct {
-		Features map[string]any `json:"features"`
-		AIVPN    struct {
-			Key string `json:"key"`
-		} `json:"aivpn"`
-	}
+	var info map[string]any
 	if err := json.Unmarshal([]byte(body), &info); err != nil {
 		t.Fatalf("decode /info %q: %v", body, err)
 	}
-	if v, ok := info.Features["aivpn"]; !ok || v != true {
+	features, _ := info["features"].(map[string]any)
+	if v, ok := features["aivpn"]; !ok || v != true {
 		t.Errorf("features.aivpn = %#v (present %v), want true; body %q", v, ok, body)
 	}
-	if info.AIVPN.Key != key {
-		t.Errorf("info aivpn.key = %q, want %q", info.AIVPN.Key, key)
+	if _, ok := info["aivpn"]; ok || strings.Contains(body, key) || strings.Contains(body, "aivpn://") {
+		t.Errorf("/info carries the AIVPN credential; only /aivpn may: %q", body)
 	}
 
 	for _, tc := range []struct {
@@ -312,11 +308,15 @@ func (f failingAivpn) Key(context.Context, string) (string, error) {
 }
 
 // KeyForDevice mirrors Key: a device-scoped request degrades exactly the same
-// way, so the endpoint answers 403 and /info simply omits the feature.
+// way, so the endpoint answers 403.
 func (f failingAivpn) KeyForDevice(ctx context.Context, login, _ string) (string, error) {
 	return f.Key(ctx, login)
 }
 
+// TestAivpnSourceFailureDegrades: a broken source makes /aivpn answer the opaque
+// 403 (the app then shows its "unavailable" state), never a 500 or a bad key. /info
+// does not consult the source at all, so it keeps advertising the flag and stays
+// fast even while the AIVPN server is down.
 func TestAivpnSourceFailureDegrades(t *testing.T) {
 	st, _, _ := aivpnFixture(t)
 	for _, src := range []failingAivpn{
@@ -329,12 +329,15 @@ func TestAivpnSourceFailureDegrades(t *testing.T) {
 		if status != http.StatusForbidden {
 			t.Errorf("source failure: status %d, want 403 (body %q)", status, body)
 		}
+		if strings.Contains(body, "aivpn://") {
+			t.Errorf("source failure leaked a key: %q", body)
+		}
 		status, body, _ = getWithUA(t, srv.URL+"/sub/tok-alice/info", aivpnUA)
 		if status != http.StatusOK {
 			t.Fatalf("/info status %d, want 200 (body %q)", status, body)
 		}
-		if strings.Contains(body, "aivpn") {
-			t.Errorf("source failure still advertised AIVPN: %q", body)
+		if !strings.Contains(body, `"features":{"aivpn":true}`) || strings.Contains(body, "aivpn://") {
+			t.Errorf("/info = %q, want the bare flag and no credential", body)
 		}
 		srv.Close()
 	}

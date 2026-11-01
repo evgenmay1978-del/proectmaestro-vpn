@@ -469,16 +469,17 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, r *http.Request, c *store.C
 			"obfs_mode":   vkturnconf.DefaultObfsMode,
 		}
 	}
-	// AIVPN connection key (aivpn://…). AIVPN is the app's own UDP VpnService, not a
-	// sing-box outbound, so it can never ride in the /sub sing-box JSON; /info is
-	// where the app learns which extra transports it also has. aivpnKey applies
-	// every gate: feature on, account active, app versionCode >= the shipped AIVPN
-	// build, login whitelisted, and the key source really holding a key.
+	// AIVPN (НейроПротокол). AIVPN is the app's own UDP VpnService, not a sing-box
+	// outbound, so it can never ride in the /sub sing-box JSON; /info is where the app
+	// learns which extra transports it also has. Only the FLAG is served here: the app
+	// fetches the credential itself from GET /aivpn/<token> when the user opens the
+	// protocol. aivpnGate applies the same gates as /aivpn (feature on, account active,
+	// app versionCode >= the shipped AIVPN build, login allowed, device within the cap)
+	// but never creates an AIVPN client — /info is polled by every install.
 	// A device over the cap is NOT told here: /info still serves the account status, it
-	// just withholds the credential (same rule as /sub's /info, which is never capped).
-	if key, res := s.aivpnKey(r, c); res == aivpnOK {
+	// just withholds the feature (same rule as /sub's /info, which is never capped).
+	if _, res := s.aivpnGate(r, c); res == aivpnOK {
 		features["aivpn"] = true
-		out["aivpn"] = map[string]any{"key": key}
 	}
 	// Only advertise a features object when something is actually on: older apps
 	// (and every non-AIVPN host) must see exactly the response they saw before.

@@ -270,3 +270,34 @@ func TestAivpnDeviceLimit(t *testing.T) {
 		t.Fatalf("known device at the cap: status %d, want 200 (body %q)", status, body)
 	}
 }
+
+// TestAivpnInfoNeverMints: /info only advertises the flag. However often it is
+// polled, with or without a device id, it never reaches the source, so it can
+// never create an AIVPN client: only GET /aivpn/<token> mints a credential.
+func TestAivpnInfoNeverMints(t *testing.T) {
+	st, _, _ := aivpnFixture(t)
+	src := newRecordingAivpn("alice")
+	src.keys["dev-1"] = deviceKey(t, 0x11)
+	srv := httptest.NewServer(New(st, nil, nil, nil, Config{AIVPN: src}).Handler())
+	defer srv.Close()
+
+	for _, q := range []string{"", "?device=dev-1", "?device=dev-2"} {
+		status, body, _ := getWithUA(t, srv.URL+"/sub/tok-alice/info"+q, aivpnUA)
+		if status != http.StatusOK {
+			t.Fatalf("/info%s status %d, want 200 (body %q)", q, status, body)
+		}
+		if !strings.Contains(body, `"features":{"aivpn":true}`) || strings.Contains(body, "aivpn://") {
+			t.Errorf("/info%s = %q, want the bare flag and no credential", q, body)
+		}
+	}
+	if got := src.seen(); len(got) != 0 {
+		t.Fatalf("source calls from /info = %v, want none", got)
+	}
+	// The app then asks /aivpn: that, and only that, reaches the source.
+	if status, body, _ := getWithUA(t, srv.URL+"/aivpn/tok-alice?device=dev-1", aivpnUA); status != http.StatusOK {
+		t.Fatalf("/aivpn status %d, want 200 (body %q)", status, body)
+	}
+	if got := src.seen(); !reflect.DeepEqual(got, []string{"alice|dev-1"}) {
+		t.Fatalf("source calls = %v, want only the /aivpn lookup", got)
+	}
+}

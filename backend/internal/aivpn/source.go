@@ -240,7 +240,8 @@ func openServer(getenv func(string) string, cli bool) (Source, error) {
 }
 
 // splitLogins parses the comma separated whitelist and rejects entries that
-// could not be a client name.
+// could not be a client name. AllLogins ("*") passes through: NewServer turns it
+// into "every valid login".
 func splitLogins(raw string) ([]string, error) {
 	var out []string
 	seen := map[string]bool{}
@@ -249,7 +250,7 @@ func splitLogins(raw string) ([]string, error) {
 		if login == "" {
 			continue
 		}
-		if !validLogin(login) {
+		if login != AllLogins && !validLogin(login) {
 			return nil, fmt.Errorf("aivpn: %s: login %q must match [A-Za-z0-9._@-]{1,64}", EnvLogins, login)
 		}
 		if seen[login] {
