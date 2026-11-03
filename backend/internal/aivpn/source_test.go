@@ -253,3 +253,28 @@ func TestAtoi(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenOSWildcardLogins(t *testing.T) {
+	base := map[string]string{
+		EnvSource: "http",
+		EnvLogins: "*",
+		EnvMinVC:  "108",
+		EnvSocket: "/run/aivpn/api.sock",
+	}
+	s, err := OpenOS(envFrom(base))
+	if err != nil {
+		t.Fatalf("wildcard: %v", err)
+	}
+	srv, ok := s.(*Server)
+	if !ok {
+		t.Fatalf("wildcard: expected *Server, got %T", s)
+	}
+	if !srv.Allowed("anybody") || !srv.Allowed("alice") {
+		t.Fatal("wildcard: every login must be allowed")
+	}
+	// The wildcard is the ONLY magic value: mixing it with names stays an error.
+	base[EnvLogins] = "alice,*"
+	if _, err := OpenOS(envFrom(base)); err == nil {
+		t.Fatal("mixed wildcard: expected an error")
+	}
+}
