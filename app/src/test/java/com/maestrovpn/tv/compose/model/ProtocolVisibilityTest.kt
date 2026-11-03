@@ -51,6 +51,40 @@ class ProtocolVisibilityTest {
         assertTrue(isProtocolSelectionAllowed("vless", "server-a"))
     }
 
+
+    @Test
+    fun jflServersFoldIntoOneTileAndLeaveCdnOffTheTvGrid() {
+        val tags = listOf(
+            "auto",
+            "🇪🇸 MaestroVPN VLESS",
+            "🇮🇹 Италия · AnyTLS",
+            "cdn:xhttp-a",
+            "JFL · 🇩🇪 Германия",
+            "JFL · 🇳🇱 Нидерланды",
+            "JFL · 🇸🇪 Швеция",
+        )
+        assertTrue(isJflServerTag("JFL · 🇩🇪 Германия"))
+        assertFalse(isJflServerTag("auto"))
+        assertFalse(isJflServerTag(null))
+        assertEquals(3, jflServerCount(tags))
+        assertEquals(
+            listOf("JFL · 🇩🇪 Германия", "JFL · 🇳🇱 Нидерланды", "JFL · 🇸🇪 Швеция"),
+            jflServerTags(tags),
+        )
+        assertEquals(
+            listOf("auto", "🇪🇸 MaestroVPN VLESS", "🇮🇹 Италия · AnyTLS", "jfl"),
+            tvHomeProtocolTags(tags),
+        )
+    }
+
+    @Test
+    fun pingLabelFormatsOnlyMeasuredLatency() {
+        assertEquals("42 мс", pingLabel(42))
+        assertEquals("120 мс", pingLabel(120))
+        assertNull(pingLabel(0))
+        assertNull(pingLabel(-1))
+        assertNull(pingLabel(null))
+    }
     private fun group(tag: String, selected: String, vararg items: String) = Group(
         tag = tag,
         type = "selector",

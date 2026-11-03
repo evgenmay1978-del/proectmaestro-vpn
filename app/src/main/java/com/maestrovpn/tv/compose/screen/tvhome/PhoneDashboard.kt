@@ -39,6 +39,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.model.isJflServerTag
+import com.maestrovpn.tv.compose.model.jflServerTags
+import com.maestrovpn.tv.compose.model.pingLabel
 import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.BuildConfig
@@ -57,6 +60,7 @@ internal fun PhoneDashboard(
     connecting: Boolean,
     protocols: List<String>,
     selected: String?,
+    delays: Map<String, Int> = emptyMap(),
     activeProtocol: String?,
     accountLogin: String?,
     daysLeft: Int?,
@@ -88,11 +92,15 @@ internal fun PhoneDashboard(
     val cdnView by WhiteListSelection.view.collectAsState()
     var page by rememberSaveable { mutableStateOf(entrySection) }
     var showCdnServers by rememberSaveable { mutableStateOf(selected?.startsWith("cdn:") == true) }
+    // The "JFL" row folds the owner's external subscription into one picker with live latency.
+    var jflPicker by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(entrySection) { page = entrySection }
     fun navigate(target: String) { page = target; onSectionChange(target) }
     BackHandler(page != "home") { navigate("home") }
+    BackHandler(jflPicker) { jflPicker = false }
     val cdnTags = protocols.filter { it.startsWith("cdn:") }
-    val ordinary = protocols.filterNot { it.startsWith("cdn:") }
+    val jflTags = jflServerTags(protocols)
+    val ordinary = protocols.filterNot { it.startsWith("cdn:") || isJflServerTag(it) }
     val cdnSelected = selected?.startsWith("cdn:") == true
     val actual = activeProtocol ?: selected
     val balance = wallet.balance
@@ -171,7 +179,7 @@ internal fun PhoneDashboard(
                                 val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" } ?: ordinary.firstOrNull()
                                 if (choice == null) onEnterCode() else onSelectProtocol(choice)
                             }, onCdn = { navigate("cdn") })
-                            PhoneServerRow(server, false) { showCdnServers = cdnSelected; navigate("servers") }
+                            PhoneServerRow(server, false, ping = actual?.let { delays[it] }) { showCdnServers = cdnSelected; navigate("servers") }
                             // Экспериментальный протокол — на главной, рядом с выбором сервера
                             // (owner 31.10.2026). Это отдельный VpnService, а не outbound sing-box.
                             // Только аккаунтам, которым панель выдаёт ключ (/info features.aivpn):
@@ -196,7 +204,26 @@ internal fun PhoneDashboard(
                                     else if (showCdnServers && !cdnView.cellular) "Для CDN включите мобильную сеть"
                                     else "Список серверов пока недоступен")
                             }
-                            tags.forEach { tag -> PhoneServerRow(phoneServer(tag, cdnView.labels[tag]), selected == tag, selectable = true) { onSelectProtocol(tag) } }
+                            if (!showCdnServers && jflTags.isNotEmpty()) {
+                                PhoneServerRow(
+                                    server = PhoneServer(
+                                        flag = "🛰️",
+                                        name = "JFL",
+                                        detail = jflTags.size.toString() + " " + jflServerWord(jflTags.size) +
+                                            " · внешняя подписка",
+                                    ),
+                                    active = isJflServerTag(selected),
+                                    selectable = true,
+                                ) { jflPicker = true }
+                            }
+                            tags.forEach { tag ->
+                                PhoneServerRow(
+                                    server = phoneServer(tag, cdnView.labels[tag]),
+                                    active = selected == tag,
+                                    selectable = true,
+                                    ping = delays[tag],
+                                ) { onSelectProtocol(tag) }
+                            }
                             if (showCdnServers) PhoneNotice("CDN работает в мобильной сети. Для Wi-Fi выберите обычный VPN.")
                             PhoneAction("Обновить список", Icons.Default.Refresh, { refreshAccount() }, Modifier.fillMaxWidth())
                         }
@@ -308,6 +335,19 @@ internal fun PhoneDashboard(
                     Modifier.fillMaxWidth().padding(horizontal = 15.dp).padding(bottom = 5.dp))
             }
         }
+
+        if (jflPicker) {
+            PhoneJflPicker(
+                tags = jflTags,
+                selected = selected,
+                delays = delays,
+                onSelect = { tag ->
+                    jflPicker = false
+                    onSelectProtocol(tag)
+                },
+                onDismiss = { jflPicker = false },
+            )
+        }
     }
 }
 
@@ -398,6 +438,17 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
     if (runtimeLabel == null && tag?.trim()?.lowercase() == "awg") {
         return PhoneServer("", AWG_SERVER_NAME, AWG_SERVER_DETAIL, Icons.Default.VpnLock)
     }
+    if (runtimeLabel == null && isJflServerTag(tag)) {
+        val raw = tag!!.trim().removePrefix("JFL · ").trim()
+        val first = raw.substringBefore(' ')
+        val hasFlag = first.none { it.isLetter() || it.isDigit() }
+        return PhoneServer(
+            flag = if (hasFlag) first else "🛰️",
+            name = if (hasFlag) raw.removePrefix(first).trim() else raw,
+            detail = "JFL · внешний сервер",
+            icon = Icons.Default.Public,
+        )
+    }
     val text = runtimeLabel ?: when (tag?.lowercase()) {
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
         "vless" -> "🇪🇸 Испания · VLESS"
@@ -408,13 +459,20 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
         "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()
     }
+    // Italy is the panel's second node (S2) and its S4 exit since 03.11.2026.
     val country = listOf("🇪🇸" to "Испания", "🇳🇱" to "Нидерланды", "🇮🇹" to "Италия").firstOrNull { text.contains(it.second) }
     return PhoneServer(country?.first.orEmpty(), country?.second ?: text,
         if (tag?.startsWith("cdn:") == true) "CDN · XHTTP" else if (country != null) text.substringAfter(" · ", "Обычный VPN") else "Обычный VPN")
 }
 
 @Composable
-private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boolean = false, onClick: () -> Unit) {
+private fun PhoneServerRow(
+    server: PhoneServer,
+    active: Boolean,
+    selectable: Boolean = false,
+    ping: Int? = null,
+    onClick: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
         .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         if (server.flag.isNotEmpty()) Box(Modifier.size(32.dp).border(1.dp, PremiumGold, CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
@@ -424,9 +482,72 @@ private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boo
             Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
         }
+        val pingText = pingLabel(ping)
+        if (pingText != null) {
+            Text(
+                pingText,
+                color = phonePingColor(ping ?: 0),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
         Icon(if (selectable) { if (active) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked }
             else Icons.Default.ChevronRight, null, tint = if (active) PremiumEmerald else PremiumGold)
     }
+}
+
+/** Full-screen country picker for the folded "JFL" row (phone): all external servers, live ping. */
+@Composable
+private fun PhoneJflPicker(
+    tags: List<String>,
+    selected: String?,
+    delays: Map<String, Int>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(enabled = true) { onDismiss() }
+    Box(Modifier.fillMaxSize().background(Color(0xF2080B0F))) {
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("JFL", color = PremiumText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        tags.size.toString() + " " + jflServerWord(tags.size) + " · внешняя подписка",
+                        color = PremiumGold,
+                        fontSize = 12.sp,
+                    )
+                }
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Закрыть", tint = PremiumGold) }
+            }
+            Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                tags.forEach { tag ->
+                    PhoneServerRow(
+                        server = phoneServer(tag, null),
+                        active = tag == selected,
+                        selectable = true,
+                        ping = delays[tag],
+                    ) { onSelect(tag) }
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+        }
+    }
+}
+
+private fun jflServerWord(count: Int): String = when {
+    count % 100 in 11..14 -> "серверов"
+    count % 10 == 1 -> "сервер"
+    count % 10 in 2..4 -> "сервера"
+    else -> "серверов"
+}
+
+/** Same thresholds as the TV tiles and ProxyLatencyBadge. */
+private fun phonePingColor(delay: Int): Color = when {
+    delay in 1..99 -> PremiumEmerald
+    delay in 100..299 -> PremiumGold
+    else -> PremiumRuby
 }
 
 @Composable

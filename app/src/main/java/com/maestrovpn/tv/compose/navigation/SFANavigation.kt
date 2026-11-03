@@ -154,6 +154,25 @@ fun SFANavHost(
             if (groupsViewModel != null) {
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
+                // Live latency per server for both homes. The urltest group ("auto") carries
+                // urlTestTime/urlTestDelay for every outbound it watches — including the 33 JFL
+                // servers — so one map feeds the TV tiles and the phone rows (owner, 03.11.2026).
+                val delays = remember(groupsUi.groups) {
+                    groupsUi.groups
+                        .flatMap { it.items }
+                        .filter { it.urlTestTime > 0 && it.urlTestDelay > 0 }
+                        .associate { it.tag to it.urlTestDelay }
+                }
+                var pingRequested by remember { mutableStateOf(false) }
+                LaunchedEffect(connected, groupsUi.groups.isNotEmpty()) {
+                    if (!connected) {
+                        pingRequested = false
+                    } else if (groupsUi.groups.isNotEmpty() && !pingRequested) {
+                        // One URL test per connection: enough for the home lists, cheap for 1 GB boxes.
+                        pingRequested = true
+                        groupsViewModel.urlTest("auto")
+                    }
+                }
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
                 val selectGroup = groupsUi.groups.firstOrNull { it.tag == "select" }
                     ?: groupsUi.groups.firstOrNull { it.selectable && isProtocolVisibleInUi(it.tag) }
@@ -174,6 +193,7 @@ fun SFANavHost(
                     // Each home filters before its fallback so a hidden-only profile stays empty.
                     protocols = (visibleProtocolTags(selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
                     selected = groupsUi.cdnSelected ?: selectGroup?.selected?.takeUnless { it.startsWith("cdn:") && groupsUi.cdnActive != it },
+                    delays = delays,
                     activeProtocol = groupsUi.cdnActive ?: activeProtocol?.takeUnless { it.startsWith("cdn:") },
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
@@ -210,7 +230,10 @@ fun SFANavHost(
                     aivpnActive = aivpnConnected || aivpnConnecting,
                     phoneSection = phoneSection,
                     onPhoneSectionChange = { homeState["phone_section"] = it },
-                    onRefreshServers = { groupsViewModel.refreshCdnMenu() },
+                    onRefreshServers = {
+                        groupsViewModel.refreshCdnMenu()
+                        groupsViewModel.urlTest("auto")
+                    },
                 )
             } else {
                 TvHomeScreen(

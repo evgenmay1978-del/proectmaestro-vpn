@@ -47,10 +47,17 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -69,6 +76,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.model.JFL_GROUP_TAG
+import com.maestrovpn.tv.compose.model.isJflServerTag
+import com.maestrovpn.tv.compose.model.jflServerCount
+import com.maestrovpn.tv.compose.model.jflServerTags
+import com.maestrovpn.tv.compose.model.pingLabel
+import com.maestrovpn.tv.compose.model.tvHomeProtocolTags
 import com.maestrovpn.tv.compose.model.visibleActiveProtocol
 import com.maestrovpn.tv.compose.model.visibleProtocolTags
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
@@ -97,6 +110,7 @@ internal fun TvEskizHome(
     connected: Boolean,
     protocols: List<String>,
     selected: String?,
+    delays: Map<String, Int> = emptyMap(),
     activeProtocol: String?,
     accountLogin: String?,
     daysLeft: Int?,
@@ -137,6 +151,12 @@ internal fun TvEskizHome(
             scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(activity, true) } }
         }
     }
+
+    // The JFL tile folds 33 external servers into one picker; Back closes it before leaving home.
+    var jflPicker by remember { mutableStateOf(false) }
+    BackHandler(enabled = jflPicker) { jflPicker = false }
+    val currentTile = visibleActiveProtocol(activeProtocol, selected)
+        .let { if (isJflServerTag(it)) JFL_GROUP_TAG else it }
 
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier
@@ -262,16 +282,32 @@ internal fun TvEskizHome(
                 // отдельный VpnService, а не outbound sing-box: плитка открывает его экран.
                 TvProtocolGrid(
                     protocols = visibleTvProtocols(protocols, aivpnAvailable),
-                    selected = if (aivpnActive) AIVPN_TV_TAG else selected,
+                    selected = if (aivpnActive) AIVPN_TV_TAG else currentTile,
+                    delays = delays,
+                    jflCount = jflServerCount(protocols),
                     hasOlcrtcCreds = hasOlcrtcCreds,
                     olcrtcProvider = olcrtcProvider,
                     onSelectProtocol = { if (it == AIVPN_TV_TAG) onOpenAivpn() else onSelectProtocol(it) },
                     onSelectOlcrtc = onSelectOlcrtc,
+                    onOpenJfl = { jflPicker = true },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     compact = compact,
                 )
             }
         }
+    }
+
+    if (jflPicker) {
+        JflServerPicker(
+            tags = jflServerTags(protocols),
+            selected = visibleActiveProtocol(activeProtocol, selected),
+            delays = delays,
+            onSelect = { tag ->
+                jflPicker = false
+                onSelectProtocol(tag)
+            },
+            onDismiss = { jflPicker = false },
+        )
     }
 }
 
@@ -473,10 +509,13 @@ private fun TvAccountCard(login: String?, daysLeft: Int?, expires: String?) {
 private fun TvProtocolGrid(
     protocols: List<String>,
     selected: String?,
+    delays: Map<String, Int>,
+    jflCount: Int,
     hasOlcrtcCreds: Boolean,
     olcrtcProvider: String?,
     onSelectProtocol: (String) -> Unit,
     onSelectOlcrtc: () -> Unit,
+    onOpenJfl: () -> Unit,
     modifier: Modifier,
     compact: Boolean,
 ) {
@@ -496,12 +535,21 @@ private fun TvProtocolGrid(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                     row.forEach { protocol ->
                         val locked = protocol == "olcrtc" && !hasOlcrtcCreds
+                        val ping = if (protocol == JFL_GROUP_TAG || isJflServerTag(protocol)) null else delays[protocol]
                         TvProtocolCard(
                             protocol = protocol,
                             selected = protocol == selected && !locked,
                             locked = locked,
                             provider = olcrtcProvider,
-                            onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
+                            ping = ping,
+                            jflCount = jflCount,
+                            onClick = {
+                                when {
+                                    locked -> onSelectOlcrtc()
+                                    protocol == JFL_GROUP_TAG -> onOpenJfl()
+                                    else -> onSelectProtocol(protocol)
+                                }
+                            },
                             modifier = Modifier.weight(1f).height(rowHeight),
                         )
                     }
@@ -517,12 +565,16 @@ private fun TvProtocolGrid(
 /** Grid tag of the NeuroProtocol (AIVPN) tile; never a sing-box outbound tag. */
 internal const val AIVPN_TV_TAG = "aivpn"
 
-/** At most 8 tiles; with [aivpnAvailable] the last slot is always the NeuroProtocol tile. */
+/**
+ * At most 8 tiles; with [aivpnAvailable] the last slot is always the NeuroProtocol tile. The
+ * profile's 33 raw JFL country tags fold into one "JFL" tile and CDN stays off the TV home
+ * (owner, 03.11.2026).
+ */
 internal fun visibleTvProtocols(protocols: List<String>, aivpnAvailable: Boolean = false): List<String> {
     val base = if (protocols.isEmpty()) {
         listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg")
     } else {
-        visibleProtocolTags(protocols)
+        tvHomeProtocolTags(protocols)
     }.filterNot { it == AIVPN_TV_TAG }
     return if (aivpnAvailable) base.take(7) + AIVPN_TV_TAG else base.take(8)
 }
@@ -535,8 +587,10 @@ private fun TvProtocolCard(
     provider: String?,
     onClick: () -> Unit,
     modifier: Modifier,
+    ping: Int? = null,
+    jflCount: Int = 0,
 ) {
-    val model = tvProtocolCardModel(protocol, locked, provider)
+    val model = tvProtocolCardModel(protocol, locked, provider, jflCount)
     TvSurfaceCard(modifier = modifier, selected = selected, onClick = onClick, contentPadding = 12.dp) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -565,14 +619,28 @@ private fun TvProtocolCard(
                 autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = 18.sp, stepSize = 0.5.sp),
             )
             Spacer(Modifier.height(2.dp))
-            Text(
-                model.subtitle,
-                color = if (selected) TvGreen else TvMuted,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    model.subtitle,
+                    color = if (selected) TvGreen else TvMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val pingText = pingLabel(ping)
+                if (pingText != null) {
+                    Text(" · ", color = TvMuted, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1)
+                    Text(
+                        pingText,
+                        color = if (selected) TvGreen else tvPingColor(ping ?: 0),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
@@ -686,6 +754,7 @@ private fun tvProtocolIcon(protocol: String) = when (protocol) {
 }
 
 private fun tvProtocolLabel(protocol: String) = when (protocol.lowercase()) {
+    JFL_GROUP_TAG -> "JFL"
     "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
@@ -714,6 +783,10 @@ private data class TvProtocolCardModel(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
 )
 
+/**
+ * Country flags understood by the tiles. Since 03.11.2026 the panel's second node (S2) and the
+ * S4 exit are both Italy; Czechia is not part of the fleet anymore.
+ */
 private val tvServerFlags = listOf(
     "🇪🇸" to "Испания",
     "🇳🇱" to "Нидерланды",
@@ -726,8 +799,17 @@ private val tvServerFlags = listOf(
  *  - server display tags, e.g. "🇪🇸 MaestroVPN VLESS S3" — that is what the live subscription
  *    ships, and the old one-line layout truncated them to "Mae…".
  */
-private fun tvProtocolCardModel(protocol: String, locked: Boolean, provider: String?): TvProtocolCardModel {
+private fun tvProtocolCardModel(
+    protocol: String,
+    locked: Boolean,
+    provider: String?,
+    jflCount: Int = 0,
+): TvProtocolCardModel {
     if (locked) return TvProtocolCardModel("", tvProtocolLabel(protocol), "по запросу", Icons.Filled.Lock)
+    if (protocol == JFL_GROUP_TAG) {
+        val count = if (jflCount > 0) jflCount.toString() + " " + tvServersWord(jflCount) else "внешние серверы"
+        return TvProtocolCardModel("🛰️", "JFL", count, Icons.Filled.Public)
+    }
     when (protocol.trim().lowercase()) {
         "auto", "urltest", "select" -> return TvProtocolCardModel("", "Авто", "автовыбор", Icons.Filled.Speed)
         AIVPN_TV_TAG -> return TvProtocolCardModel("", "НейроПротокол", "экспериментальный", Icons.Filled.Psychology)
@@ -752,6 +834,133 @@ private fun tvProtocolCardModel(protocol: String, locked: Boolean, provider: Str
     }
     return TvProtocolCardModel("", tvProtocolLabel(protocol), tvProtocolBadge(protocol), tvProtocolIcon(protocol))
 }
+
+/** Country picker behind the folded JFL tile: all external servers, with live latency. */
+@Composable
+private fun JflServerPicker(
+    tags: List<String>,
+    selected: String?,
+    delays: Map<String, Int>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(enabled = true, onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xE6070909))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.9f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(TvSurfaceRaised)
+                .border(1.dp, TvLine, RoundedCornerShape(20.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                )
+                .padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("JFL", color = TvText, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        tags.size.toString() + " " + tvServersWord(tags.size) + " · внешняя подписка",
+                        color = TvMuted,
+                        fontSize = 13.sp,
+                    )
+                }
+                TvSmallButton("Закрыть", Icons.Filled.Close, onDismiss, height = 46.dp)
+            }
+            Spacer(Modifier.height(14.dp))
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                itemsIndexed(tags) { _, tag ->
+                    TvServerTile(
+                        tag = tag,
+                        active = tag == selected,
+                        ping = delays[tag],
+                        onClick = { onSelect(tag) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvServerTile(tag: String, active: Boolean, ping: Int?, onClick: () -> Unit) {
+    TvSurfaceCard(modifier = Modifier.height(68.dp), selected = active, onClick = onClick, contentPadding = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(tvFlagOf(tag), fontSize = 24.sp, lineHeight = 26.sp, maxLines = 1)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    tvJflServerTitle(tag),
+                    color = TvText,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text("JFL · VLESS", color = TvMuted, fontSize = 11.sp, maxLines = 1)
+            }
+            val pingText = pingLabel(ping)
+            if (pingText != null) {
+                Text(pingText, color = tvPingColor(ping ?: 0), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Spacer(Modifier.width(8.dp))
+            }
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(if (active) TvGreen else Color.Transparent)
+                    .border(1.dp, if (active) TvGreen else TvLine, CircleShape),
+            )
+        }
+    }
+}
+
+private fun tvServersWord(count: Int): String = when {
+    count % 100 in 11..14 -> "серверов"
+    count % 10 == 1 -> "сервер"
+    count % 10 in 2..4 -> "сервера"
+    else -> "серверов"
+}
+
+/** Latency colours mirror ProxyLatencyBadge in the phone dashboard. */
+private fun tvPingColor(delay: Int): Color = when {
+    delay in 1..99 -> TvGreen
+    delay in 100..299 -> TvGold
+    else -> TvError
+}
+
+private fun tvFlagOf(tag: String): String {
+    val first = tvJflRaw(tag).substringBefore(' ')
+    return if (first.isNotEmpty() && first.none { it.isLetter() || it.isDigit() }) first else "🛰️"
+}
+
+private fun tvJflServerTitle(tag: String): String {
+    val trimmed = tvJflRaw(tag)
+    val first = trimmed.substringBefore(' ')
+    val label = trimmed.removePrefix(first).trim()
+    return if (first.none { it.isLetter() || it.isDigit() }) label.ifBlank { trimmed } else trimmed
+}
+
+private fun tvJflRaw(tag: String): String = tag.trim().removePrefix("JFL · ").trim()
 
 private fun tvDaysWord(days: Int): String = when {
     days % 100 in 11..14 -> "дней"
