@@ -164,6 +164,10 @@ internal fun TvEskizHome(
         .let { if (isJflServerTag(it)) JFL_GROUP_TAG else it }
 
     Box(Modifier.fillMaxSize()) {
+    // Only one focusable screen at a time: while the picker is open the home grid is not
+    // composed at all, so the D-pad can never wander into elements hidden behind the
+    // overlay (owner 03.11.2026: the servers were visible but unreachable by the remote).
+    if (!jflPicker) {
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -302,6 +306,7 @@ internal fun TvEskizHome(
             }
         }
     }
+    }
 
     if (jflPicker) {
         JflServerPicker(
@@ -319,7 +324,15 @@ internal fun TvEskizHome(
     // Remote users close the picker with Back: put the D-pad focus back on the big
     // connect button, otherwise the highlight is lost somewhere behind the overlay.
     LaunchedEffect(jflPicker) {
-        if (!jflPicker) runCatching { connectFocus.requestFocus() }
+        if (!jflPicker) {
+            var focused = false
+            var attempt = 0
+            while (!focused && attempt < 5) {
+                delay(60L + attempt * 100L)
+                focused = runCatching { connectFocus.requestFocus() }.isSuccess
+                attempt++
+            }
+        }
     }
     }
 }
