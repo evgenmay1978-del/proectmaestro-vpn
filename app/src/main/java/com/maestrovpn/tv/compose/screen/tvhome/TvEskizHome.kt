@@ -158,6 +158,7 @@ internal fun TvEskizHome(
     val currentTile = visibleActiveProtocol(activeProtocol, selected)
         .let { if (isJflServerTag(it)) JFL_GROUP_TAG else it }
 
+    Box(Modifier.fillMaxSize()) {
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -308,6 +309,7 @@ internal fun TvEskizHome(
             },
             onDismiss = { jflPicker = false },
         )
+    }
     }
 }
 
