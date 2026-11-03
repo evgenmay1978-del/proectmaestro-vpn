@@ -68,7 +68,7 @@ type AnyTLSCreds struct {
 type Customer struct {
 	Name   string
 	VLESS  *VLESSCreds
-	VLESS2 *VLESSCreds // VLESS-Reality on server 2 (Czech Republic)
+	VLESS2 *VLESSCreds // VLESS-Reality on node 2; the Czech host is retired — S2 is the Italian node now
 	Hy2    *Hy2Creds
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
@@ -125,10 +125,10 @@ type WGCreds = controlplane.WGCredentialIdentity
 
 const (
 	tagVLESS  = "🇪🇸 MaestroVPN VLESS"
-	tagVLESS2 = "🇨🇿 MaestroVPN VLESS"     // retired 31.10.2026: the Czech node is out of the fleet
+	tagVLESS2 = "🇮🇹 MaestroVPN VLESS"     // S2 retired 31.10.2026; if it returns it runs on the Italian node
 	tagVLESS3 = "🇳🇱 MaestroVPN VLESS S3"  // VLESS-Reality on the 3rd node
-	tagVLESS4 = "🇩🇪 MaestroVPN VLESS S4"  // legacy name; the 4th node is now Italy (see TAG_RELABEL in the S1 shim)
-	tagHy2    = "🇨🇿 MaestroVPN Hysteria2" // retired with the Czech node
+	tagVLESS4 = "🇮🇹 MaestroVPN VLESS S4"  // 4th node is Italy since 31.10.2026 (the S1 shim normalises it to «🇮🇹 Италия · VLESS»)
+	tagHy2    = "🇮🇹 MaestroVPN Hysteria2" // hysteria2 is not served since 31.10.2026 (no hysteria on the Italian node)
 	tagNaive  = "🇮🇹 MaestroVPN Naive"     // NaiveProxy moved from the dead Czech host to Italy
 	tagAnyTLS = "🇮🇹 MaestroVPN AnyTLS"    // AnyTLS moved from the dead Czech host to Italy
 	tagWG     = "awg"                     // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema

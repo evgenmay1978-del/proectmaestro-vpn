@@ -12,21 +12,23 @@ import (
 // (Karing, v2rayN, NekoBox, Streisand, Shadowrocket, …) import from a URL or QR.
 // This is how non-Android customers (iPhone via Karing) get the subscription.
 func ShareLinks(c Customer) string {
+	// Flags follow the current exits (2026-11-03): ES = S1, NL = S3, and S2/S4/naive/anytls/hy2
+	// all live on the Italian node — the Czech host left the fleet on 31.10.2026.
 	var links []string
 	if c.VLESS != nil {
 		links = append(links, vlessLink(c.VLESS, "🇪🇸", c.Name))
 	}
 	if c.VLESS2 != nil {
-		links = append(links, vlessLink(c.VLESS2, "🇨🇿", c.Name+" S2"))
+		links = append(links, vlessLink(c.VLESS2, "🇮🇹", c.Name+" S2"))
 	}
 	if c.Hy2 != nil {
-		links = append(links, hy2Link(c.Hy2, "🇨🇿", c.Name))
+		links = append(links, hy2Link(c.Hy2, "🇮🇹", c.Name))
 	}
 	if c.Naive != nil {
-		links = append(links, naiveLink(c.Naive, "🇨🇿", c.Name))
+		links = append(links, naiveLink(c.Naive, "🇮🇹", c.Name))
 	}
 	if c.AnyTLS != nil {
-		links = append(links, anytlsLink(c.AnyTLS, "🇨🇿", c.Name))
+		links = append(links, anytlsLink(c.AnyTLS, "🇮🇹", c.Name))
 	}
 	if c.VLESS3 != nil {
 		links = append(links, vlessLink(c.VLESS3, "🇳🇱", c.Name+" S3"))
@@ -35,7 +37,7 @@ func ShareLinks(c Customer) string {
 	// import THIS list. Adding a node only to GenerateSingbox would silently skip every
 	// non-Android customer.
 	if c.VLESS4 != nil {
-		links = append(links, vlessLink(c.VLESS4, "🇩🇪", c.Name+" S4"))
+		links = append(links, vlessLink(c.VLESS4, "🇮🇹", c.Name+" S4"))
 	}
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
