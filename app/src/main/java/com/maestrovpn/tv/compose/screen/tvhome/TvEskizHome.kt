@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
@@ -53,6 +55,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +69,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -88,6 +92,7 @@ import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.utils.ConnectivityCheck
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -309,6 +314,12 @@ internal fun TvEskizHome(
             },
             onDismiss = { jflPicker = false },
         )
+    }
+
+    // Remote users close the picker with Back: put the D-pad focus back on the big
+    // connect button, otherwise the highlight is lost somewhere behind the overlay.
+    LaunchedEffect(jflPicker) {
+        if (!jflPicker) runCatching { connectFocus.requestFocus() }
     }
     }
 }
@@ -847,15 +858,26 @@ private fun JflServerPicker(
     onDismiss: () -> Unit,
 ) {
     BackHandler(enabled = true, onBack = onDismiss)
+    val firstTileFocus = remember { FocusRequester() }
+    // Owner 03.11.2026: servers were visible but the remote could not reach them — the
+    // overlay opened without taking focus, so the D-pad kept walking the home grid
+    // hidden behind it. Grab the focus as soon as the first tile exists in layout.
+    LaunchedEffect(tags.size) {
+        var attached = false
+        var attempt = 0
+        while (!attached && attempt < 5) {
+            delay(70L + attempt * 110L)
+            attached = runCatching { firstTileFocus.requestFocus() }.isSuccess
+            attempt++
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xE6070909))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss,
-            ),
+            // pointerInput, not clickable: clickable() makes the container focusable and
+            // steals the D-pad focus from the tiles inside the overlay.
+            .pointerInput(onDismiss) { detectTapGestures { onDismiss() } },
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -865,11 +887,8 @@ private fun JflServerPicker(
                 .clip(RoundedCornerShape(20.dp))
                 .background(TvSurfaceRaised)
                 .border(1.dp, TvLine, RoundedCornerShape(20.dp))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {},
-                )
+                // swallow taps inside the panel without becoming focusable
+                .pointerInput(Unit) { detectTapGestures { } }
                 .padding(20.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -888,14 +907,17 @@ private fun JflServerPicker(
                 columns = GridCells.Fixed(3),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize(),
+                // focusGroup keeps the D-pad inside the picker instead of letting it
+                // escape back to the home grid through the overlay.
+                modifier = Modifier.fillMaxSize().focusGroup(),
             ) {
-                itemsIndexed(tags) { _, tag ->
+                itemsIndexed(tags) { index, tag ->
                     TvServerTile(
                         tag = tag,
                         active = tag == selected,
                         ping = delays[tag],
                         onClick = { onSelect(tag) },
+                        modifier = if (index == 0) Modifier.focusRequester(firstTileFocus) else Modifier,
                     )
                 }
             }
@@ -904,8 +926,14 @@ private fun JflServerPicker(
 }
 
 @Composable
-private fun TvServerTile(tag: String, active: Boolean, ping: Int?, onClick: () -> Unit) {
-    TvSurfaceCard(modifier = Modifier.height(68.dp), selected = active, onClick = onClick, contentPadding = 12.dp) {
+private fun TvServerTile(
+    tag: String,
+    active: Boolean,
+    ping: Int?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TvSurfaceCard(modifier = modifier.height(68.dp), selected = active, onClick = onClick, contentPadding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(tvFlagOf(tag), fontSize = 24.sp, lineHeight = 26.sp, maxLines = 1)
             Spacer(Modifier.width(10.dp))
