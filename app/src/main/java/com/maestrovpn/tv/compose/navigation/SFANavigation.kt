@@ -164,8 +164,12 @@ fun SFANavHost(
                         .associate { it.tag to it.urlTestDelay }
                 }
                 var pingRequested by remember { mutableStateOf(false) }
-                LaunchedEffect(connected, groupsUi.groups.isNotEmpty()) {
-                    if (!connected) {
+                // Only while libbox is fully STARTED: "connected" also covers Starting, and the
+                // command server answers os.ErrInvalid ("rpc error: ... invalid argument") for a
+                // URL test that lands during the start. The owner saw that toast on 03.11.2026
+                // while the VPN itself came up fine.
+                LaunchedEffect(serviceStatus, groupsUi.groups.isNotEmpty()) {
+                    if (serviceStatus != Status.Started) {
                         pingRequested = false
                     } else if (groupsUi.groups.isNotEmpty() && !pingRequested) {
                         // One URL test per connection: enough for the home lists, cheap for 1 GB boxes.

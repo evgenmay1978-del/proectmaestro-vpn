@@ -465,10 +465,18 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     fun urlTest(groupTag: String) {
+        // libbox's command server answers os.ErrInvalid ("rpc error: code=unknown desc=invalid
+        // argument") whenever it is not STARTED, and NotFound after a profile swap moved the
+        // group. Neither is the owner's problem, so don't surface them as a toast.
+        if (_serviceStatus.value != Status.Started) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 CommandTarget.standaloneClient().urlTest(groupTag)
             } catch (e: Exception) {
+                val message = e.message.orEmpty()
+                if (message.contains("invalid argument") || message.contains("not found", ignoreCase = true)) {
+                    return@launch
+                }
                 sendError(e)
             }
         }
