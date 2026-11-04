@@ -161,9 +161,8 @@ internal fun PhoneDashboard(
                                     modifier = Modifier.align(Alignment.TopStart)
                                         .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
                                         .size(heroWidth * CARVED_MEDALLION_DIAMETER))
-                                ApprovedMobileEyeFrame(Modifier.matchParentSize())
-                                // Live glow goes ON TOP of the frame: under it the ornament band hides
-                                // everything outside the opening (owner's screen, 26.09.2026).
+                                // Ornament around the medallion is gone (owner, 04.11.2026): the
+                                // ring with the emeralds is the asset itself, the live glow sits on it.
                                 MonogramGlow(connected = connected && !connecting,
                                     modifier = Modifier.align(Alignment.TopStart)
                                         .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
@@ -437,11 +436,11 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
     }
     if (runtimeLabel == null && isJflServerTag(tag)) {
         val raw = tag!!.trim().removePrefix("JFL · ").trim()
-        val first = raw.substringBefore(' ')
-        val hasFlag = first.none { it.isLetter() || it.isDigit() }
+        val flag = flagEmojiOf(raw).ifEmpty { "🛰️" }
+        val name = stripServerDecorations(raw.removePrefix(flagEmojiOf(raw)))
         return PhoneServer(
-            flag = if (hasFlag) first else "🛰️",
-            name = if (hasFlag) raw.removePrefix(first).trim() else raw,
+            flag = flag,
+            name = name.ifEmpty { raw },
             detail = "JFL · внешний сервер",
             icon = Icons.Default.Public,
         )
@@ -456,13 +455,27 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
         "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()
     }
-    // The panel prefixes whitelist routes with "БС/Yandex " (backend/internal/subgen/whitelist.go:151);
-    // inside a row it is noise — the country, when the label carries one, is picked below.
-    val text = raw.removePrefix("БС/Yandex ").trim()
-    // Italy is the panel's second node (S2) and its S4 exit since 03.11.2026.
-    val country = listOf("🇪🇸" to "Испания", "🇳🇱" to "Нидерланды", "🇮🇹" to "Италия").firstOrNull { text.contains(it.second) }
-    return PhoneServer(country?.first.orEmpty(), country?.second ?: text,
-        if (tag?.startsWith("cdn:") == true) "CDN · XHTTP" else if (country != null) text.substringAfter(" · ", "Обычный VPN") else "Обычный VPN")
+    // The panel prefixes whitelist routes with "БС/Yandex " (backend/internal/subgen/whitelist.go:151)
+    // and the app marks them with "WL · "; both are service text, not part of the server name.
+    var text = raw.removePrefix("БС/Yandex ").trim()
+    val whitelist = text.startsWith("WL · ")
+    if (whitelist) text = text.removePrefix("WL · ").trim()
+    // Whitelist labels carry the country flag inside the label ("WL · 🇪🇪 🌀 Раю - Эстония ⚡"):
+    // the badge takes the flag, the row prints the name without the panel's pictographs.
+    val flag = flagEmojiOf(text)
+    val clean = stripServerDecorations(text)
+    val name = when {
+        clean.isEmpty() -> text
+        flag.isNotEmpty() || whitelist -> clean.substringBefore(" · ").trim()
+        else -> clean
+    }
+    val detail = when {
+        tag?.startsWith("cdn:") == true -> "CDN · XHTTP"
+        whitelist -> "WL · внешний сервер"
+        flag.isNotEmpty() -> stripServerDecorations(text.substringAfter(" · ", "")).ifEmpty { "Обычный VPN" }
+        else -> "Обычный VPN"
+    }
+    return PhoneServer(flag, name.ifEmpty { text }, detail)
 }
 
 @Composable
@@ -503,17 +516,7 @@ private fun PhoneServerRow(
  */
 @Composable
 private fun PhoneServerBadge(flag: String, icon: ImageVector) {
-    Box(Modifier.size(30.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
-        if (flag.isNotEmpty()) {
-            Box(Modifier.matchParentSize().background(Color(0xFF2A1C10)))
-            // Emoji flags are wide rectangles: the glyph is deliberately larger than the ring, so the
-            // circle crop — not a floating sticker — defines the badge.
-            Text(flag, fontSize = 44.sp, lineHeight = 44.sp, maxLines = 1, softWrap = false)
-        } else {
-            Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(24.dp))
-        }
-        Box(Modifier.matchParentSize().border(1.dp, PremiumGold.copy(alpha = 0.85f), CircleShape))
-    }
+    CountryFlagBadge(flag = flag, icon = icon)
 }
 
 /** Metallic gold of the NeuroProtocol sign from the reference picture (owner, 04.11.2026). */

@@ -58,6 +58,7 @@ import com.maestrovpn.tv.compose.fantasy.carvedSurface
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
 import com.maestrovpn.tv.compose.fantasy.rememberBarkBrush
 import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import com.maestrovpn.tv.compose.theme.ChromeDark
 import com.maestrovpn.tv.compose.theme.ChromeHi
 import com.maestrovpn.tv.compose.theme.ChromeLight
@@ -304,7 +305,8 @@ fun GlossyButton(
                             shape = shape,
                         )
                     // PHONE (wood) → wide bronze plaque frame; TV → the accent-domed gradient + chrome bezel.
-                    wood -> Modifier.fantasyFrame(R.drawable.frame_bar)
+                    // Phone: plain wood plate, same as every row of the screen (owner, 04.11.2026).
+                    wood -> Modifier.approvedMobilePanel()
                     else -> Modifier.background(brush, shape)
                         .border(1.5.dp, bezelBrush(false), shape)
                 },

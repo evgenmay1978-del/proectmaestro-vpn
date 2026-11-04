@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.NeonGreen
 
@@ -98,8 +99,10 @@ fun FantasyListRow(
                             shape = tvShape,
                         )
                 } else {
+                    // Phone rows share the plain wood plate of the home screen: the carved frame_bar
+                    // (bronze volutes) only stays in the TV layout (owner, 04.11.2026).
                     Modifier
-                        .fantasyFrame(R.drawable.frame_bar)
+                        .approvedMobilePanel()
                         .fantasyFocusFrame({ focusAlpha }, NeonGreen)
                 },
             )
