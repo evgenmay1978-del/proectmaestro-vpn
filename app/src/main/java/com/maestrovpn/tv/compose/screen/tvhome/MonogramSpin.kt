@@ -8,13 +8,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -37,8 +43,14 @@ import kotlin.math.roundToInt
  */
 private const val SPIN_PERIOD_MS = 3_600L
 private const val SPIN_FRAME_COUNT = 72
-private const val SPIN_CACHE_FRAMES = 16
-private const val SPIN_PREFETCH_FRAMES = 8
+private const val SPIN_SAMPLE = 2
+
+// В кадрах буква шире диска: её нижние засечки расходятся до r=402 при радиусе диска 372
+// (система ассета 1024), поэтому на голом дереве они вылезали за золотое кольцо и «вращались»
+// вместе с буквой. Уменьшаем монограмму так, чтобы она целиком встала в кольцо (402*0.86 = 346),
+// а клип по 360/1024 оставляем страховкой: ничего за диском оказаться не может.
+private const val FRAME_SCALE = 0.86f
+private const val FRAME_CLIP_RADIUS = 360f / 1024f
 
 // окно кадра в долях бокса медальона: 128/1024, 280/1024, 768/1024, 544/1024
 private const val FRAME_LEFT = 0.125f
@@ -121,48 +133,35 @@ private val SPIN_FRAME_IDS = intArrayOf(
     R.drawable.mobile_medallion_m_spin_071,
 )
 
-/** LRU-кэш декодированных кадров: держим окно вокруг текущего, а не все 72 сразу (это ~120 МБ). */
-private class SpinFrameCache(private val resources: Resources) {
-    private val bitmaps = object : LinkedHashMap<Int, ImageBitmap>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ImageBitmap>?): Boolean =
-            size > SPIN_CACHE_FRAMES
-    }
-
-    fun peek(index: Int): ImageBitmap? = bitmaps[index]
-
-    fun load(index: Int): ImageBitmap? {
-        bitmaps[index]?.let { return it }
-        val bitmap = runCatching {
-            BitmapFactory.decodeResource(
-                resources,
-                SPIN_FRAME_IDS[index],
-                BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
-            )
-        }.getOrNull() ?: return null
-        val image = bitmap.asImageBitmap()
-        bitmaps[index] = image
-        return image
-    }
-}
+private fun decodeFrame(resources: Resources, id: Int): ImageBitmap? = runCatching {
+    BitmapFactory.decodeResource(
+        resources,
+        id,
+        BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inSampleSize = SPIN_SAMPLE
+        },
+    ).asImageBitmap()
+}.getOrNull()
 
 @Composable
-private fun rememberIdleFrame(resources: Resources): ImageBitmap? = remember(resources) {
-    runCatching {
-        BitmapFactory.decodeResource(
-            resources,
-            R.drawable.mobile_medallion_m_idle,
-            BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
-        ).asImageBitmap()
-    }.getOrNull()
-}
+private fun rememberIdleFrame(resources: Resources): ImageBitmap? =
+    remember(resources) { decodeFrame(resources, R.drawable.mobile_medallion_m_idle) }
 
 @Composable
 internal fun MonogramSpin(connected: Boolean, modifier: Modifier = Modifier) {
     val resources = LocalContext.current.resources
-    val cache = remember(resources) { SpinFrameCache(resources) }
     val idle = rememberIdleFrame(resources)
+    // Все 72 кадра грузим один раз в фоне (в 2 раза уменьшенные — ~30 МБ): раньше кадры декодировались
+    // на лету с отменой prefetch на каждом шаге, из-за этого вращение «буксовало» и дёргалось.
+    var frames by remember(resources) { mutableStateOf<Array<ImageBitmap?>?>(null) }
     var frameIndex by remember { mutableIntStateOf(0) }
-    var loaded by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(resources) {
+        frames = withContext(Dispatchers.IO) {
+            Array(SPIN_FRAME_COUNT) { index -> decodeFrame(resources, SPIN_FRAME_IDS[index]) }
+        }
+    }
 
     LaunchedEffect(connected) {
         if (!connected) {
@@ -178,37 +177,40 @@ internal fun MonogramSpin(connected: Boolean, modifier: Modifier = Modifier) {
         }
     }
 
-    LaunchedEffect(connected, frameIndex) {
-        if (!connected) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
-            for (offset in 0 until SPIN_PREFETCH_FRAMES) {
-                cache.load((frameIndex + offset) % SPIN_FRAME_COUNT)
-            }
-        }
-        loaded++
-    }
-
-    val revision = loaded
-    val frame = remember(connected, frameIndex, revision) {
-        if (!connected) idle else cache.peek(frameIndex) ?: cache.peek(0) ?: idle
-    }
+    // Пока кадры не готовы или пока отключено — статичный фронтальный вид.
+    val frame = if (connected) frames?.getOrNull(frameIndex) ?: idle else idle
 
     Canvas(modifier) {
         val image = frame ?: return@Canvas
-        val left = size.width * FRAME_LEFT
-        val top = size.height * FRAME_TOP
-        val width = size.width * FRAME_WIDTH
-        val height = size.height * FRAME_HEIGHT
-        drawImage(
-            image = image,
-            srcOffset = IntOffset.Zero,
-            srcSize = IntSize(image.width, image.height),
-            dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
-            dstSize = IntSize(
-                width.roundToInt().coerceAtLeast(1),
-                height.roundToInt().coerceAtLeast(1),
-            ),
-            filterQuality = FilterQuality.High,
-        )
+        // Масштабируем кадр вокруг центра диска: буква остаётся по центру, но влезает в кольцо.
+        val centerX = size.width / 2f
+        val centerY = size.height / 2f
+        val left = centerX + (size.width * FRAME_LEFT - centerX) * FRAME_SCALE
+        val top = centerY + (size.height * FRAME_TOP - centerY) * FRAME_SCALE
+        val width = size.width * FRAME_WIDTH * FRAME_SCALE
+        val height = size.height * FRAME_HEIGHT * FRAME_SCALE
+        val box = minOf(size.width, size.height)
+        val radius = box * FRAME_CLIP_RADIUS
+        val disc = Path().apply {
+            addOval(
+                Rect(
+                    Offset(size.width / 2f - radius, size.height / 2f - radius),
+                    Size(radius * 2f, radius * 2f),
+                ),
+            )
+        }
+        clipPath(disc) {
+            drawImage(
+                image = image,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(image.width, image.height),
+                dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
+                dstSize = IntSize(
+                    width.roundToInt().coerceAtLeast(1),
+                    height.roundToInt().coerceAtLeast(1),
+                ),
+                filterQuality = FilterQuality.High,
+            )
+        }
     }
 }
