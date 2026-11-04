@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +44,7 @@ import com.maestrovpn.tv.compose.model.isJflServerTag
 import com.maestrovpn.tv.compose.model.jflServerTags
 import com.maestrovpn.tv.compose.model.pingLabel
 import com.maestrovpn.tv.compose.premium.*
+import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.update.UpdateState
@@ -184,12 +186,7 @@ internal fun PhoneDashboard(
                             // (owner 31.10.2026). Это отдельный VpnService, а не outbound sing-box.
                             // Только аккаунтам, которым панель выдаёт ключ (/info features.aivpn):
                             // остальным строка вела бы в «Подписка отклонила запрос».
-                            if (aivpnAvailable) PhoneServerRow(PhoneServer(
-                                "",
-                                stringResource(R.string.aivpn_settings),
-                                stringResource(R.string.aivpn_settings_summary),
-                                Icons.Filled.Psychology,
-                            ), false) { onOpenAivpn() }
+                            if (aivpnAvailable) PhoneNeuroProtocolRow(onOpenAivpn)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.weight(1f))
                                 PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.weight(1f))
@@ -449,7 +446,7 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
             icon = Icons.Default.Public,
         )
     }
-    val text = runtimeLabel ?: when (tag?.lowercase()) {
+    val raw = runtimeLabel ?: when (tag?.lowercase()) {
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
         "vless" -> "🇪🇸 Испания · VLESS"
         "hysteria2" -> "🇮🇹 Италия · Hysteria2"
@@ -459,6 +456,9 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
         "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()
     }
+    // The panel prefixes whitelist routes with "БС/Yandex " (backend/internal/subgen/whitelist.go:151);
+    // inside a row it is noise — the country, when the label carries one, is picked below.
+    val text = raw.removePrefix("БС/Yandex ").trim()
     // Italy is the panel's second node (S2) and its S4 exit since 03.11.2026.
     val country = listOf("🇪🇸" to "Испания", "🇳🇱" to "Нидерланды", "🇮🇹" to "Италия").firstOrNull { text.contains(it.second) }
     return PhoneServer(country?.first.orEmpty(), country?.second ?: text,
@@ -475,9 +475,7 @@ private fun PhoneServerRow(
 ) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
         .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (server.flag.isNotEmpty()) Box(Modifier.size(32.dp).border(1.dp, PremiumGold, CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
-            Text(server.flag, fontSize = 29.sp)
-        } else Icon(server.icon, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
+        PhoneServerBadge(server.flag, server.icon)
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
@@ -495,6 +493,58 @@ private fun PhoneServerRow(
         }
         Icon(if (selectable) { if (active) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked }
             else Icons.Default.ChevronRight, null, tint = if (active) PremiumEmerald else PremiumGold)
+    }
+}
+
+/**
+ * Country/role badge of a server row: the flag is cropped by the golden ring instead of floating
+ * inside it. An emoji flag is a wide rectangle, so at the size it used to be drawn it left a visible
+ * gap all around the circle (owner's screen, 04.11.2026).
+ */
+@Composable
+private fun PhoneServerBadge(flag: String, icon: ImageVector) {
+    Box(Modifier.size(30.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
+        if (flag.isNotEmpty()) {
+            Box(Modifier.matchParentSize().background(Color(0xFF2A1C10)))
+            // Emoji flags are wide rectangles: the glyph is deliberately larger than the ring, so the
+            // circle crop — not a floating sticker — defines the badge.
+            Text(flag, fontSize = 44.sp, lineHeight = 44.sp, maxLines = 1, softWrap = false)
+        } else {
+            Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(24.dp))
+        }
+        Box(Modifier.matchParentSize().border(1.dp, PremiumGold.copy(alpha = 0.85f), CircleShape))
+    }
+}
+
+/** Metallic gold of the NeuroProtocol sign from the reference picture (owner, 04.11.2026). */
+private val NeuroGold = Brush.verticalGradient(
+    listOf(Color(0xFFF9EDC6), Color(0xFFE8C87F), Color(0xFFA8874A), Color(0xFFF3DE9F)),
+)
+
+/**
+ * NeuroProtocol entry: only the brain sign and the golden lettering from the owner's picture, on the
+ * same plain wood plate as every other row — no carved banner, no ornament around it.
+ */
+@Composable
+private fun PhoneNeuroProtocolRow(onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 58.dp)
+        .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Psychology, null, tint = Color(0xFF6B4A17),
+                modifier = Modifier.matchParentSize().offset(y = 1.dp))
+            Icon(Icons.Filled.Psychology, null, tint = PremiumGold, modifier = Modifier.matchParentSize())
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(
+                stringResource(R.string.aivpn_settings),
+                style = TextStyle(brush = NeuroGold, fontFamily = PlayfairFamily,
+                    fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 25.sp),
+            )
+            Text(stringResource(R.string.aivpn_settings_summary), color = PremiumTextMuted,
+                fontSize = 11.sp, lineHeight = 14.sp)
+        }
+        Icon(Icons.Default.ChevronRight, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
     }
 }
 
