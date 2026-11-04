@@ -150,11 +150,9 @@ internal fun PhoneDashboard(
                                 PhoneWallet("VPN", if (hasSubProfile) daysText else "—", MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
                                 PhoneWallet("CDN", if (hasSubProfile) balanceText else "—", Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
                             }
-                            Box(Modifier.size(heroWidth, heroHeight).drawWithCache {
-                                val light = Brush.radialGradient(listOf(Color(0x333F2816), Color.Transparent),
-                                    center = Offset(size.width / 2f, size.height / 2f), radius = size.width * 0.62f)
-                                onDrawBehind { drawCircle(light, radius = size.width * 0.62f) }
-                            }.clickable(role = Role.Button, onClick = onToggleConnect)
+                            // No spotlight behind the medallion (owner, 05.11.2026): the radial glow made
+                            // the wood around the button a different tone than the rest of the page.
+                            Box(Modifier.size(heroWidth, heroHeight).clickable(role = Role.Button, onClick = onToggleConnect)
                                 .semantics { contentDescription = if (connected && !connecting) "Отключить VPN" else "Подключить VPN" },
                                 contentAlignment = Alignment.Center) {
                                 MonogramMedallion(connected = connected && !connecting,

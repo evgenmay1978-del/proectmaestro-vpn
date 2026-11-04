@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 """Rebuild the phone plates as plain wood: no ornament rails, no vines.
 
-Owner requests:
-  04.11.2026 — "вокруг кнопки узор нужно убрать, оставить текстуру дерева,
-                подогнать так, чтобы смотрелось всё единым дизайном".
-  05.11.2026 — "цвета древесины где был узор он выбивается из единого цвета".
+Owner request (04.11.2026): "вокруг кнопки узор нужно убрать, оставить текстуру дерева,
+подогнать так, чтобы смотрелось всё единым дизайном".
 
-Second iteration: the plate interior is no longer sampled from the old warm plate
-art (that sample was amber — median RGB (36, 22, 11) against the page wood
-(32, 23, 18), which is exactly the tone step the owner saw).  The interior is now
-a 1:1 crop of phone_home_wood.png — the very texture the screen background uses —
-so the plate reads as the same wood, only rimmed by a soft recess and a hairline
-of light.
-
-The nine-patch markers and the canvas size are copied untouched from the current
-asset, so Android keeps stretching exactly the same regions.
+The plate outline keeps the original nine-patch markers and canvas size; only the
+interior artwork changes: the wood grain of the approved plate is re-used, the gold
+rails/vines/gems are replaced by a soft rounded recess.
 """
 import sys
 from PIL import Image, ImageDraw, ImageFilter
 
 RES = "app/src/main/res/drawable-nodpi"
 
-# name: (wood source, crop box inside the source, corner radius)
 PLATES = {
-    "mobile_phone_panel.9.png": ("phone_home_wood.png", (6, 600, 714, 726), 12),
+    # name: (wood sample box inside the original plate, corner radius in content px)
+    "mobile_phone_panel.9.png": ((80, 26, 630, 104), 12),
+    "mobile_phone_bar.9.png": ((230, 48, 598, 148), 14),
 }
 
 
@@ -53,13 +46,11 @@ def shade(size, radius):
     return mask, overlay, rim, light
 
 
-def rebuild(directory, name, source, box, radius):
-    path = directory + "/" + name
+def rebuild(path, sample_box, radius):
     src = Image.open(path).convert("RGBA")
     w, h = src.size
     cw, ch = w - 2, h - 2
-    wood = Image.open(directory + "/" + source).convert("RGB").crop(box).resize((cw, ch), Image.LANCZOS)
-    wood = wood.convert("RGBA")
+    wood = src.crop(sample_box).resize((cw, ch), Image.LANCZOS)
     mask, overlay, rim, light = shade((cw, ch), radius)
     content = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     content.paste(wood, (0, 0))
@@ -80,6 +71,5 @@ def rebuild(directory, name, source, box, radius):
 
 
 if __name__ == "__main__":
-    directory = sys.argv[1] if len(sys.argv) > 1 else RES
-    for name, (source, box, radius) in PLATES.items():
-        rebuild(directory, name, source, box, radius)
+    for name, (box, radius) in PLATES.items():
+        rebuild(sys.argv[1] + "/" + name if len(sys.argv) > 1 else RES + "/" + name, box, radius)
