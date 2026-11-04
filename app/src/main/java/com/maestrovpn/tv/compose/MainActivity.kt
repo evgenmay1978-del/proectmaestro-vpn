@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -277,6 +278,17 @@ class MainActivity :
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Orientation is a property of the form factor, not of the APK. The phone UI is built for
+        // a portrait window (1008x1792 reference), while Android TV must stay landscape: a
+        // portrait request on a TV box letterboxes the window and the 10-foot layout falls apart.
+        // The manifest used to pin android:screenOrientation="portrait" for every device, which
+        // would have shipped exactly that failure to TV clients.
+        requestedOrientation = if (isTelevision(this)) {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
 
         connection.reconnect()
         RemoteControlManager.restore()
