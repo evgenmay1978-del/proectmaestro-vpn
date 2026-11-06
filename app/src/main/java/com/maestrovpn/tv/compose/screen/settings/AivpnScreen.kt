@@ -124,6 +124,10 @@ fun AivpnScreen(navController: NavController) {
     var error by remember { mutableStateOf<String?>(null) }
     var provisioning by remember { mutableStateOf(false) }
     var provisionMessage by remember { mutableStateOf<String?>(null) }
+    // One automatic key refetch + reconnect per user-initiated connect: a tunnel that dies on an
+    // outdated key (server moved to a new address, rotated PSK) must recover without the owner
+    // knowing where the key comes from. Cleared on every manual «Подключить» tap.
+    var autoRetried by remember { mutableStateOf(false) }
     val status by AivpnTunnel.status.collectAsState()
     val active = status is AivpnStatus.Connecting || status is AivpnStatus.Running
 
@@ -141,8 +145,10 @@ fun AivpnScreen(navController: NavController) {
     }
 
     // The original connect body: validate the key, ask for the VPN permission, start the tunnel.
+    // The key is parsed from the current text right here (not from the remembered value) so the
+    // auto-retry after a fresh provision picks up the new key in the same frame.
     val startConnect: () -> Unit = {
-        val key = parsedKey
+        val key = runCatching { AivpnKey.parse(cleanedKey) }.getOrNull()
         if (cleanedKey.isEmpty()) {
             error = context.getString(R.string.aivpn_error_no_key)
         } else if (!AivpnJni.isAvailable) {
@@ -229,6 +235,7 @@ fun AivpnScreen(navController: NavController) {
 
     val connect: () -> Unit = {
         scope.launch {
+            autoRetried = false
             if (keyText.isBlank()) {
                 // No key in the field: pull it from the subscription and connect with it right away.
                 val result = provision(force = false)
@@ -249,6 +256,19 @@ fun AivpnScreen(navController: NavController) {
     LaunchedEffect(Unit) {
         if (status !is AivpnStatus.Connecting && status !is AivpnStatus.Running) {
             provision(force = true)
+        }
+    }
+
+    // A failed connect after the user tapped «Подключить» usually means the saved key went stale
+    // (server moved to a new address, rotated PSK). Refetch the key from the subscription once and
+    // retry automatically; a second failure is left to the user so we never loop.
+    LaunchedEffect(status) {
+        if (status is AivpnStatus.Failed && !autoRetried) {
+            autoRetried = true
+            val result = provision(force = true)
+            if (result is AivpnProvisioner.Result.Ok) {
+                startConnect()
+            }
         }
     }
 
