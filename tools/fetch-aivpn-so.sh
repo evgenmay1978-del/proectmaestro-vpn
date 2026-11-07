@@ -7,7 +7,8 @@
 # still builds and runs - AivpnJni.isAvailable stays false and the AIVPN screen
 # reports a missing library instead of crashing.
 #
-# Pin: aivpn v1.2.0 (github.com/infosave2007/aivpn). Bump RELEASE_URL,
+# Pin: aivpn fork github.com/evgenmay1978-del/aivpn, prerelease android-core-809f827
+# (upstream v1.2.0 + DSH patches + dead-downlink watchdogs). Bump RELEASE_URL,
 # APK_SHA256 and the per-ABI hashes below together.
 #
 # Usage:
@@ -17,24 +18,24 @@
 # Idempotent: an .so whose sha256 already matches is left untouched.
 set -euo pipefail
 
-RELEASE_URL="https://github.com/infosave2007/aivpn/releases/download/v1.2.0/aivpn-android.apk"
-APK_SHA256="45370f3d505fbdff71ba6c43c90444041ba52aaf64c80b68a2b22adcd0b5c4e9"
-APK_SIZE=27674391
+RELEASE_URL="https://github.com/evgenmay1978-del/aivpn/releases/download/android-core-809f827/aivpn-android.apk"
+APK_SHA256="5ae3e6a0aabd6ded4a8d65925b4f590edae589786de79062e7946540c9f90c43"
+APK_SIZE=29030767
 
 ABIS=(arm64-v8a armeabi-v7a)
 
 # Expected hash and size of lib/<abi>/libaivpn_core.so inside the pinned APK.
 sha_for_abi() {
     case "$1" in
-        arm64-v8a)   echo "5db4a55b0a83f0778dcb4c779e067455a89131aa0aa7ca00e509d744065959dd" ;;
-        armeabi-v7a) echo "64d769da3cc1ac520679db8a9dd0de8729d7b15d9a830132710f77a1f68738df" ;;
+        arm64-v8a)   echo "64085960001f2ddc4cb6a8e0f41e8826e2ecc01f810b966dfcb5833c63e497a6" ;;
+        armeabi-v7a) echo "1040d8894b88930e97b0797481334a41726ad8bfc7788dfd46e92e4d3d8fc2c4" ;;
         *) echo "" ;;
     esac
 }
 size_for_abi() {
     case "$1" in
-        arm64-v8a)   echo "12891696" ;;
-        armeabi-v7a) echo "8394632" ;;
+        arm64-v8a)   echo "12901088" ;;
+        armeabi-v7a) echo "8398824" ;;
         *) echo "" ;;
     esac
 }
@@ -85,7 +86,7 @@ obtain_apk() {
     fi
 
     mkdir -p "$cache_dir"
-    APK="$cache_dir/aivpn-android-v1.2.0.apk"
+    APK="$cache_dir/aivpn-android-809f827.apk"
     if [ -f "$APK" ] && [ "$(sha256_of "$APK")" = "$APK_SHA256" ]; then
         log "cached APK matches the pinned sha256: $APK"
         return

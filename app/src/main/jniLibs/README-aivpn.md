@@ -8,7 +8,7 @@ CI downloads or builds them before Gradle runs.
 | File | Source | Fetched by |
 |------|--------|------------|
 | `<abi>/libmaestro_xhttp.so` | built from `android-xhttp/` (Go, PIE) | `.github/workflows/android-test.yml`, `.github/workflows/android-cdn-apk-build.yml` |
-| `<abi>/libaivpn_core.so` | AIVPN v1.2.0 release APK | Gradle task `fetchAivpnNativeLibs` (`app/build.gradle.kts`); manual: `tools/fetch-aivpn-so.sh` |
+| `<abi>/libaivpn_core.so` | AIVPN fork prerelease `android-core-809f827` | Gradle task `fetchAivpnNativeLibs` (`app/build.gradle.kts`); manual: `tools/fetch-aivpn-so.sh` |
 | `<abi>/libbox.so` | libbox AAR (see `app/libs/`) | Gradle, from the AAR |
 
 ## AIVPN (`libaivpn_core.so`)
@@ -21,7 +21,7 @@ and `app/src/main/java/com/maestrovpn/tv/aivpn/`.
 Gradle fetches it automatically. The `fetchAivpnNativeLibs` task in `app/build.gradle.kts`
 runs before `preBuild` and before the per-variant JniLibFolders merge of the app module, so
 `./gradlew :app:assembleOtherDebug` (what CI runs) always has the binaries in place. It downloads
-the pinned APK (`aivpn-android.apk` from release `v1.2.0`) into `app/build/aivpn/`, verifies the
+the pinned APK (`aivpn-android.apk` from fork prerelease `android-core-809f827`) into `app/build/aivpn/`, verifies the
 APK sha256, extracts `lib/arm64-v8a/libaivpn_core.so` and `lib/armeabi-v7a/libaivpn_core.so`,
 verifies each .so sha256 and writes it into `app/src/main/jniLibs/<abi>/`. It is idempotent: an
 existing file whose size and sha256 match the pin is left alone, and a verified APK in
@@ -46,11 +46,11 @@ AIVPN_APK=/path/to/aivpn-android.apk tools/fetch-aivpn-so.sh
 The downstream APK size grows by roughly 21 MB (12.9 MB arm64 + 8.4 MB armv7a) because
 `packaging.jniLibs.useLegacyPackaging = true` keeps both ABIs uncompressed.
 
-### Pinned hashes (v1.2.0)
+### Pinned hashes (android-core-809f827, source evgenmay1978-del/aivpn@809f827)
 
-- APK: `45370f3d505fbdff71ba6c43c90444041ba52aaf64c80b68a2b22adcd0b5c4e9` (27 674 391 bytes)
-- `arm64-v8a/libaivpn_core.so`: `5db4a55b0a83f0778dcb4c779e067455a89131aa0aa7ca00e509d744065959dd` (12 891 696 bytes)
-- `armeabi-v7a/libaivpn_core.so`: `64d769da3cc1ac520679db8a9dd0de8729d7b15d9a830132710f77a1f68738df` (8 394 632 bytes)
+- APK: `5ae3e6a0aabd6ded4a8d65925b4f590edae589786de79062e7946540c9f90c43` (29 030 767 bytes)
+- `arm64-v8a/libaivpn_core.so`: `64085960001f2ddc4cb6a8e0f41e8826e2ecc01f810b966dfcb5833c63e497a6` (12 901 088 bytes)
+- `armeabi-v7a/libaivpn_core.so`: `1040d8894b88930e97b0797481334a41726ad8bfc7788dfd46e92e4d3d8fc2c4` (8 398 824 bytes)
 
 When bumping the AIVPN release, update the pins in **both** places together — `aivpnReleaseUrl`,
 `aivpnReleaseSha256`, `aivpnReleaseBytes`, `aivpnLibSha256` and `aivpnLibBytes` in
