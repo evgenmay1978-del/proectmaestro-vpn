@@ -28,7 +28,9 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -155,6 +157,19 @@ internal fun PhoneDashboard(
                             Box(Modifier.size(heroWidth, heroHeight).clickable(role = Role.Button, onClick = onToggleConnect)
                                 .semantics { contentDescription = if (connected && !connecting) "Отключить VPN" else "Подключить VPN" },
                                 contentAlignment = Alignment.Center) {
+                                // Decorative rays/guides/spikes (owner, 07.11.2026): a vector layer UNDER the
+                                // medallion, clipped above the status caption; brightness follows the real status.
+                                val density = LocalDensity.current
+                                var statusBlockPx by remember { mutableIntStateOf(0) }
+                                with(density) {
+                                    MedallionOrnament(active = connected && !connecting,
+                                        medallionLeftPx = (heroWidth * CARVED_MEDALLION_LEFT).toPx(),
+                                        medallionTopPx = (heroHeight * CARVED_MEDALLION_TOP).toPx(),
+                                        medallionSizePx = (heroWidth * CARVED_MEDALLION_DIAMETER).toPx(),
+                                        bottomLimitPx = heroHeight.toPx() - 4.dp.toPx() -
+                                            (if (statusBlockPx > 0) statusBlockPx.toFloat() else 72.dp.toPx()),
+                                        modifier = Modifier.fillMaxSize())
+                                }
                                 MonogramMedallion(connected = connected && !connecting,
                                     modifier = Modifier.align(Alignment.TopStart)
                                         .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
@@ -165,7 +180,8 @@ internal fun PhoneDashboard(
                                     modifier = Modifier.align(Alignment.TopStart)
                                         .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
                                         .size(heroWidth * CARVED_MEDALLION_DIAMETER))
-                            Column(modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 5.dp, vertical = 8.dp),
+                            Column(modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { statusBlockPx = it.height }
+                                .padding(horizontal = 5.dp, vertical = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
                                     color = if (connecting) PremiumGold else if (connected) PremiumEmerald else PremiumRuby,
