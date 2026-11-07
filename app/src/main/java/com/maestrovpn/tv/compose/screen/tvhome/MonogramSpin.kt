@@ -3,11 +3,14 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -16,17 +19,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.maestrovpn.tv.R
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /**
@@ -40,10 +49,24 @@ import kotlin.math.roundToInt
  * Окно кадра — 768×544 в системе ассета 1024×1024 с левым верхним углом (128, 280): те же
  * пропорции, что у диска медальона, поэтому буква встаёт на прежнее место без подгонки
  * (размер и позиция медальона не меняются).
+ *
+ * 07.11.2026:
+ *  - статичный кадр декодируется в полном разрешении (раньше — вдвое меньше и растягивался
+ *    в 1,3–1,4 раза на телефоне, буква в покое была мыльной); кадры вращения остаются ×½;
+ *  - нет рывков на старте и остановке: статичный кадр и кадры вращения — разные рендеры,
+ *    поэтому между ними плавный переход ([FADE_MS]); при отключении буква докручивается до
+ *    ближайшего фронтального кадра (0° или 180°, кадр 036 ≈ анфас) и только потом гаснет в статику;
+ *  - 72 кадра (~30 МБ) грузятся при первом подключении, а не при каждом запуске;
+ *  - текущий кадр читается в фазе отрисовки — без рекомпозиции на каждом кадре.
  */
 private const val SPIN_PERIOD_MS = 3_600L
 private const val SPIN_FRAME_COUNT = 72
 private const val SPIN_SAMPLE = 2
+private const val IDLE_SAMPLE = 1
+private const val FADE_MS = 250
+private val FRAMES_PER_MS = SPIN_FRAME_COUNT.toFloat() / SPIN_PERIOD_MS
+/** Фронтальные кадры: 0 и 36 (0° и 180°). */
+private const val FRONT_STEP = SPIN_FRAME_COUNT / 2f
 
 // В кадрах буква шире диска: её нижние засечки расходятся до r=402 при радиусе диска 372
 // (система ассета 1024), поэтому на голом дереве они вылезали за золотое кольцо и «вращались»
@@ -133,55 +156,74 @@ private val SPIN_FRAME_IDS = intArrayOf(
     R.drawable.mobile_medallion_m_spin_071,
 )
 
-private fun decodeFrame(resources: Resources, id: Int): ImageBitmap? = runCatching {
+/**
+ * Куда докрутить букву при отключении: ближайший фронтальный кадр (0° или 180°) впереди по ходу
+ * вращения, в незавёрнутых кадрах (72 = следующий полный оборот, т.е. кадр 0). Не дальше
+ * пол-оборота: [FRONT_STEP] кадров = 1,8 с.
+ */
+internal fun spinStopTarget(position: Float): Float = ceil(position / FRONT_STEP) * FRONT_STEP
+
+private fun decodeFrame(resources: Resources, id: Int, sample: Int): ImageBitmap? = runCatching {
     BitmapFactory.decodeResource(
         resources,
         id,
         BitmapFactory.Options().apply {
             inPreferredConfig = Bitmap.Config.ARGB_8888
-            inSampleSize = SPIN_SAMPLE
+            inSampleSize = sample
         },
     ).asImageBitmap()
 }.getOrNull()
 
 @Composable
-private fun rememberIdleFrame(resources: Resources): ImageBitmap? =
-    remember(resources) { decodeFrame(resources, R.drawable.mobile_medallion_m_idle) }
-
-@Composable
 internal fun MonogramSpin(connected: Boolean, modifier: Modifier = Modifier) {
     val resources = LocalContext.current.resources
-    val idle = rememberIdleFrame(resources)
-    // Все 72 кадра грузим один раз в фоне (в 2 раза уменьшенные — ~30 МБ): раньше кадры декодировались
-    // на лету с отменой prefetch на каждом шаге, из-за этого вращение «буксовало» и дёргалось.
+    val idle = remember(resources) { decodeFrame(resources, R.drawable.mobile_medallion_m_idle, IDLE_SAMPLE) }
+    // Все 72 кадра грузим один раз (в 2 раза уменьшенные — ~30 МБ), но только при первом подключении.
     var frames by remember(resources) { mutableStateOf<Array<ImageBitmap?>?>(null) }
-    var frameIndex by remember { mutableIntStateOf(0) }
+    // Положение оборота в кадрах [0, 72) и доля статичного кадра (1 — только статика).
+    val phase = remember { mutableFloatStateOf(0f) }
+    val idleMix = remember { Animatable(1f) }
 
-    LaunchedEffect(resources) {
-        frames = withContext(Dispatchers.IO) {
-            Array(SPIN_FRAME_COUNT) { index -> decodeFrame(resources, SPIN_FRAME_IDS[index]) }
-        }
-    }
-
-    LaunchedEffect(connected) {
-        if (!connected) {
-            frameIndex = 0
-            return@LaunchedEffect
-        }
-        val start = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { now ->
-                val elapsed = (now - start) / 1_000_000L
-                frameIndex = ((elapsed % SPIN_PERIOD_MS) * SPIN_FRAME_COUNT / SPIN_PERIOD_MS).toInt()
+    LaunchedEffect(connected, resources) {
+        if (connected) {
+            if (frames == null) {
+                frames = withContext(Dispatchers.IO) {
+                    Array(SPIN_FRAME_COUNT) { index -> decodeFrame(resources, SPIN_FRAME_IDS[index], SPIN_SAMPLE) }
+                }
             }
+            launch { idleMix.animateTo(0f, tween(FADE_MS, easing = FastOutSlowInEasing)) }
+            var last = withFrameNanos { it }
+            while (true) {
+                withFrameNanos { now ->
+                    phase.floatValue = (phase.floatValue + (now - last) / 1_000_000f * FRAMES_PER_MS) % SPIN_FRAME_COUNT
+                    last = now
+                }
+            }
+        } else {
+            // Докрутить до ближайшего фронтального кадра впереди, затем плавно уйти в статику.
+            var position = phase.floatValue
+            val target = spinStopTarget(position)
+            if (idleMix.value < 1f && target > position) {
+                var last = withFrameNanos { it }
+                while (position < target) {
+                    withFrameNanos { now ->
+                        position = minOf(target, position + (now - last) / 1_000_000f * FRAMES_PER_MS)
+                        last = now
+                    }
+                    phase.floatValue = position % SPIN_FRAME_COUNT
+                }
+            }
+            phase.floatValue = target % SPIN_FRAME_COUNT
+            idleMix.animateTo(1f, tween(FADE_MS, easing = FastOutSlowInEasing))
+            phase.floatValue = 0f
         }
     }
 
-    // Пока кадры не готовы или пока отключено — статичный фронтальный вид.
-    val frame = if (connected) frames?.getOrNull(frameIndex) ?: idle else idle
-
-    Canvas(modifier) {
-        val image = frame ?: return@Canvas
+    // Offscreen-слой: переход «кадр вращения ↔ статика» складывается внутри слоя (Plus), поэтому
+    // буква не просвечивает посередине перехода.
+    Canvas(modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+        val mix = idleMix.value
+        val spin = frames?.getOrNull(phase.floatValue.toInt() % SPIN_FRAME_COUNT)
         // Масштабируем кадр вокруг центра диска: буква остаётся по центру, но влезает в кольцо.
         val centerX = size.width / 2f
         val centerY = size.height / 2f
@@ -199,18 +241,36 @@ internal fun MonogramSpin(connected: Boolean, modifier: Modifier = Modifier) {
                 ),
             )
         }
+        val dstOffset = IntOffset(left.roundToInt(), top.roundToInt())
+        val dstSize = IntSize(width.roundToInt().coerceAtLeast(1), height.roundToInt().coerceAtLeast(1))
         clipPath(disc) {
-            drawImage(
-                image = image,
-                srcOffset = IntOffset.Zero,
-                srcSize = IntSize(image.width, image.height),
-                dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
-                dstSize = IntSize(
-                    width.roundToInt().coerceAtLeast(1),
-                    height.roundToInt().coerceAtLeast(1),
-                ),
-                filterQuality = FilterQuality.High,
-            )
+            when {
+                spin == null || mix >= 0.999f -> idle?.let { drawFrame(it, dstOffset, dstSize, 1f, BlendMode.SrcOver) }
+                mix <= 0.001f || idle == null -> drawFrame(spin, dstOffset, dstSize, 1f, BlendMode.SrcOver)
+                else -> {
+                    drawFrame(spin, dstOffset, dstSize, 1f - mix, BlendMode.SrcOver)
+                    drawFrame(idle, dstOffset, dstSize, mix, BlendMode.Plus)
+                }
+            }
         }
     }
+}
+
+private fun DrawScope.drawFrame(
+    image: ImageBitmap,
+    dstOffset: IntOffset,
+    dstSize: IntSize,
+    alpha: Float,
+    blendMode: BlendMode,
+) {
+    drawImage(
+        image = image,
+        srcOffset = IntOffset.Zero,
+        srcSize = IntSize(image.width, image.height),
+        dstOffset = dstOffset,
+        dstSize = dstSize,
+        alpha = alpha,
+        blendMode = blendMode,
+        filterQuality = FilterQuality.High,
+    )
 }
