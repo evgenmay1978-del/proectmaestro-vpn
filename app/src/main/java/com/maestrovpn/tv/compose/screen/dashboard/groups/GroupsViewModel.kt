@@ -300,15 +300,18 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // The box may have died between updateGroups and here (OOM/watchdog) — never push a
                 // selection at a torn-down command server; the offline-groups path repaints anyway.
                 if (_serviceStatus.value != Status.Started) return@launch
-                // Never route the phone into a node we cannot reach: check first, select after.
+                // The runner must prove it carries traffic BEFORE libbox is told to use it: a node
+                // can accept the entry TCP handshake and still drop every byte (German node, 14.11).
+                // Checking here keeps the previous route in place, so a bad node is a no-op.
                 if (!SubXhttpSession.preflight(itemTag)) {
                     sendError(IllegalStateException("Сервер " + itemTag + " недоступен"))
                     return@launch
                 }
+                if (!SubXhttpSession.onSelected(groupTag, itemTag)) {
+                    sendError(IllegalStateException("Сервер " + itemTag + " не отвечает"))
+                    return@launch
+                }
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
-                // xhttp-узлы подписки живут в дочернем Xray: поднять/погасить раннер под выбор.
-                // Сбой раннера не должен отменять уже сделанный selectOutbound.
-                runCatching { SubXhttpSession.onSelected(groupTag, itemTag) }
                 // Pin the chip to the picked protocol: a live-groups payload racing in right after
                 // the box starts reports the momentary "auto", which would otherwise flick the
                 // highlight off the protocol the user chose until the next payload catches up.
@@ -425,16 +428,19 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Never route the phone into a node we cannot reach: check first, select after.
+                // The runner must prove it carries traffic BEFORE libbox is told to use it: a node
+                // can accept the entry TCP handshake and still drop every byte (German node, 14.11).
+                // Checking here keeps the previous route in place, so a bad node is a no-op.
                 if (!SubXhttpSession.preflight(itemTag)) {
                     sendError(IllegalStateException("Сервер " + itemTag + " недоступен"))
                     return@launch
                 }
+                if (!SubXhttpSession.onSelected(groupTag, itemTag)) {
+                    sendError(IllegalStateException("Сервер " + itemTag + " не отвечает"))
+                    return@launch
+                }
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
-                // xhttp-узлы подписки живут в дочернем Xray: поднять/погасить раннер под выбор.
-                // Сбой раннера не должен отменять уже сделанный selectOutbound.
-                runCatching { SubXhttpSession.onSelected(groupTag, itemTag) }
 
                 // Update local state and show snackbar
                 withContext(Dispatchers.Main) {

@@ -27,6 +27,7 @@ internal object SubXhttpProcess {
     private const val STOP_TIMEOUT_MS = 3_000L
     private const val CONNECT_TIMEOUT_MS = 300
     private const val LOG_KEEP = 40
+    private val VERIFY_TARGETS = listOf("api.ipify.org" to 80, "cp.cloudflare.com" to 80)
 
     private var child: Process? = null
     private var activeTag: String? = null
@@ -62,14 +63,48 @@ internal object SubXhttpProcess {
         }
     }
 
+    /**
+     * Start the runner for [node] and adopt it only after it proves it carries traffic.
+     *
+     * The previous runner is retired only once the new one has answered a real request through its
+     * own SOCKS port. That ordering is deliberate: stopping first would leave the engine routing
+     * into a closed port whenever the new node turns out to be broken (measured on the German
+     * Akonit node, 14.11.2026, which accepted TCP but never passed a byte). Both runners use
+     * different ports, so they can coexist for the few seconds the check takes.
+     */
     @Synchronized
     fun start(node: SubXhttpNode, address: String): Boolean {
-        if (activeTag == node.tag && child?.let { alive(it) } == true && reachable(node.socksPort)) return true
+        if (activeTag == node.tag && child?.let { alive(it) } == true) {
+            if (reachable(node.socksPort) && verifyTunnel(node.socksPort)) return true
+            fileLog("current " + node.tag + " failed verification -> restarting")
+            stopLocked()
+        }
+        val candidate = spawn(node, address) ?: return false
+        if (!verifyTunnel(node.socksPort)) {
+            fileLog("candidate " + node.tag + " failed verification -> previous runner kept")
+            runCatching { candidate.file.delete() }
+            kill(candidate.process)
+            return false
+        }
+        // Proven: retire the old runner now, and only now.
         stopLocked()
+        child = candidate.process
+        activeTag = node.tag
+        configFile = candidate.file
+        Log.d(TAG, "ready tag=" + node.tag + " port=" + node.socksPort)
+        fileLog("ready tag=" + node.tag + " port=" + node.socksPort + " addr=" + address)
+        return true
+    }
+
+    private class Spawned(val process: Process, val file: File)
+
+    /** Launch a runner process and wait for its SOCKS port. Does not touch [child]/[activeTag]. */
+    private fun spawn(node: SubXhttpNode, address: String): Spawned? {
         val bin = binary()
         if (bin == null) {
             Log.w(TAG, "child binary missing in " + Application.application.applicationInfo.nativeLibraryDir)
-            return false
+            fileLog("start failed tag=" + node.tag + ": binary missing")
+            return null
         }
         val file = File(Application.application.filesDir, "subxhttp-" + node.socksPort + ".json")
         var started: Process? = null
@@ -81,27 +116,20 @@ internal object SubXhttpProcess {
                 .redirectErrorStream(true)
                 .start()
             drain(started)
-            val ready = awaitReady(started, node.socksPort)
-            if (ready) {
-                child = started
-                activeTag = node.tag
-                configFile = file
-                Log.d(TAG, "ready tag=" + node.tag + " port=" + node.socksPort)
-                fileLog("ready tag=" + node.tag + " port=" + node.socksPort + " addr=" + address)
-                true
-            } else {
+            if (!awaitReady(started, node.socksPort)) {
                 Log.e(TAG, "child not ready: " + logTail())
                 fileLog("not ready tag=" + node.tag + " port=" + node.socksPort + " tail=" + logTail())
                 runCatching { file.delete() }
                 kill(started)
-                false
+                return null
             }
+            Spawned(started, file)
         } catch (e: Exception) {
             Log.e(TAG, "start failed: " + e.message)
             fileLog("start failed tag=" + node.tag + ": " + e.message)
             runCatching { file.delete() }
             started?.let { kill(it) }
-            false
+            null
         }
     }
 
@@ -171,4 +199,82 @@ internal object SubXhttpProcess {
             true
         }
     }.getOrDefault(false)
+
+    /**
+     * End-to-end check that this runner really carries traffic, not just that its SOCKS port is
+     * open. A node can accept the TCP handshake on its entry and still drop every byte inside
+     * (measured on the German Akonit node 14.11.2026: 6 connections accepted, no response), so
+     * probing the entry is not enough to decide whether the phone may be routed into it.
+     *
+     * Two plain-HTTP targets are used on purpose: one failing host must not condemn a working node.
+     */
+    fun verifyTunnel(port: Int, timeoutMs: Long = 9_000L): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        for (target in VERIFY_TARGETS) {
+            val left = deadline - SystemClock.elapsedRealtime()
+            if (left < 800L) break
+            if (httpViaSocks(port, target.first, target.second, left)) {
+                fileLog("verify port=" + port + " ok via " + target.first)
+                return true
+            }
+        }
+        fileLog("verify port=" + port + " failed")
+        return false
+    }
+
+    private fun httpViaSocks(port: Int, host: String, httpPort: Int, budgetMs: Long): Boolean = try {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", port), CONNECT_TIMEOUT_MS)
+            socket.soTimeout = budgetMs.coerceAtMost(4_500L).toInt()
+            val out = socket.getOutputStream()
+            val inp = socket.getInputStream()
+            // SOCKS5 greeting: version 5, one method, "no auth".
+            out.write(byteArrayOf(5, 1, 0))
+            out.flush()
+            val greeting = ByteArray(2)
+            readFully(inp, greeting)
+            if (greeting[0].toInt() != 5 || greeting[1].toInt() != 0) return false
+            val name = host.toByteArray(Charsets.US_ASCII)
+            val request = ByteArray(5 + name.size + 2)
+            request[0] = 5; request[1] = 1; request[2] = 0; request[3] = 3; request[4] = name.size.toByte()
+            System.arraycopy(name, 0, request, 5, name.size)
+            request[5 + name.size] = ((httpPort shr 8) and 0xFF).toByte()
+            request[6 + name.size] = (httpPort and 0xFF).toByte()
+            out.write(request)
+            out.flush()
+            val reply = ByteArray(4)
+            readFully(inp, reply)
+            if (reply[0].toInt() != 5 || reply[1].toInt() != 0) return false
+            when (reply[3].toInt()) {
+                1 -> readFully(inp, ByteArray(6))
+                4 -> readFully(inp, ByteArray(18))
+                3 -> {
+                    val size = ByteArray(1)
+                    readFully(inp, size)
+                    readFully(inp, ByteArray(size[0].toInt() + 2))
+                }
+                else -> return false
+            }
+            // The SOCKS handshake alone only proves the runner accepted us; the HTTP answer proves
+            // the node actually reached the internet through its own tunnel.
+            out.write(("GET / HTTP/1.0\r\nHost: " + host + "\r\nConnection: close\r\n\r\n").toByteArray())
+            out.flush()
+            val head = ByteArray(64)
+            val read = inp.read(head)
+            if (read <= 0) return false
+            String(head, 0, read).startsWith("HTTP/1.")
+        }
+    } catch (e: Exception) {
+        fileLog("verify " + host + " error: " + e.message)
+        false
+    }
+
+    private fun readFully(input: java.io.InputStream, buffer: ByteArray) {
+        var offset = 0
+        while (offset < buffer.size) {
+            val read = input.read(buffer, offset, buffer.size - offset)
+            if (read <= 0) throw java.io.EOFException("short read")
+            offset += read
+        }
+    }
 }

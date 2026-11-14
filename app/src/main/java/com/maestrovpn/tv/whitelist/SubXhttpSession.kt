@@ -69,7 +69,20 @@ internal object SubXhttpSession {
             SubXhttpProcess.fileLog("unreachable " + tag + " -> not starting")
             Log.w(TAG, "unreachable " + tag + ", rollback requested")
         }
-        val started = reachable && address != null && SubXhttpProcess.start(node, address)
+        var started = reachable && address != null && SubXhttpProcess.start(node, address)
+        // A started process is not a working tunnel: the German Akonit node accepted six TCP
+        // connections while answering none (14.11.2026), and the owner lost the internet because the
+        // engine had already been routed into it. So the node must prove itself with a real request
+        // through its own SOCKS port BEFORE libbox is told to use it — this runs while the previous
+        // route is still in place, which makes a bad node a no-op instead of an outage.
+        if (started && node != null) {
+            val verified = SubXhttpProcess.verifyTunnel(node.socksPort)
+            SubXhttpProcess.fileLog("onSelected " + tag + " started=true verified=" + verified)
+            if (!verified) {
+                SubXhttpProcess.stop()
+                started = false
+            }
+        }
         prefs().edit().apply { if (started) putString(KEY_ACTIVE, tag) else remove(KEY_ACTIVE) }.apply()
         SubXhttpProcess.fileLog(
             "onSelected " + tag + " started=" + started + " addr=" + (address ?: "-") +
@@ -80,14 +93,8 @@ internal object SubXhttpSession {
             node?.let { SubXhttpRuntime.refreshDelay(it) }
             return@withContext true
         }
-        // Never leave the tunnel aimed at a dead port: park the group back on the automatic pick.
-        if (groupTag != null) {
-            val rolledBack = runCatching {
-                CommandTarget.standaloneClient().selectOutbound(groupTag, FALLBACK_TAG)
-            }
-            SubXhttpProcess.fileLog("rollback " + groupTag + " -> " + FALLBACK_TAG + " ok=" + rolledBack.isSuccess)
-            Log.w(TAG, "rollback " + groupTag + " -> " + FALLBACK_TAG + " ok=" + rolledBack.isSuccess)
-        }
+        // Nothing was switched yet (the caller selects only on true), so the previous route is
+        // intact and no rollback is needed here.
         false
     }
 
@@ -101,7 +108,17 @@ internal object SubXhttpSession {
             val started = SubXhttpProcess.start(node, address)
             Log.d(TAG, "restore " + tag + " started=" + started)
             SubXhttpProcess.fileLog("restore " + tag + " started=" + started)
-            if (started) SubXhttpRuntime.refreshDelay(node)
+            if (!started) return@Thread
+            // On restore the engine is already routing into this port, so a node that cannot carry
+            // traffic has to be parked back on the automatic group instead of being left dead.
+            if (!SubXhttpProcess.verifyTunnel(node.socksPort)) {
+                SubXhttpProcess.stop()
+                SubXhttpProcess.fileLog("restore " + tag + " verify failed -> rollback " + FALLBACK_TAG)
+                runCatching { CommandTarget.standaloneClient().selectOutbound("select", FALLBACK_TAG) }
+                prefs().edit().remove(KEY_ACTIVE).apply()
+                return@Thread
+            }
+            SubXhttpRuntime.refreshDelay(node)
         }.apply { isDaemon = true; name = "subxhttp-restore" }.start()
     }
 
