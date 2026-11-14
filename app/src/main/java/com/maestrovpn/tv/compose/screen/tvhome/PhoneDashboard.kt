@@ -47,6 +47,7 @@ import com.maestrovpn.tv.compose.model.jflServerTags
 import com.maestrovpn.tv.compose.model.pingLabel
 import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
+import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.update.UpdateState
@@ -54,6 +55,7 @@ import com.maestrovpn.tv.update.UpdatePromptProvenance
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -194,7 +196,7 @@ internal fun PhoneDashboard(
                                 val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" } ?: ordinary.firstOrNull()
                                 if (choice == null) onEnterCode() else onSelectProtocol(choice)
                             }, onCdn = { navigate("cdn") })
-                            PhoneServerRow(server, false, ping = actual?.let { delays[it] }) { showCdnServers = cdnSelected; navigate("servers") }
+                            PhoneServerRow(server, false, ping = actual?.let { delays[it] }, tag = actual) { showCdnServers = cdnSelected; navigate("servers") }
                             // Экспериментальный протокол — на главной, рядом с выбором сервера
                             // (owner 31.10.2026). Это отдельный VpnService, а не outbound sing-box.
                             // Только аккаунтам, которым панель выдаёт ключ (/info features.aivpn):
@@ -209,6 +211,7 @@ internal fun PhoneDashboard(
                             PhoneModes(showCdnServers, { showCdnServers = false }, { showCdnServers = true })
                             if (showCdnServers) PhoneText("CDN: $balanceText")
                             val tags = if (showCdnServers) cdnTags else ordinary
+                            LaunchedEffect(tags) { SubXhttpRuntime.refreshDelays(tags) }
                             if (tags.isEmpty()) {
                                 PhoneNotice(if (!hasSubProfile) "Войдите в аккаунт, чтобы загрузить серверы"
                                     else if (showCdnServers && !cdnView.cellular) "Для CDN включите мобильную сеть"
@@ -232,6 +235,7 @@ internal fun PhoneDashboard(
                                     active = selected == tag,
                                     selectable = true,
                                     ping = delays[tag],
+                                    tag = tag,
                                 ) { onSelectProtocol(tag) }
                             }
                             if (showCdnServers) PhoneNotice("CDN работает в мобильной сети. Для Wi-Fi выберите обычный VPN.")
@@ -288,7 +292,7 @@ internal fun PhoneDashboard(
                                 !cdnView.cellular -> PhoneNotice("CDN отключён вне мобильной сети. Доступные гигабайты сохраняются.")
                                 cdnTags.isNotEmpty() -> {
                                     val target = selected?.takeIf { it in cdnTags } ?: cdnTags.first()
-                                    PhoneServerRow(phoneServer(target, cdnView.labels[target]), true) { showCdnServers = true; navigate("servers") }
+                                    PhoneServerRow(phoneServer(target, cdnView.labels[target]), true, tag = target) { showCdnServers = true; navigate("servers") }
                                     PhoneAction(if (cdnView.active != null && connected && !connecting) "Отключить CDN" else if (connecting) "Подключение…" else "Подключить CDN",
                                         Icons.Default.PlayArrow, {
                                             if (cdnView.active != null && connected && !connecting) onToggleConnect() else if (!connecting) onSelectProtocol(target)
@@ -448,6 +452,19 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
     if (runtimeLabel == null && tag?.trim()?.lowercase() == "awg") {
         return PhoneServer("", AWG_SERVER_NAME, AWG_SERVER_DETAIL, Icons.Default.VpnLock)
     }
+    if (runtimeLabel == null && SubXhttpRuntime.isSubXhttpTag(tag)) {
+        // Subscription node that runs outside the engine (xhttp through the child Xray runner).
+        // Same shape as a JFL row: flag badge, country name, and the "where it comes from" line.
+        val raw = tag!!.trim()
+        val flag = flagEmojiOf(raw)
+        val name = stripServerDecorations(raw.removePrefix(flag)).substringAfter(" · ").trim()
+        return PhoneServer(
+            flag = flag,
+            name = name.ifEmpty { raw },
+            detail = "Akonit · внешняя подписка",
+            icon = Icons.Default.Public,
+        )
+    }
     if (runtimeLabel == null && isJflServerTag(tag)) {
         val raw = tag!!.trim().removePrefix("JFL · ").trim()
         val flag = flagEmojiOf(raw).ifEmpty { "🛰️" }
@@ -492,12 +509,32 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
     return PhoneServer(flag, name.ifEmpty { text }, detail)
 }
 
+/**
+ * Latency badge of a subscription node that runs outside sing-box. Its local SOCKS port exists only
+ * while that node is the active pick, so the number is probed by SubXhttpRuntime on demand and the
+ * row prints "недоступен" until a probe answers (owner's wording, 14.11.2026).
+ */
+@Composable
+private fun subXhttpPing(tag: String?): Int? {
+    val relevant = SubXhttpRuntime.isSubXhttpTag(tag)
+    var value by remember(tag) { mutableStateOf(SubXhttpRuntime.cachedDelay(tag)?.toInt()) }
+    LaunchedEffect(tag, relevant) {
+        if (!relevant) return@LaunchedEffect
+        while (true) {
+            value = SubXhttpRuntime.cachedDelay(tag)?.toInt()
+            delay(2_000)
+        }
+    }
+    return value
+}
+
 @Composable
 private fun PhoneServerRow(
     server: PhoneServer,
     active: Boolean,
     selectable: Boolean = false,
     ping: Int? = null,
+    tag: String? = null,
     onClick: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
@@ -507,11 +544,13 @@ private fun PhoneServerRow(
             Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
         }
-        val pingText = pingLabel(ping)
+        val effectivePing = ping ?: subXhttpPing(tag)
+        val pingText = pingLabel(effectivePing)
+            ?: if (SubXhttpRuntime.isSubXhttpTag(tag)) "недоступен" else null
         if (pingText != null) {
             Text(
                 pingText,
-                color = phonePingColor(ping ?: 0),
+                color = if (effectivePing == null) PremiumRuby else phonePingColor(effectivePing),
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.Bold,
@@ -595,6 +634,7 @@ private fun PhoneJflPicker(
                         active = tag == selected,
                         selectable = true,
                         ping = delays[tag],
+                        tag = tag,
                     ) { onSelect(tag) }
                     Spacer(Modifier.height(6.dp))
                 }

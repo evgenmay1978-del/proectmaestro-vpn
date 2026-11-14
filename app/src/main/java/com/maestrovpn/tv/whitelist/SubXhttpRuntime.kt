@@ -54,6 +54,9 @@ internal object SubXhttpRuntime {
     private const val RESOLVE_BUDGET_MS = 2_500L
     private const val DELAY_TARGET_HOST = "api.ipify.org"
     private const val DELAY_TARGET_PORT = 443
+    private const val DELAY_TTL_MS = 5 * 60 * 1000L
+    private const val IDLE_PROBE_TIMEOUT_MS = 2_000
+    private const val MAX_PARALLEL_DELAYS = 4
 
     private val json = Json { ignoreUnknownKeys = true }
     private val resolver = Executors.newCachedThreadPool { runnable ->
@@ -202,8 +205,34 @@ internal object SubXhttpRuntime {
 
     @Volatile private var delays: Map<String, Long> = emptyMap()
 
+    @Volatile private var delaysAt: Map<String, Long> = emptyMap()
+
     /** Last measured round trip through this node, if any (milliseconds). */
     fun cachedDelay(tag: String?): Long? = if (tag == null) null else delays[tag]
+
+    /** True when the number was probed recently enough to be trusted without a new attempt. */
+    fun delayFresh(tag: String?): Boolean {
+        val value = tag ?: return false
+        val at = delaysAt[value] ?: return false
+        return SystemClock.elapsedRealtime() - at < DELAY_TTL_MS
+    }
+
+    /**
+     * Fill the latency column of the server list. Only the active node keeps a live SOCKS port, so
+     * the remaining ones are probed with a TCP handshake to their entry address; that is the number
+     * the owner asked to see next to every server (14.11.2026). A failed probe stays unknown and
+     * the row prints "недоступен".
+     */
+    fun refreshDelays(tags: List<String>) {
+        val known = nodes()
+        tags.mapNotNull { tag -> known.firstOrNull { it.tag == tag } }
+            .filter { node -> !delayFresh(node.tag) }
+            .distinctBy { it.tag }
+            .take(MAX_PARALLEL_DELAYS)
+            .forEach { node ->
+                if (SubXhttpProcess.runningTag() == node.tag) refreshDelay(node) else refreshIdleDelay(node)
+            }
+    }
 
     /**
      * Real latency of the node: a SOCKS5 CONNECT through the local runner to a small HTTPS host,
@@ -214,9 +243,36 @@ internal object SubXhttpRuntime {
     fun refreshDelay(node: SubXhttpNode) {
         Thread {
             val ms = measure(node.socksPort)
-            delays = if (ms != null) delays + (node.tag to ms) else delays - node.tag
+            publishDelay(node.tag, ms)
             SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
         }.apply { isDaemon = true; name = "subxhttp-delay" }.start()
+    }
+
+    /** Probe of a node that is not the active pick: its local SOCKS port is closed. */
+    private fun refreshIdleDelay(node: SubXhttpNode) {
+        Thread {
+            val ms = tcpDelay(node)
+            publishDelay(node.tag, ms)
+            SubXhttpProcess.fileLog("idle delay " + node.tag + " = " + ms)
+        }.apply { isDaemon = true; name = "subxhttp-delay-idle" }.start()
+    }
+
+    private fun publishDelay(tag: String, ms: Long?) {
+        delaysAt = delaysAt + (tag to SystemClock.elapsedRealtime())
+        delays = if (ms != null) delays + (tag to ms) else delays - tag
+    }
+
+    private fun tcpDelay(node: SubXhttpNode): Long? {
+        val address = resolve(node) ?: node.address
+        if (address.isEmpty()) return null
+        return runCatching {
+            val ip = InetAddress.getByName(address)
+            val started = SystemClock.elapsedRealtime()
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ip, DELAY_TARGET_PORT), IDLE_PROBE_TIMEOUT_MS)
+            }
+            SystemClock.elapsedRealtime() - started
+        }.getOrNull()
     }
 
     private fun measure(port: Int): Long? = runCatching {
