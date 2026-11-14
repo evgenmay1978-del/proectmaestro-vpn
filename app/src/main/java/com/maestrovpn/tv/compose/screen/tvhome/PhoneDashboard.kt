@@ -211,7 +211,14 @@ internal fun PhoneDashboard(
                             PhoneModes(showCdnServers, { showCdnServers = false }, { showCdnServers = true })
                             if (showCdnServers) PhoneText("CDN: $balanceText")
                             val tags = if (showCdnServers) cdnTags else ordinary
-                            LaunchedEffect(tags) { SubXhttpRuntime.refreshDelays(tags) }
+                            LaunchedEffect(tags) {
+                                // Keep filling the latency column while the list is open: the first
+                                // pass only covers a batch, and a failed probe is retried in 30 s.
+                                while (true) {
+                                    SubXhttpRuntime.refreshDelays(tags)
+                                    delay(3_000)
+                                }
+                            }
                             if (tags.isEmpty()) {
                                 PhoneNotice(if (!hasSubProfile) "Войдите в аккаунт, чтобы загрузить серверы"
                                     else if (showCdnServers && !cdnView.cellular) "Для CDN включите мобильную сеть"

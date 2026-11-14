@@ -55,12 +55,16 @@ internal object SubXhttpRuntime {
     private const val DELAY_TARGET_HOST = "api.ipify.org"
     private const val DELAY_TARGET_PORT = 443
     private const val DELAY_TTL_MS = 5 * 60 * 1000L
+    private const val RETRY_TTL_MS = 30 * 1000L
     private const val IDLE_PROBE_TIMEOUT_MS = 2_000
-    private const val MAX_PARALLEL_DELAYS = 4
+    private const val PROBE_BATCH = 4
 
     private val json = Json { ignoreUnknownKeys = true }
     private val resolver = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "subxhttp-resolve").apply { isDaemon = true }
+    }
+    private val probePool = Executors.newFixedThreadPool(PROBE_BATCH) { runnable ->
+        Thread(runnable, "subxhttp-probe").apply { isDaemon = true }
     }
 
     @Volatile private var cached: List<SubXhttpNode>? = null
@@ -214,7 +218,10 @@ internal object SubXhttpRuntime {
     fun delayFresh(tag: String?): Boolean {
         val value = tag ?: return false
         val at = delaysAt[value] ?: return false
-        return SystemClock.elapsedRealtime() - at < DELAY_TTL_MS
+        // A failed probe is retried much sooner than a successful one: the node may simply have
+        // been unreachable for a second, and "недоступен" must not stick for five minutes.
+        val ttl = if (delays[value] != null) DELAY_TTL_MS else RETRY_TTL_MS
+        return SystemClock.elapsedRealtime() - at < ttl
     }
 
     /**
@@ -224,14 +231,27 @@ internal object SubXhttpRuntime {
      * the row prints "недоступен".
      */
     fun refreshDelays(tags: List<String>) {
+        if (tags.isEmpty()) return
         val known = nodes()
-        tags.mapNotNull { tag -> known.firstOrNull { it.tag == tag } }
+        val todo = tags.mapNotNull { tag -> known.firstOrNull { it.tag == tag } }
             .filter { node -> !delayFresh(node.tag) }
             .distinctBy { it.tag }
-            .take(MAX_PARALLEL_DELAYS)
-            .forEach { node ->
-                if (SubXhttpProcess.runningTag() == node.tag) refreshDelay(node) else refreshIdleDelay(node)
+        if (todo.isEmpty()) return
+        // Every node must get a number: the first batch is not the whole list (4 nodes), so the
+        // worker walks all missing nodes in batches instead of dropping the rest of the list.
+        Thread {
+            todo.chunked(PROBE_BATCH).forEach { batch ->
+                batch.map { node ->
+                    node to probePool.submit<Long?> {
+                        if (SubXhttpProcess.runningTag() == node.tag) measure(node.socksPort) else tcpDelay(node)
+                    }
+                }.forEach { (node, job) ->
+                    val ms = runCatching { job.get(4, TimeUnit.SECONDS) }.getOrNull()
+                    publishDelay(node.tag, ms)
+                    SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
+                }
             }
+        }.apply { isDaemon = true; name = "subxhttp-delay-all" }.start()
     }
 
     /**
@@ -248,15 +268,6 @@ internal object SubXhttpRuntime {
         }.apply { isDaemon = true; name = "subxhttp-delay" }.start()
     }
 
-    /** Probe of a node that is not the active pick: its local SOCKS port is closed. */
-    private fun refreshIdleDelay(node: SubXhttpNode) {
-        Thread {
-            val ms = tcpDelay(node)
-            publishDelay(node.tag, ms)
-            SubXhttpProcess.fileLog("idle delay " + node.tag + " = " + ms)
-        }.apply { isDaemon = true; name = "subxhttp-delay-idle" }.start()
-    }
-
     private fun publishDelay(tag: String, ms: Long?) {
         delaysAt = delaysAt + (tag to SystemClock.elapsedRealtime())
         delays = if (ms != null) delays + (tag to ms) else delays - tag
@@ -267,6 +278,7 @@ internal object SubXhttpRuntime {
         if (address.isEmpty()) return null
         return runCatching {
             val ip = InetAddress.getByName(address)
+            SubXhttpProcess.fileLog("probe " + node.tag + " -> " + ip.hostAddress)
             val started = SystemClock.elapsedRealtime()
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(ip, DELAY_TARGET_PORT), IDLE_PROBE_TIMEOUT_MS)
