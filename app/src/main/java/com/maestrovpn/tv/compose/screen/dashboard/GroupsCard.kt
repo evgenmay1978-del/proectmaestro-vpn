@@ -106,6 +106,19 @@ fun GroupsCard(
     val uiState by actualViewModel.uiState.collectAsState()
     val visibleGroups = remember(uiState.groups) { visibleProtocolGroups(uiState.groups) }
 
+    // The engine has no url-test for xhttp nodes, so the card keeps our own probe running while it
+    // is on screen — the phone list does the same. Without this the TV list showed "недоступен"
+    // for every Akonit node forever, because nothing on that screen ever probed them.
+    LaunchedEffect(visibleGroups) {
+        if (visibleGroups.isEmpty()) return@LaunchedEffect
+        while (true) {
+            SubXhttpRuntime.refreshDelays(
+                visibleGroups.flatMap { group -> group.items.map { item -> item.tag } },
+            )
+            kotlinx.coroutines.delay(3_000)
+        }
+    }
+
     if (showTopBar) {
         val allCollapsed = visibleGroups.none { it.tag in uiState.expandedGroups }
         OverrideTopBar {
@@ -503,6 +516,14 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
             kotlinx.coroutines.delay(2_000)
         }
     }
+    // A row must not print "недоступен" before a probe has answered: the label is only honest once
+    // the probe actually failed (owner's report, 14.11.2026).
+    val subAttempted by produceState(initialValue = SubXhttpRuntime.probeAttempted(item.tag), item.tag, subXhttp) {
+        while (subXhttp) {
+            value = SubXhttpRuntime.probeAttempted(item.tag)
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
     // Use simpler, faster animations
     val animatedElevation by animateFloatAsState(
         targetValue = if (isSelected) 6.dp.value else 1.dp.value,
@@ -581,7 +602,7 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
                     val latency: Long? = if (item.urlTestTime > 0) item.urlTestDelay.toLong() else subDelay
                     when {
                         latency != null -> ProxyLatencyBadge(delay = latency.toInt(), isSelected = isSelected)
-                        subXhttp -> {
+                        subXhttp && subAttempted -> {
                             Text(
                                 text = "недоступен",
                                 style = MaterialTheme.typography.labelSmall,

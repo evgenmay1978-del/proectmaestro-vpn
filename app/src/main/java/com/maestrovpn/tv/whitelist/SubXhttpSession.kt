@@ -31,8 +31,8 @@ internal object SubXhttpSession {
 
     /**
      * Cheap gate the view model calls BEFORE handing the pick to libbox: a node whose entry does
-     * not even answer a TCP handshake must not become the active route at all. Doing this first
-     * means no outage window — the previous node simply stays selected.
+     * not even complete a TLS handshake on the phone's path must not become the active route at
+     * all. Doing this first means no outage window — the previous node simply stays selected.
      */
     suspend fun preflight(tag: String?): Boolean = withContext(Dispatchers.IO) {
         if (tag == null || !SubXhttpRuntime.isSubXhttpTag(tag)) return@withContext true

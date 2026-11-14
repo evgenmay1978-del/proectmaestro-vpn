@@ -18,8 +18,14 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * xhttp-узлы внешней подписки (Аконит), которые движок sing-box воспроизвести не может.
@@ -51,12 +57,19 @@ internal object SubXhttpRuntime {
     private const val MAX_BYTES = 256 * 1024
     private const val IP_TTL_MS = 10 * 60 * 1000L
     private const val RESOLVE_TIMEOUT_MS = 1_500L
-    private const val RESOLVE_BUDGET_MS = 2_500L
+    private const val RESOLVE_BUDGET_MS = 4_000L
     private const val DELAY_TARGET_HOST = "api.ipify.org"
     private const val DELAY_TARGET_PORT = 443
     private const val DELAY_TTL_MS = 5 * 60 * 1000L
     private const val RETRY_TTL_MS = 30 * 1000L
     private const val IDLE_PROBE_TIMEOUT_MS = 2_000
+
+    /**
+     * TLS handshake budget of the latency probe. The probe is a real TLS handshake to the node
+     * entry with the node's own SNI: a path that answers the TCP handshake but never passes a
+     * byte (measured on the German/Estonian/Polish Akonit entries, 14.11.2026) times out here.
+     */
+    private const val PROBE_HANDSHAKE_TIMEOUT_MS = 4_000
     private const val PROBE_BATCH = 4
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -65,6 +78,22 @@ internal object SubXhttpRuntime {
     }
     private val probePool = Executors.newFixedThreadPool(PROBE_BATCH) { runnable ->
         Thread(runnable, "subxhttp-probe").apply { isDaemon = true }
+    }
+
+    /**
+     * Certificate chain is not verified on purpose: the probe only asks whether the entry still
+     * completes a TLS handshake on this network path, and a Reality entry answers with the
+     * certificate of its own fallback host, which is not the name we dial.
+     */
+    private val probeTls: SSLContext = run {
+        val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        })
+        SSLContext.getInstance("TLS").apply { init(null, trustAll, SecureRandom()) }
     }
 
     @Volatile private var cached: List<SubXhttpNode>? = null
@@ -226,7 +255,7 @@ internal object SubXhttpRuntime {
 
     /**
      * Fill the latency column of the server list. Only the active node keeps a live SOCKS port, so
-     * the remaining ones are probed with a TCP handshake to their entry address; that is the number
+     * the remaining ones are probed with a TLS handshake to their entry address; that is the number
      * the owner asked to see next to every server (14.11.2026). A failed probe stays unknown and
      * the row prints "недоступен".
      */
@@ -242,9 +271,10 @@ internal object SubXhttpRuntime {
         Thread {
             todo.chunked(PROBE_BATCH).forEach { batch ->
                 batch.map { node ->
-                    node to probePool.submit<Long?> { tcpDelay(node) }
+                    node to probePool.submit<Long?> { tlsDelay(node) }
                 }.forEach { (node, job) ->
-                    val ms = runCatching { job.get(4, TimeUnit.SECONDS) }.getOrNull()
+                    // Must outlast the probe itself: connect budget + handshake budget.
+                    val ms = runCatching { job.get(9, TimeUnit.SECONDS) }.getOrNull()
                     publishDelay(node.tag, ms)
                     SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
                 }
@@ -253,14 +283,13 @@ internal object SubXhttpRuntime {
     }
 
     /**
-     * Real latency of the node: a SOCKS5 CONNECT through the local runner to a small HTTPS host,
-     * measured until the node answers. The engine's own url-test cannot see these nodes (their
-     * port is only open while that node is the active pick), so the list would otherwise show
-     * nothing at all.
+     * Real latency of the node: the time until its entry completes a TLS handshake on the phone's
+     * own network path. The engine's url-test cannot see these nodes (their port is only open while
+     * that node is the active pick), so the list would otherwise show nothing at all.
      */
     fun refreshDelay(node: SubXhttpNode) {
         Thread {
-            val ms = tcpDelay(node)
+            val ms = tlsDelay(node)
             publishDelay(node.tag, ms)
             SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
         }.apply { isDaemon = true; name = "subxhttp-delay" }.start()
@@ -273,28 +302,72 @@ internal object SubXhttpRuntime {
 
     /**
      * Reachability of the node's entry, measured on the real path (outside our tun). The session
-     * uses it as a gate: a node we cannot even open a TCP connection to must never be selected,
-     * because libbox routes the whole phone into its (empty) local SOCKS port the moment the pick
-     * lands — that is exactly how the Turkish node killed the owner's internet on 14.11.2026.
+     * uses it as a gate: a node whose entry does not even complete a TLS handshake must never be
+     * selected, because libbox routes the whole phone into its (empty) local SOCKS port the moment
+     * the pick lands — that is exactly how the Turkish node killed the owner's internet on
+     * 14.11.2026.
+     *
+     * A bare TCP handshake is NOT enough: the German, Estonian and Polish Akonit entries accepted
+     * it in 64-73 ms while answering no data at all (owner's report, 14.11.2026), so the list
+     * showed a green ping and the pick then failed — the 1.0.200 TCP gate let the phone go dark.
      */
     fun probeLatency(node: SubXhttpNode): Long? {
         val cached = cachedDelay(node.tag)
         if (cached != null && delayFresh(node.tag)) return cached
-        return tcpDelay(node)
+        return tlsDelay(node)
     }
 
-    private fun tcpDelay(node: SubXhttpNode): Long? {
+    /** True once a probe has answered for this tag (success or failure) — the row may say "недоступен". */
+    fun probeAttempted(tag: String?): Boolean = tag != null && delaysAt.containsKey(tag)
+
+    /**
+     * Time until the entry answers a TLS handshake, in milliseconds; null when it does not.
+     *
+     * The SNI is the node's own (realitySettings.serverName): a Reality entry without a valid
+     * client session — and a probe is exactly that — forwards the handshake to its fallback host,
+     * which answers with a real certificate. So success here means «this network path carries
+     * data to this entry», and a timeout means the path is dead even though the TCP SYN passes.
+     * Measured on 14.11.2026: six working entries answered TLSv1.3 in 339-1802 ms, the three dead
+     * ones plus Turkey timed out, while the very same probes from S1 answered all ten in
+     * 140-397 ms — the block is on the phone's path, not on the node side.
+     */
+    private fun tlsDelay(node: SubXhttpNode): Long? {
         val address = resolve(node) ?: node.address
         if (address.isEmpty()) return null
-        return runCatching {
+        return try {
             val ip = InetAddress.getByName(address)
-            SubXhttpProcess.fileLog("probe " + node.tag + " -> " + ip.hostAddress)
+            val sni = sniOf(node)
+            SubXhttpProcess.fileLog("probe " + node.tag + " -> " + ip.hostAddress + " sni=" + (sni ?: "-"))
             val started = SystemClock.elapsedRealtime()
-            openSocket().use { socket ->
-                socket.connect(InetSocketAddress(ip, DELAY_TARGET_PORT), IDLE_PROBE_TIMEOUT_MS)
+            openSocket().use { raw ->
+                raw.connect(InetSocketAddress(ip, DELAY_TARGET_PORT), IDLE_PROBE_TIMEOUT_MS)
+                if (sni == null) {
+                    // No TLS name to ask for: fall back to the handshake alone, tagged in the log so
+                    // a "green but dead" report can be traced back to a well-formed manifest gap.
+                    SubXhttpProcess.fileLog("probe " + node.tag + " has no serverName, tcp-only")
+                } else {
+                    raw.soTimeout = PROBE_HANDSHAKE_TIMEOUT_MS
+                    val tls = probeTls.socketFactory.createSocket(raw, sni, DELAY_TARGET_PORT, true)
+                    try {
+                        (tls as SSLSocket).startHandshake()
+                    } finally {
+                        runCatching { tls.close() }
+                    }
+                }
             }
             SystemClock.elapsedRealtime() - started
-        }.getOrNull()
+        } catch (e: Exception) {
+            SubXhttpProcess.fileLog("probe " + node.tag + " tls failed: " + e.javaClass.simpleName + ": " + e.message)
+            null
+        }
+    }
+
+    /** TLS name of the node entry: Reality first, then a plain TLS outbound; null when neither. */
+    private fun sniOf(node: SubXhttpNode): String? {
+        val stream = node.outbound["streamSettings"] as? JsonObject ?: return null
+        val reality = (stream["realitySettings"] as? JsonObject)?.get("serverName")
+        val tls = (stream["tlsSettings"] as? JsonObject)?.get("serverName")
+        return ((reality ?: tls) as? JsonPrimitive)?.content?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     /**
@@ -349,7 +422,10 @@ internal object SubXhttpRuntime {
     fun xrayConfig(node: SubXhttpNode, address: String): String {
         val outbound = replaceAddress(node.outbound, address)
         val config = buildJsonObject {
-            put("log", buildJsonObject { put("loglevel", "warning") })
+            // Access log off: with it on, every tunnelled connection wrote an "accepted tcp:..."
+            // line and the 64 KB diagnostic file rotated away within seconds, which is exactly how
+            // the 14.11.2026 failure report lost its own evidence.
+            put("log", buildJsonObject { put("loglevel", "warning"); put("access", "none") })
             put("inbounds", buildJsonArray {
                 add(buildJsonObject {
                     put("listen", "127.0.0.1")
@@ -380,7 +456,10 @@ internal object SubXhttpRuntime {
      */
     fun patchDirectRules(config: String): String {
         val known = nodes()
-        if (known.isEmpty()) return config
+        if (known.isEmpty()) {
+            SubXhttpProcess.fileLog("direct skipped: no nodes")
+            return config
+        }
         val root = runCatching { json.parseToJsonElement(config) as? JsonObject }.getOrNull() ?: return config
         val outbounds = root["outbounds"] as? JsonArray ?: return config
         // Which of our nodes are actually in this engine config — recognized by the loopback SOCKS
@@ -392,9 +471,15 @@ internal object SubXhttpRuntime {
             (obj["server_port"] as? JsonPrimitive)?.content?.toIntOrNull()
         }.toSet()
         val active = known.filter { it.socksPort in presentPorts }
-        if (active.isEmpty()) return config
+        if (active.isEmpty()) {
+            SubXhttpProcess.fileLog("direct skipped: nodes=" + known.size + " none in config")
+            return config
+        }
         val ips = resolveAll(active)
-        if (ips.isEmpty()) return config
+        if (ips.isEmpty()) {
+            SubXhttpProcess.fileLog("direct skipped: resolve returned nothing for " + active.size + " nodes")
+            return config
+        }
         val route = root["route"] as? JsonObject ?: return config
         val rules = route["rules"] as? JsonArray ?: return config
         val directTag = outbounds.firstNotNullOfOrNull { element ->
@@ -414,6 +499,11 @@ internal object SubXhttpRuntime {
         }
         list.add(insertAt, rule)
         appliedIps = ips.toSet()
+        // The DIRECT set used to be invisible, so "the node is dead" could not be told apart from
+        // "the rule never covered its IP". Logged on every config build on purpose (14.11.2026).
+        SubXhttpProcess.fileLog(
+            "direct nodes=" + known.size + " present=" + active.size + " ips=" + ips.size + " " + ips,
+        )
         val patchedRoute = JsonObject(route + ("rules" to JsonArray(list)))
         return JsonObject(root + ("route" to patchedRoute)).toString()
     }

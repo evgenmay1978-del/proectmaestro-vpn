@@ -517,22 +517,31 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
 }
 
 /**
+ * Latency of a subscription node that runs outside sing-box: the number, plus whether a probe has
+ * answered at all. Both parts matter — a row cannot tell "probe still running" from "probe failed"
+ * with the number alone, and "недоступен" printed before the answer is the same kind of lie as a
+ * green ping on a dead node (owner's report, 14.11.2026).
+ */
+private class SubXhttpPing(val ms: Int?, val attempted: Boolean)
+
+/**
  * Latency badge of a subscription node that runs outside sing-box. Its local SOCKS port exists only
- * while that node is the active pick, so the number is probed by SubXhttpRuntime on demand and the
- * row prints "недоступен" until a probe answers (owner's wording, 14.11.2026).
+ * while that node is the active pick, so the number is probed by SubXhttpRuntime on demand.
  */
 @Composable
-private fun subXhttpPing(tag: String?): Int? {
+private fun subXhttpPing(tag: String?): SubXhttpPing {
     val relevant = SubXhttpRuntime.isSubXhttpTag(tag)
     var value by remember(tag) { mutableStateOf(SubXhttpRuntime.cachedDelay(tag)?.toInt()) }
+    var attempted by remember(tag) { mutableStateOf(SubXhttpRuntime.probeAttempted(tag)) }
     LaunchedEffect(tag, relevant) {
         if (!relevant) return@LaunchedEffect
         while (true) {
             value = SubXhttpRuntime.cachedDelay(tag)?.toInt()
+            attempted = SubXhttpRuntime.probeAttempted(tag)
             delay(2_000)
         }
     }
-    return value
+    return SubXhttpPing(value, attempted)
 }
 
 @Composable
@@ -551,18 +560,24 @@ private fun PhoneServerRow(
             Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
         }
-        val effectivePing = ping ?: subXhttpPing(tag)
         // A row without a number must still say something (owner 14.11.2026). A subscription node
-        // that failed its probe is "недоступен"; a regular node libbox has not tested yet gets a
-        // neutral dash instead, because claiming it is unreachable would be a lie.
+        // whose probe FAILED is "недоступен"; one whose probe is still running gets a neutral dash,
+        // because "недоступен" before the answer is the same lie as a green ping on a dead node.
         val subXhttpRow = SubXhttpRuntime.isSubXhttpTag(tag)
-        val pingText = pingLabel(effectivePing) ?: if (subXhttpRow) "недоступен" else "—"
+        val probed = if (subXhttpRow) subXhttpPing(tag) else SubXhttpPing(null, false)
+        val effectivePing = ping ?: probed.ms
+        val pingText = pingLabel(effectivePing)
+            ?: when {
+                !subXhttpRow -> "—"
+                probed.attempted -> "недоступен"
+                else -> "—"
+            }
         if (pingText != null) {
             Text(
                 pingText,
                 color = when {
                     effectivePing != null -> phonePingColor(effectivePing)
-                    subXhttpRow -> PremiumRuby
+                    subXhttpRow && probed.attempted -> PremiumRuby
                     else -> PremiumGold.copy(alpha = 0.55f)
                 },
                 fontSize = 12.sp,

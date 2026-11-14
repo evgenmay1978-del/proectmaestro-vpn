@@ -27,6 +27,7 @@ internal object SubXhttpProcess {
     private const val STOP_TIMEOUT_MS = 3_000L
     private const val CONNECT_TIMEOUT_MS = 300
     private const val LOG_KEEP = 40
+    private const val LOG_MAX_BYTES = 64L * 1024
     private val VERIFY_TARGETS = listOf("api.ipify.org" to 80, "cp.cloudflare.com" to 80)
 
     private var child: Process? = null
@@ -57,7 +58,14 @@ internal object SubXhttpProcess {
         for (dir in dirs) {
             runCatching {
                 val file = File(dir, "subxhttp.log")
-                if (file.isFile && file.length() > 64 * 1024) file.delete()
+                // Rotate, never drop. On 14.11.2026 the file was deleted the moment it crossed
+                // 64 KB, and the stream of "accepted tcp:" access lines rotated away every single
+                // "verify ... Read timed out" line — the report that needed the log had no log.
+                if (file.isFile && file.length() > LOG_MAX_BYTES) {
+                    val prev = File(dir, "subxhttp.log.1")
+                    runCatching { prev.delete() }
+                    runCatching { file.renameTo(prev) }
+                }
                 file.appendText(line)
             }
         }
@@ -81,7 +89,10 @@ internal object SubXhttpProcess {
         }
         val candidate = spawn(node, address) ?: return false
         if (!verifyTunnel(node.socksPort)) {
-            fileLog("candidate " + node.tag + " failed verification -> previous runner kept")
+            fileLog(
+                "candidate " + node.tag + " failed verification -> previous runner kept addr=" + address +
+                    " direct=" + SubXhttpRuntime.ruleApplied(address),
+            )
             runCatching { candidate.file.delete() }
             kill(candidate.process)
             return false
@@ -92,7 +103,10 @@ internal object SubXhttpProcess {
         activeTag = node.tag
         configFile = candidate.file
         Log.d(TAG, "ready tag=" + node.tag + " port=" + node.socksPort)
-        fileLog("ready tag=" + node.tag + " port=" + node.socksPort + " addr=" + address)
+        fileLog(
+            "ready tag=" + node.tag + " port=" + node.socksPort + " addr=" + address +
+                " direct=" + SubXhttpRuntime.ruleApplied(address),
+        )
         return true
     }
 
@@ -170,6 +184,11 @@ internal object SubXhttpProcess {
         val thread = Thread {
             runCatching {
                 running.inputStream.bufferedReader().forEachLine { line ->
+                    // Access lines ("accepted tcp:...") are one per connection and would fill the
+                    // diagnostic file within seconds; errors and startup lines are what matter.
+                    if (line.contains("accepted tcp:") || line.contains("accepted udp:")) {
+                        return@forEachLine
+                    }
                     Log.d(TAG, "child: " + line)
                     fileLog("child: " + line.take(200))
                     synchronized(log) {
