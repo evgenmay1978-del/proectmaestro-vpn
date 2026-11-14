@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -72,6 +73,8 @@ import com.maestrovpn.tv.compat.rememberOverscrollEffectCompat
 import com.maestrovpn.tv.compose.model.Group
 import com.maestrovpn.tv.compose.model.GroupItem
 import com.maestrovpn.tv.compose.model.visibleProtocolGroups
+import com.maestrovpn.tv.compose.premium.CountryFlagBadge
+import com.maestrovpn.tv.compose.premium.flagEmojiOf
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
@@ -487,6 +490,13 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
     // Nodes of the external xhttp subscription: the engine has no url-test for them, so the
     // latency comes from our own runner and is refreshed while the row is on screen.
     val subXhttp = remember(item.tag) { SubXhttpRuntime.isSubXhttpTag(item.tag) }
+    // A subscription row keeps the app's shape on TV as well: a flag badge and the country name,
+    // never the raw tag with the provider prefix.
+    val subFlag = remember(item.tag, subXhttp) { if (subXhttp) flagEmojiOf(item.tag) else "" }
+    val subName =
+        remember(item.tag, subXhttp) {
+            if (subXhttp) item.tag.substringAfter(" · ", item.tag).trim().ifEmpty { item.tag } else item.tag
+        }
     val subDelay by produceState<Long?>(initialValue = SubXhttpRuntime.cachedDelay(item.tag), item.tag) {
         while (subXhttp) {
             value = SubXhttpRuntime.cachedDelay(item.tag)
@@ -526,13 +536,17 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (subXhttp && subFlag.isNotEmpty()) {
+                CountryFlagBadge(flag = subFlag, icon = Icons.Default.Public, size = 22.dp)
+                Spacer(Modifier.size(8.dp))
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 // First line: Name
                 Text(
-                    text = item.tag,
+                    text = subName,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     color =
