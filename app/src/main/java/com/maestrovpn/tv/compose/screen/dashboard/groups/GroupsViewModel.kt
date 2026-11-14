@@ -300,6 +300,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // The box may have died between updateGroups and here (OOM/watchdog) — never push a
                 // selection at a torn-down command server; the offline-groups path repaints anyway.
                 if (_serviceStatus.value != Status.Started) return@launch
+                // Never route the phone into a node we cannot reach: check first, select after.
+                if (!SubXhttpSession.preflight(itemTag)) {
+                    sendError(IllegalStateException("Сервер " + itemTag + " недоступен"))
+                    return@launch
+                }
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
                 // xhttp-узлы подписки живут в дочернем Xray: поднять/погасить раннер под выбор.
                 // Сбой раннера не должен отменять уже сделанный selectOutbound.
@@ -420,6 +425,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Never route the phone into a node we cannot reach: check first, select after.
+                if (!SubXhttpSession.preflight(itemTag)) {
+                    sendError(IllegalStateException("Сервер " + itemTag + " недоступен"))
+                    return@launch
+                }
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
                 // xhttp-узлы подписки живут в дочернем Xray: поднять/погасить раннер под выбор.

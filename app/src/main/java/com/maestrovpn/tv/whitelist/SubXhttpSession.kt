@@ -30,6 +30,19 @@ internal object SubXhttpSession {
     fun savedTag(): String? = prefs().getString(KEY_ACTIVE, null)
 
     /**
+     * Cheap gate the view model calls BEFORE handing the pick to libbox: a node whose entry does
+     * not even answer a TCP handshake must not become the active route at all. Doing this first
+     * means no outage window — the previous node simply stays selected.
+     */
+    suspend fun preflight(tag: String?): Boolean = withContext(Dispatchers.IO) {
+        if (tag == null || !SubXhttpRuntime.isSubXhttpTag(tag)) return@withContext true
+        val node = SubXhttpRuntime.node(tag) ?: return@withContext true
+        val ok = SubXhttpRuntime.probeLatency(node) != null
+        if (!ok) SubXhttpProcess.fileLog("preflight " + tag + " = unreachable")
+        ok
+    }
+
+    /**
      * Called right after libbox accepted a new selection. The process must be up before traffic is
      * routed into it, so the start runs off the main thread (it waits for the SOCKS port).
      *
@@ -48,8 +61,15 @@ internal object SubXhttpSession {
         }
         val node = SubXhttpRuntime.node(tag)
         val address = node?.let { SubXhttpRuntime.resolve(it) ?: it.address }
-        val started = node != null && SubXhttpProcess.available() &&
-            address != null && SubXhttpProcess.start(node, address)
+        // Gate on reachability BEFORE handing traffic over: libbox has already accepted the pick,
+        // so starting a runner for a node we cannot reach just parks the whole phone on a dead
+        // port. Probing first turns a 20 s outage into a sub-second no-op (measured with Turkey).
+        val reachable = node != null && SubXhttpRuntime.probeLatency(node) != null
+        if (node != null && !reachable) {
+            SubXhttpProcess.fileLog("unreachable " + tag + " -> not starting")
+            Log.w(TAG, "unreachable " + tag + ", rollback requested")
+        }
+        val started = reachable && address != null && SubXhttpProcess.start(node, address)
         prefs().edit().apply { if (started) putString(KEY_ACTIVE, tag) else remove(KEY_ACTIVE) }.apply()
         SubXhttpProcess.fileLog(
             "onSelected " + tag + " started=" + started + " addr=" + (address ?: "-") +

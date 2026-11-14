@@ -271,6 +271,18 @@ internal object SubXhttpRuntime {
         delays = if (ms != null) delays + (tag to ms) else delays - tag
     }
 
+    /**
+     * Reachability of the node's entry, measured on the real path (outside our tun). The session
+     * uses it as a gate: a node we cannot even open a TCP connection to must never be selected,
+     * because libbox routes the whole phone into its (empty) local SOCKS port the moment the pick
+     * lands — that is exactly how the Turkish node killed the owner's internet on 14.11.2026.
+     */
+    fun probeLatency(node: SubXhttpNode): Long? {
+        val cached = cachedDelay(node.tag)
+        if (cached != null && delayFresh(node.tag)) return cached
+        return tcpDelay(node)
+    }
+
     private fun tcpDelay(node: SubXhttpNode): Long? {
         val address = resolve(node) ?: node.address
         if (address.isEmpty()) return null
