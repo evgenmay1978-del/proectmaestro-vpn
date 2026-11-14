@@ -468,7 +468,7 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
         return PhoneServer(
             flag = flag,
             name = name.ifEmpty { raw },
-            detail = "Akonit · внешняя подписка",
+            detail = "Внешняя подписка",
             icon = Icons.Default.Public,
         )
     }

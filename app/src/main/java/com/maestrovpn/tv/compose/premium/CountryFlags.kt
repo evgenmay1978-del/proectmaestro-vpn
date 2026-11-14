@@ -103,6 +103,10 @@ private data class FlagDesign(
     val japan: Boolean = false,
     val czech: Boolean = false,
     val eu: Boolean = false,
+    val us: Boolean = false,
+    val uk: Boolean = false,
+    val kazakhstan: Boolean = false,
+    val turkey: Boolean = false,
 )
 
 private fun h(vararg colors: Long) = FlagDesign(bands = colors.map { Color(it) })
@@ -138,6 +142,10 @@ private val FLAGS: Map<String, FlagDesign> = mapOf(
     "JP" to FlagDesign(japan = true),
     "CZ" to FlagDesign(czech = true),
     "EU" to FlagDesign(eu = true),
+    "US" to FlagDesign(us = true),
+    "GB" to FlagDesign(uk = true),
+    "KZ" to FlagDesign(kazakhstan = true),
+    "TR" to FlagDesign(turkey = true),
 )
 
 private fun DrawScope.drawFlag(design: FlagDesign) {
@@ -188,6 +196,51 @@ private fun DrawScope.drawFlag(design: FlagDesign) {
             close()
         }
         drawPath(triangle, Color(0xFF11457E))
+    }
+    if (design.us) {
+        val stripe = h / 13f
+        repeat(13) { index ->
+            val color = if (index % 2 == 0) Color(0xFFB22234) else Color.White
+            drawRect(color, Offset(0f, index * stripe), Size(w, stripe + 0.5f))
+        }
+        val cantonW = w * 0.46f
+        val cantonH = stripe * 7f
+        drawRect(Color(0xFF3C3B6E), Offset.Zero, Size(cantonW, cantonH))
+        val dot = w * 0.042f
+        for (row in 0 until 4) {
+            for (column in 0 until 5) {
+                drawCircle(
+                    Color.White,
+                    dot,
+                    Offset(cantonW * (0.16f + column * 0.18f), cantonH * (0.16f + row * 0.23f)),
+                )
+            }
+        }
+    }
+    if (design.uk) {
+        drawRect(Color(0xFF012169), Offset.Zero, Size(w, h))
+        val diagonal = w * 0.17f
+        drawLine(Color.White, Offset(0f, 0f), Offset(w, h), strokeWidth = diagonal)
+        drawLine(Color.White, Offset(w, 0f), Offset(0f, h), strokeWidth = diagonal)
+        drawLine(Color(0xFFC8102E), Offset(0f, 0f), Offset(w, h), strokeWidth = diagonal * 0.42f)
+        drawLine(Color(0xFFC8102E), Offset(w, 0f), Offset(0f, h), strokeWidth = diagonal * 0.42f)
+        val armWidth = h * 0.36f
+        drawRect(Color.White, Offset(w / 2f - armWidth / 2f, 0f), Size(armWidth, h))
+        drawRect(Color.White, Offset(0f, h / 2f - armWidth / 2f), Size(w, armWidth))
+        val crossWidth = h * 0.20f
+        drawRect(Color(0xFFC8102E), Offset(w / 2f - crossWidth / 2f, 0f), Size(crossWidth, h))
+        drawRect(Color(0xFFC8102E), Offset(0f, h / 2f - crossWidth / 2f), Size(w, crossWidth))
+    }
+    if (design.kazakhstan) {
+        drawRect(Color(0xFF00AFCA), Offset.Zero, Size(w, h))
+        drawCircle(Color(0xFFFEC50C), radius = w * 0.26f, center = Offset(w / 2f, h * 0.44f))
+        drawRect(Color(0xFFFEC50C), Offset(w * 0.08f, h * 0.84f), Size(w * 0.84f, h * 0.06f))
+    }
+    if (design.turkey) {
+        drawRect(Color(0xFFE30A17), Offset.Zero, Size(w, h))
+        drawCircle(Color.White, radius = w * 0.28f, center = Offset(w * 0.44f, h / 2f))
+        drawCircle(Color(0xFFE30A17), radius = w * 0.225f, center = Offset(w * 0.505f, h / 2f))
+        drawCircle(Color.White, radius = w * 0.06f, center = Offset(w * 0.72f, h / 2f))
     }
     if (design.eu) {
         drawRect(Color(0xFF003399), Offset.Zero, Size(w, h))

@@ -553,7 +553,7 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
                 ) {
                     // Type
                     Text(
-                        text = if (subXhttp) "Akonit · внешняя подписка" else Libbox.proxyDisplayType(item.type),
+                        text = if (subXhttp) "Внешняя подписка" else Libbox.proxyDisplayType(item.type),
                         style = MaterialTheme.typography.labelSmall,
                         color =
                         if (isSelected) {
