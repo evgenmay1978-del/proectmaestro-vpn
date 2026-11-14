@@ -3,6 +3,7 @@ package com.maestrovpn.tv.compose.screen.dashboard.groups
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.Application
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.whitelist.WhiteListRuntimeClient
 import com.maestrovpn.tv.whitelist.WhiteListSelection
@@ -361,6 +362,25 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 runCatching {
                     CommandTarget.standaloneClient().setGroupExpand(group.tag, newExpanded)
                 }
+            }
+        }
+    }
+
+    private var manualServerRefresh: Job? = null
+
+    /**
+     * «Обновить список»: first pull the subscription itself (profile + xhttp manifest), then
+     * repaint. The button used to only repaint the latency column, so a changed server list
+     * stayed stale until the next periodic tick (owner report 14.11.2026).
+     */
+    fun refreshServers() {
+        if (manualServerRefresh?.isActive == true) return
+        manualServerRefresh = viewModelScope.launch(Dispatchers.IO) {
+            runCatching { UpdateProfileWork.refreshNow() }
+                .onFailure { sendError(it) }
+            withContext(Dispatchers.Main) {
+                refreshCdnMenu()
+                urlTest("auto")
             }
         }
     }

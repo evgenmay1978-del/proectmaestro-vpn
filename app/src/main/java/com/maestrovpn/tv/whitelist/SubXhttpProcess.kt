@@ -81,14 +81,14 @@ internal object SubXhttpProcess {
      * different ports, so they can coexist for the few seconds the check takes.
      */
     @Synchronized
-    fun start(node: SubXhttpNode, address: String): Boolean {
+    fun start(node: SubXhttpNode, address: String, port: Int = node.socksPort): Boolean {
         if (activeTag == node.tag && child?.let { alive(it) } == true) {
-            if (reachable(node.socksPort) && verifyTunnel(node.socksPort)) return true
-            fileLog("current " + node.tag + " failed verification -> restarting")
+            if (reachable(port) && verifyTunnel(port)) return true
+            fileLog("current " + node.tag + " failed verification -> restarting port=" + port)
             stopLocked()
         }
-        val candidate = spawn(node, address) ?: return false
-        if (!verifyTunnel(node.socksPort)) {
+        val candidate = spawn(node, address, port) ?: return false
+        if (!verifyTunnel(port)) {
             fileLog(
                 "candidate " + node.tag + " failed verification -> previous runner kept addr=" + address +
                     " direct=" + SubXhttpRuntime.ruleApplied(address),
@@ -102,9 +102,9 @@ internal object SubXhttpProcess {
         child = candidate.process
         activeTag = node.tag
         configFile = candidate.file
-        Log.d(TAG, "ready tag=" + node.tag + " port=" + node.socksPort)
+        Log.d(TAG, "ready tag=" + node.tag + " port=" + port)
         fileLog(
-            "ready tag=" + node.tag + " port=" + node.socksPort + " addr=" + address +
+            "ready tag=" + node.tag + " port=" + port + " addr=" + address +
                 " direct=" + SubXhttpRuntime.ruleApplied(address),
         )
         return true
@@ -113,26 +113,26 @@ internal object SubXhttpProcess {
     private class Spawned(val process: Process, val file: File)
 
     /** Launch a runner process and wait for its SOCKS port. Does not touch [child]/[activeTag]. */
-    private fun spawn(node: SubXhttpNode, address: String): Spawned? {
+    private fun spawn(node: SubXhttpNode, address: String, port: Int): Spawned? {
         val bin = binary()
         if (bin == null) {
             Log.w(TAG, "child binary missing in " + Application.application.applicationInfo.nativeLibraryDir)
             fileLog("start failed tag=" + node.tag + ": binary missing")
             return null
         }
-        val file = File(Application.application.filesDir, "subxhttp-" + node.socksPort + ".json")
+        val file = File(Application.application.filesDir, "subxhttp-" + port + ".json")
         var started: Process? = null
         return try {
-            file.writeText(SubXhttpRuntime.xrayConfig(node, address))
+            file.writeText(SubXhttpRuntime.xrayConfig(node, address, port))
             file.setReadable(false, false)
             file.setReadable(true, true)
             started = ProcessBuilder(bin.absolutePath, "run", "-c", file.absolutePath)
                 .redirectErrorStream(true)
                 .start()
             drain(started)
-            if (!awaitReady(started, node.socksPort)) {
+            if (!awaitReady(started, port)) {
                 Log.e(TAG, "child not ready: " + logTail())
-                fileLog("not ready tag=" + node.tag + " port=" + node.socksPort + " tail=" + logTail())
+                fileLog("not ready tag=" + node.tag + " port=" + port + " tail=" + logTail())
                 runCatching { file.delete() }
                 kill(started)
                 return null

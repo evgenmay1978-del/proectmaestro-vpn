@@ -102,6 +102,22 @@ internal object SubXhttpRuntime {
     /** Node IPs already exempted from the tun by the last [patchDirectRules] insertion. */
     @Volatile private var appliedIps: Set<String> = emptySet()
 
+    /**
+     * tag -> loopback SOCKS port of the engine profile as of the last config build. The session
+     * starts the runner on THIS port (the engine follows the profile, not our manifest), so a
+     * subscription reload that renumbered the nodes can never leave the tunnel on a dead port.
+     */
+    @Volatile private var liveProfilePorts: Map<String, Int> = emptyMap()
+
+    /** Live profile ports of the xhttp nodes; empty until the engine config was built once. */
+    fun profilePorts(): Map<String, Int> = liveProfilePorts
+
+    /** What the session must do with this tag: serve it, refuse it, or leave it to libbox. */
+    fun decisionFor(tag: String?): SubXhttpPlan.Decision {
+        if (tag.isNullOrEmpty()) return SubXhttpPlan.Decision.Regular
+        return SubXhttpPlan.decide(tag, node(tag)?.socksPort, liveProfilePorts)
+    }
+
     /** True when the running engine already has a DIRECT rule covering this entry IP. */
     fun ruleApplied(ip: String?): Boolean = ip != null && ip in appliedIps
 
@@ -419,7 +435,7 @@ internal object SubXhttpRuntime {
      * Xray configuration for one node: local SOCKS in, the subscription outbound (with its address
      * replaced by the resolved IP — the child must not need DNS, a DNS query would go into the tun).
      */
-    fun xrayConfig(node: SubXhttpNode, address: String): String {
+    fun xrayConfig(node: SubXhttpNode, address: String, port: Int = node.socksPort): String {
         val outbound = replaceAddress(node.outbound, address)
         val config = buildJsonObject {
             // Access log off: with it on, every tunnelled connection wrote an "accepted tcp:..."
@@ -429,7 +445,7 @@ internal object SubXhttpRuntime {
             put("inbounds", buildJsonArray {
                 add(buildJsonObject {
                     put("listen", "127.0.0.1")
-                    put("port", node.socksPort)
+                    put("port", port)
                     put("protocol", "socks")
                     put("settings", buildJsonObject { put("udp", false) })
                 })
@@ -455,22 +471,19 @@ internal object SubXhttpRuntime {
      * DIRECT rule for the entry IPs, placed before anything that could claim them.
      */
     fun patchDirectRules(config: String): String {
+        val root = runCatching { json.parseToJsonElement(config) as? JsonObject }.getOrNull() ?: return config
+        val outbounds = root["outbounds"] as? JsonArray ?: return config
+        // Which of our nodes are actually in this engine config — matched by TAG, not by the port
+        // remembered in the manifest: after a subscription reload the profile renumbers the nodes,
+        // and a byte-equal node must still get its DIRECT rule (and its live runner port).
+        val ports = SubXhttpPlan.profileXhttpPorts(config)
+        liveProfilePorts = ports
         val known = nodes()
         if (known.isEmpty()) {
             SubXhttpProcess.fileLog("direct skipped: no nodes")
             return config
         }
-        val root = runCatching { json.parseToJsonElement(config) as? JsonObject }.getOrNull() ?: return config
-        val outbounds = root["outbounds"] as? JsonArray ?: return config
-        // Which of our nodes are actually in this engine config — recognized by the loopback SOCKS
-        // port, because the shim may name the tag either way ("xhttp:ak-uk" or "🇬🇧 Вьюга - Англия").
-        val presentPorts = outbounds.mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            if ((obj["type"] as? JsonPrimitive)?.content != "socks") return@mapNotNull null
-            if ((obj["server"] as? JsonPrimitive)?.content != "127.0.0.1") return@mapNotNull null
-            (obj["server_port"] as? JsonPrimitive)?.content?.toIntOrNull()
-        }.toSet()
-        val active = known.filter { it.socksPort in presentPorts }
+        val active = known.filter { ports.containsKey(it.tag) }
         if (active.isEmpty()) {
             SubXhttpProcess.fileLog("direct skipped: nodes=" + known.size + " none in config")
             return config

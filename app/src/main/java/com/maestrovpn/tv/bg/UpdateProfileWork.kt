@@ -123,11 +123,9 @@ class UpdateProfileWork {
                         }
                     }.onFailure { Log.e(TAG, "refreshNow: profile ${profile.name}", it) }
                 }
-                if (selectedUpdated) {
-                    runCatching { Libbox.newStandaloneCommandClient().serviceReload() }
-                }
-                // xhttp-узлы подписки: манифест (?format=xray) живёт отдельно от sing-box конфига,
-                // без него локальные socks-узлы из свежего профиля остались бы без раннера.
+                // xhttp-узлы подписки: манифест (?format=xray) живёт отдельно от sing-box конфига.
+                // Тянем его ДО reload: patchDirectRules берёт из манифеста DIRECT-правила, а
+                // свежий профиль иначе остался бы без портов раннера (десинхрон 14.11.2026).
                 runCatching {
                     ProfileManager.get(selectedProfile)?.let { profile ->
                         if (profile.typed.type == TypedProfile.Type.Remote) {
@@ -135,6 +133,9 @@ class UpdateProfileWork {
                         }
                     }
                 }.onFailure { Log.w(TAG, "refreshNow: xhttp manifest", it) }
+                if (selectedUpdated) {
+                    runCatching { Libbox.newStandaloneCommandClient().serviceReload() }
+                }
             }.onFailure { Log.e(TAG, "refreshNow", it) }
         }
 
@@ -222,6 +223,15 @@ class UpdateProfileWork {
                 }
             }
             if (selectedProfileUpdated) {
+                // Same order as refreshNow: a fresh profile without a fresh manifest would leave
+                // the xhttp runner on stale ports (14.11.2026).
+                runCatching {
+                    ProfileManager.get(selectedProfile)?.let { profile ->
+                        if (profile.typed.type == TypedProfile.Type.Remote) {
+                            SubXhttpRuntime.refresh(profile.typed.remoteURL)
+                        }
+                    }
+                }.onFailure { Log.w(TAG, "UpdateTask: xhttp manifest", it) }
                 runCatching {
                     Libbox.newStandaloneCommandClient().serviceReload()
                 }

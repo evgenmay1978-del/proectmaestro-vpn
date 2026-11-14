@@ -235,8 +235,7 @@ fun SFANavHost(
                     phoneSection = phoneSection,
                     onPhoneSectionChange = { homeState["phone_section"] = it },
                     onRefreshServers = {
-                        groupsViewModel.refreshCdnMenu()
-                        groupsViewModel.urlTest("auto")
+                        groupsViewModel.refreshServers()
                     },
                 )
             } else {
