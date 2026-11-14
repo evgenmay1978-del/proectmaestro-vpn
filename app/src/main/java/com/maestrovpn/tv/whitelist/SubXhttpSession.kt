@@ -50,6 +50,7 @@ internal object SubXhttpSession {
         prefs().edit().apply { if (started) putString(KEY_ACTIVE, tag) else remove(KEY_ACTIVE) }.apply()
         Log.d(TAG, "onSelected " + tag + " started=" + started + " addr=" + address)
         SubXhttpProcess.fileLog("onSelected " + tag + " started=" + started + " addr=" + address)
+        if (started) SubXhttpRuntime.refreshDelay(node)
     }
 
     /** After the engine (re)started: bring up the runner for the remembered pick, if any. */
@@ -62,6 +63,7 @@ internal object SubXhttpSession {
             val started = SubXhttpProcess.start(node, address)
             Log.d(TAG, "restore " + tag + " started=" + started)
             SubXhttpProcess.fileLog("restore " + tag + " started=" + started)
+            if (started) SubXhttpRuntime.refreshDelay(node)
         }.apply { isDaemon = true; name = "subxhttp-restore" }.start()
     }
 

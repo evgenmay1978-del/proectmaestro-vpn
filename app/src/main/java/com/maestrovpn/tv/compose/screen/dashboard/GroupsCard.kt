@@ -47,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -76,6 +77,7 @@ import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
 import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.utils.CommandClient
+import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -482,6 +484,15 @@ private fun ProxyItemsList(items: List<GroupItem>, selectedTag: String, isSelect
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // Nodes of the external xhttp subscription: the engine has no url-test for them, so the
+    // latency comes from our own runner and is refreshed while the row is on screen.
+    val subXhttp = remember(item.tag) { SubXhttpRuntime.isSubXhttpTag(item.tag) }
+    val subDelay by produceState<Long?>(initialValue = SubXhttpRuntime.cachedDelay(item.tag), item.tag) {
+        while (subXhttp) {
+            value = SubXhttpRuntime.cachedDelay(item.tag)
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
     // Use simpler, faster animations
     val animatedElevation by animateFloatAsState(
         targetValue = if (isSelected) 6.dp.value else 1.dp.value,
@@ -542,7 +553,7 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
                 ) {
                     // Type
                     Text(
-                        text = Libbox.proxyDisplayType(item.type),
+                        text = if (subXhttp) "Akonit · внешняя подписка" else Libbox.proxyDisplayType(item.type),
                         style = MaterialTheme.typography.labelSmall,
                         color =
                         if (isSelected) {
@@ -552,16 +563,22 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
                         },
                     )
 
-                    // Latency
-                    AnimatedVisibility(
-                        visible = item.urlTestTime > 0,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                    ) {
-                        ProxyLatencyBadge(
-                            delay = item.urlTestDelay,
-                            isSelected = isSelected,
-                        )
+                    // Latency: the engine's url-test for regular nodes, our own probe for xhttp ones.
+                    val latency: Long? = if (item.urlTestTime > 0) item.urlTestDelay.toLong() else subDelay
+                    when {
+                        latency != null -> ProxyLatencyBadge(delay = latency.toInt(), isSelected = isSelected)
+                        subXhttp -> {
+                            Text(
+                                text = "недоступен",
+                                style = MaterialTheme.typography.labelSmall,
+                                color =
+                                if (isSelected) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                },
+                            )
+                        }
                     }
                 }
             }

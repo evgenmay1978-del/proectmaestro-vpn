@@ -13,8 +13,11 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
+import java.io.InputStream
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -49,6 +52,8 @@ internal object SubXhttpRuntime {
     private const val IP_TTL_MS = 10 * 60 * 1000L
     private const val RESOLVE_TIMEOUT_MS = 1_500L
     private const val RESOLVE_BUDGET_MS = 2_500L
+    private const val DELAY_TARGET_HOST = "api.ipify.org"
+    private const val DELAY_TARGET_PORT = 443
 
     private val json = Json { ignoreUnknownKeys = true }
     private val resolver = Executors.newCachedThreadPool { runnable ->
@@ -193,6 +198,58 @@ internal object SubXhttpRuntime {
             resolvedAt = now
         }
         return resolvedIps
+    }
+
+    @Volatile private var delays: Map<String, Long> = emptyMap()
+
+    /** Last measured round trip through this node, if any (milliseconds). */
+    fun cachedDelay(tag: String?): Long? = if (tag == null) null else delays[tag]
+
+    /**
+     * Real latency of the node: a SOCKS5 CONNECT through the local runner to a small HTTPS host,
+     * measured until the node answers. The engine's own url-test cannot see these nodes (their
+     * port is only open while that node is the active pick), so the list would otherwise show
+     * nothing at all.
+     */
+    fun refreshDelay(node: SubXhttpNode) {
+        Thread {
+            val ms = measure(node.socksPort)
+            delays = if (ms != null) delays + (node.tag to ms) else delays - node.tag
+            SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
+        }.apply { isDaemon = true; name = "subxhttp-delay" }.start()
+    }
+
+    private fun measure(port: Int): Long? = runCatching {
+        val started = SystemClock.elapsedRealtime()
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", port), 2_000)
+            socket.soTimeout = 5_000
+            val out = socket.getOutputStream()
+            val input = socket.getInputStream()
+            out.write(byteArrayOf(5, 1, 0))
+            out.flush()
+            val greeting = ByteArray(2)
+            readFully(input, greeting)
+            if (greeting[0].toInt() != 5 || greeting[1].toInt() != 0) return null
+            val host = DELAY_TARGET_HOST.toByteArray()
+            val request = byteArrayOf(5, 1, 0, 3, host.size.toByte()) + host +
+                byteArrayOf(0, 1, (DELAY_TARGET_PORT shr 8).toByte(), (DELAY_TARGET_PORT and 0xff).toByte())
+            out.write(request)
+            out.flush()
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            if (reply[1].toInt() != 0) return null
+            SystemClock.elapsedRealtime() - started
+        }
+    }.getOrNull()
+
+    private fun readFully(input: InputStream, buffer: ByteArray) {
+        var offset = 0
+        while (offset < buffer.size) {
+            val read = input.read(buffer, offset, buffer.size - offset)
+            if (read <= 0) throw IllegalStateException("socks: eof")
+            offset += read
+        }
     }
 
     /**
