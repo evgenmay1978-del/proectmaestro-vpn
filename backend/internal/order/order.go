@@ -52,7 +52,7 @@ type Order struct {
 	Tariff    string    `json:"tariff"`
 	Days      int       `json:"days"`
 	Rub       int       `json:"rub"`
-	Code      string    `json:"code"`   // СБП comment, short + human-typeable
+	Code      string    `json:"code"`   // unique identity (control-plane payment_code UNIQUE); NOT the transfer comment
 	Login     string    `json:"login"`  // customer login provisioned on confirm
 	Status    string    `json:"status"` // "pending" | "paid"
 	SubToken  string    `json:"sub_token"`
@@ -72,6 +72,21 @@ type Order struct {
 
 // claimedOrderMaxAge bounds how long a claimed-but-never-confirmed order is kept.
 const claimedOrderMaxAge = 30 * 24 * time.Hour
+
+// PaymentComment is what the customer writes into the bank transfer comment: the
+// panel LOGIN, not a random code. The owner matches an incoming SBP transfer by that
+// comment alone, and many clients never press «Я оплатил» — on 14.11.2026 a payment
+// carrying the random code "MANV8Q" could not be attributed to a customer without
+// digging through the pending order list (it was dmitrdinamo's).
+// Code keeps its old role: a UNIQUE internal identity (the control plane stores it in
+// orders.payment_code, which is UNIQUE), so two pending orders of one login must not
+// collide on it.
+func (o *Order) PaymentComment() string {
+	if o.Login != "" {
+		return o.Login
+	}
+	return o.Code
+}
 
 // Store is a JSON-file-backed order registry, safe for concurrent use.
 type Store struct {
