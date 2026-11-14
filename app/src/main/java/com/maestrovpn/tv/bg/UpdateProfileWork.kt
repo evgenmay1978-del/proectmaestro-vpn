@@ -13,6 +13,7 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
+import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.utils.SubscriptionFetch
 import com.maestrovpn.tv.utils.SubscriptionHealth
 import com.maestrovpn.tv.utils.httpFetchSubscription
@@ -125,6 +126,15 @@ class UpdateProfileWork {
                 if (selectedUpdated) {
                     runCatching { Libbox.newStandaloneCommandClient().serviceReload() }
                 }
+                // xhttp-узлы подписки: манифест (?format=xray) живёт отдельно от sing-box конфига,
+                // без него локальные socks-узлы из свежего профиля остались бы без раннера.
+                runCatching {
+                    ProfileManager.get(selectedProfile)?.let { profile ->
+                        if (profile.typed.type == TypedProfile.Type.Remote) {
+                            SubXhttpRuntime.refresh(profile.typed.remoteURL)
+                        }
+                    }
+                }.onFailure { Log.w(TAG, "refreshNow: xhttp manifest", it) }
             }.onFailure { Log.e(TAG, "refreshNow", it) }
         }
 

@@ -6,6 +6,7 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.whitelist.WhiteListRuntimeClient
 import com.maestrovpn.tv.whitelist.WhiteListSelection
+import com.maestrovpn.tv.whitelist.SubXhttpSession
 import com.maestrovpn.tv.whitelist.WhiteListSession
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
@@ -300,6 +301,9 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // selection at a torn-down command server; the offline-groups path repaints anyway.
                 if (_serviceStatus.value != Status.Started) return@launch
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                // xhttp-узлы подписки живут в дочернем Xray: поднять/погасить раннер под выбор.
+                // Сбой раннера не должен отменять уже сделанный selectOutbound.
+                runCatching { SubXhttpSession.onSelected(itemTag) }
                 // Pin the chip to the picked protocol: a live-groups payload racing in right after
                 // the box starts reports the momentary "auto", which would otherwise flick the
                 // highlight off the protocol the user chose until the next payload catches up.
@@ -418,6 +422,9 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             try {
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                // xhttp-узлы подписки живут в дочернем Xray: поднять/погасить раннер под выбор.
+                // Сбой раннера не должен отменять уже сделанный selectOutbound.
+                runCatching { SubXhttpSession.onSelected(itemTag) }
 
                 // Update local state and show snackbar
                 withContext(Dispatchers.Main) {

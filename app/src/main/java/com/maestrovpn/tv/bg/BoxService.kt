@@ -38,6 +38,8 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.vendor.Vendor
+import com.maestrovpn.tv.whitelist.SubXhttpRuntime
+import com.maestrovpn.tv.whitelist.SubXhttpSession
 import com.maestrovpn.tv.whitelist.TunIpv6
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
@@ -196,11 +198,15 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             whiteListSession?.close()
             val cdn = request?.tag?.startsWith("cdn:") == true
             try {
-                val effective = WhiteListConfig.stripAwgDecoys(when {
+                val base = WhiteListConfig.stripAwgDecoys(when {
                     cdn -> requireNotNull(whiteListSession?.prepare(content, requireNotNull(request))) { "CDN unavailable" }
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
                 })
+                // xhttp-узлы подписки: дочерний Xray не может вызвать VpnService.protect(),
+                // поэтому его TCP до entry-IP должно уходить мимо tun правилом DIRECT.
+                // Правило вставляется до TunIpv6: конфиг для ядра — это уже финальные байты.
+                val effective = SubXhttpRuntime.patchDirectRules(base)
                 // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
                 // untouched. The engine merges all "address" entries into the device, so the family is
                 // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and
@@ -246,6 +252,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
                 if (cdn && whiteListSession?.ready(requireNotNull(request)) != true) error("CDN expired")
                 if (request != null) WhiteListSelection.started(request)
+                // Движок восстановил свой выбранный outbound из кэша — раннер должен подняться следом.
+                SubXhttpSession.restore()
                 return@withLock true
             } catch (e: Exception) {
                 whiteListSession?.close()
@@ -304,6 +312,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
             DefaultNetworkMonitor.start()
 
+            // xhttp-узлы подписки: манифест нужен ДО сборки конфига, иначе DIRECT-правило для
+            // entry-IP не вставится и выбранный узел упрётся в собственный tun.
+            runCatching { SubXhttpRuntime.ensureFresh(profile.typed.remoteURL) }
+                .onFailure { Log.w(TAG, "startService: xhttp manifest", it) }
+
             try {
                 if (!applySelectedContent(content, sourceAccount)) return
             } catch (e: Exception) {
@@ -347,6 +360,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     override fun serviceStop() {
         whiteListSession?.close()
+        SubXhttpSession.stopAll()
         WhiteListSelection.clear()
         releaseWakeLock()
         notification.close()
