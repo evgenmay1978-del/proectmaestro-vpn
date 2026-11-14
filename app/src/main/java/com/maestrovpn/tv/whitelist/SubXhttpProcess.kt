@@ -43,6 +43,18 @@ internal object SubXhttpProcess {
 
     private fun logTail(): String = synchronized(log) { log.joinToString(" | ") }
 
+    /**
+     * Plain append-only file in filesDir so a "node does not work" report can be diagnosed after
+     * the fact: logcat is not readable from the app itself and Log.* is wiped on restart.
+     */
+    fun fileLog(message: String) {
+        runCatching {
+            val file = File(Application.application.filesDir, "subxhttp.log")
+            if (file.isFile && file.length() > 64 * 1024) file.delete()
+            file.appendText(System.currentTimeMillis().toString() + " " + message + "\n")
+        }
+    }
+
     @Synchronized
     fun start(node: SubXhttpNode, address: String): Boolean {
         if (activeTag == node.tag && child?.let { alive(it) } == true && reachable(node.socksPort)) return true
@@ -68,15 +80,18 @@ internal object SubXhttpProcess {
                 activeTag = node.tag
                 configFile = file
                 Log.d(TAG, "ready tag=" + node.tag + " port=" + node.socksPort)
+                fileLog("ready tag=" + node.tag + " port=" + node.socksPort + " addr=" + address)
                 true
             } else {
                 Log.e(TAG, "child not ready: " + logTail())
+                fileLog("not ready tag=" + node.tag + " port=" + node.socksPort + " tail=" + logTail())
                 runCatching { file.delete() }
                 kill(started)
                 false
             }
         } catch (e: Exception) {
             Log.e(TAG, "start failed: " + e.message)
+            fileLog("start failed tag=" + node.tag + ": " + e.message)
             runCatching { file.delete() }
             started?.let { kill(it) }
             false
@@ -89,6 +104,7 @@ internal object SubXhttpProcess {
     }
 
     private fun stopLocked() {
+        if (child != null) fileLog("stopping tag=" + activeTag)
         val running = child ?: run {
             activeTag = null
             configFile?.let { runCatching { it.delete() } }
@@ -120,6 +136,7 @@ internal object SubXhttpProcess {
             runCatching {
                 running.inputStream.bufferedReader().forEachLine { line ->
                     Log.d(TAG, "child: " + line)
+                    fileLog("child: " + line.take(200))
                     synchronized(log) {
                         log.addLast(line.take(200))
                         while (log.size > LOG_KEEP) log.removeFirst()

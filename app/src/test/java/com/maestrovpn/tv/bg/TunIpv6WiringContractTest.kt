@@ -23,7 +23,7 @@ class TunIpv6WiringContractTest {
 
     @Test
     fun theChangeIsVisibleInTheLog() {
-        val apply = section(source(), "val effective = WhiteListConfig.stripAwgDecoys", "commandServer.startOrReloadService")
+        val apply = section(source(), "val base = WhiteListConfig.stripAwgDecoys", "commandServer.startOrReloadService")
 
         assertTrue("an injected IPv6 address must be logged", apply.contains("tun IPv6: injected"))
         assertTrue(

@@ -64,7 +64,12 @@ internal object SubXhttpRuntime {
     /** True when the running engine already has a DIRECT rule covering this entry IP. */
     fun ruleApplied(ip: String?): Boolean = ip != null && ip in appliedIps
 
-    fun isSubXhttpTag(tag: String?): Boolean = tag != null && tag.startsWith(TAG_PREFIX)
+    /**
+     * The shim owns the naming: a node tag is either the technical "xhttp:<slug>" or the panel's
+     * human readable label ("🇫🇮 ⚡️Вьюга - Финляндия"). Both are ours, everything else is not.
+     */
+    fun isSubXhttpTag(tag: String?): Boolean =
+        tag != null && (tag.startsWith(TAG_PREFIX) || nodes().any { it.tag == tag })
 
     fun file(): File = File(Application.application.filesDir, FILE_NAME)
 
@@ -88,7 +93,6 @@ internal object SubXhttpRuntime {
         return array.mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
             val tag = (obj["tag"] as? JsonPrimitive)?.content ?: return@mapNotNull null
-            if (!isSubXhttpTag(tag)) return@mapNotNull null
             val port = (obj["socksPort"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return@mapNotNull null
             if (port !in 1024..65_535) return@mapNotNull null
             val outbound = obj["outbound"] as? JsonObject ?: return@mapNotNull null
@@ -157,16 +161,14 @@ internal object SubXhttpRuntime {
         return runCatching { future.get(RESOLVE_TIMEOUT_MS, TimeUnit.MILLISECONDS) }.getOrNull()
     }
 
-    /** All node IPs, refreshed lazily (used by the DIRECT rules that keep the child out of the tun). */
-    fun nodeIps(): List<String> {
-        val nodes = nodes()
-        if (nodes.isEmpty()) return emptyList()
-        val now = SystemClock.elapsedRealtime()
-        if (now - resolvedAt < IP_TTL_MS && resolvedIps.isNotEmpty()) return resolvedIps
-        // Параллельно с общим бюджетом: конфиг собирается на пути старта сервиса,
-        // последовательный резолв 10 узлов по 1.5 с держал бы старт до 15 с.
-        val deadline = now + RESOLVE_BUDGET_MS
-        val futures = nodes.mapNotNull { node ->
+    /**
+     * IPv4 of the given nodes, resolved in parallel inside one shared budget: the config is built
+     * on the service start path, a sequential resolve of ten nodes by 1.5 s would hold it up.
+     */
+    fun resolveAll(subset: List<SubXhttpNode>): List<String> {
+        if (subset.isEmpty()) return emptyList()
+        val deadline = SystemClock.elapsedRealtime() + RESOLVE_BUDGET_MS
+        val futures = subset.mapNotNull { node ->
             runCatching {
                 resolver.submit<String?> { InetAddress.getAllByName(node.address).firstOrNull { it is Inet4Address }?.hostAddress }
             }.getOrNull()
@@ -176,6 +178,16 @@ internal object SubXhttpRuntime {
             runCatching { future.get(left, TimeUnit.MILLISECONDS) }.getOrNull()
         }.distinct()
         futures.forEach { it.cancel(true) }
+        return ips
+    }
+
+    /** All node IPs, refreshed lazily (used by the DIRECT rules that keep the child out of the tun). */
+    fun nodeIps(): List<String> {
+        val all = nodes()
+        if (all.isEmpty()) return emptyList()
+        val now = SystemClock.elapsedRealtime()
+        if (now - resolvedAt < IP_TTL_MS && resolvedIps.isNotEmpty()) return resolvedIps
+        val ips = resolveAll(all)
         if (ips.isNotEmpty()) {
             resolvedIps = ips
             resolvedAt = now
@@ -220,16 +232,22 @@ internal object SubXhttpRuntime {
      * DIRECT rule for the entry IPs, placed before anything that could claim them.
      */
     fun patchDirectRules(config: String): String {
-        if (nodes().isEmpty()) return config
-        val ips = nodeIps()
-        if (ips.isEmpty()) return config
+        val known = nodes()
+        if (known.isEmpty()) return config
         val root = runCatching { json.parseToJsonElement(config) as? JsonObject }.getOrNull() ?: return config
         val outbounds = root["outbounds"] as? JsonArray ?: return config
-        val hasSubXhttp = outbounds.any { element ->
-            val obj = element as? JsonObject ?: return@any false
-            isSubXhttpTag((obj["tag"] as? JsonPrimitive)?.content)
-        }
-        if (!hasSubXhttp) return config
+        // Which of our nodes are actually in this engine config — recognized by the loopback SOCKS
+        // port, because the shim may name the tag either way ("xhttp:ak-uk" or "🇬🇧 Вьюга - Англия").
+        val presentPorts = outbounds.mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            if ((obj["type"] as? JsonPrimitive)?.content != "socks") return@mapNotNull null
+            if ((obj["server"] as? JsonPrimitive)?.content != "127.0.0.1") return@mapNotNull null
+            (obj["server_port"] as? JsonPrimitive)?.content?.toIntOrNull()
+        }.toSet()
+        val active = known.filter { it.socksPort in presentPorts }
+        if (active.isEmpty()) return config
+        val ips = resolveAll(active)
+        if (ips.isEmpty()) return config
         val route = root["route"] as? JsonObject ?: return config
         val rules = route["rules"] as? JsonArray ?: return config
         val directTag = outbounds.firstNotNullOfOrNull { element ->

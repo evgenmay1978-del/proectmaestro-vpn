@@ -49,6 +49,7 @@ internal object SubXhttpSession {
         val started = SubXhttpProcess.start(node, address)
         prefs().edit().apply { if (started) putString(KEY_ACTIVE, tag) else remove(KEY_ACTIVE) }.apply()
         Log.d(TAG, "onSelected " + tag + " started=" + started + " addr=" + address)
+        SubXhttpProcess.fileLog("onSelected " + tag + " started=" + started + " addr=" + address)
     }
 
     /** After the engine (re)started: bring up the runner for the remembered pick, if any. */
@@ -60,11 +61,19 @@ internal object SubXhttpSession {
         Thread {
             val started = SubXhttpProcess.start(node, address)
             Log.d(TAG, "restore " + tag + " started=" + started)
+            SubXhttpProcess.fileLog("restore " + tag + " started=" + started)
         }.apply { isDaemon = true; name = "subxhttp-restore" }.start()
     }
 
+    /**
+     * Stop the child but KEEP the remembered pick: the engine reloads its own selected outbound
+     * from its cache, so after "turn VPN off, turn it back on" it still routes into our port —
+     * forgetting the pick here left that port dead and the tunnel useless (measured 14.11).
+     * The pick is dropped only when the user selects a regular node ([onSelected]).
+     */
     fun stopAll() {
+        val tag = savedTag()
         SubXhttpProcess.stop()
-        prefs().edit().remove(KEY_ACTIVE).apply()
+        SubXhttpProcess.fileLog("stopAll (kept " + tag + ")")
     }
 }
