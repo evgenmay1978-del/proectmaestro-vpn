@@ -242,9 +242,7 @@ internal object SubXhttpRuntime {
         Thread {
             todo.chunked(PROBE_BATCH).forEach { batch ->
                 batch.map { node ->
-                    node to probePool.submit<Long?> {
-                        if (SubXhttpProcess.runningTag() == node.tag) measure(node.socksPort) else tcpDelay(node)
-                    }
+                    node to probePool.submit<Long?> { tcpDelay(node) }
                 }.forEach { (node, job) ->
                     val ms = runCatching { job.get(4, TimeUnit.SECONDS) }.getOrNull()
                     publishDelay(node.tag, ms)
@@ -262,7 +260,7 @@ internal object SubXhttpRuntime {
      */
     fun refreshDelay(node: SubXhttpNode) {
         Thread {
-            val ms = measure(node.socksPort)
+            val ms = tcpDelay(node)
             publishDelay(node.tag, ms)
             SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
         }.apply { isDaemon = true; name = "subxhttp-delay" }.start()
@@ -280,11 +278,23 @@ internal object SubXhttpRuntime {
             val ip = InetAddress.getByName(address)
             SubXhttpProcess.fileLog("probe " + node.tag + " -> " + ip.hostAddress)
             val started = SystemClock.elapsedRealtime()
-            Socket().use { socket ->
+            openSocket().use { socket ->
                 socket.connect(InetSocketAddress(ip, DELAY_TARGET_PORT), IDLE_PROBE_TIMEOUT_MS)
             }
             SystemClock.elapsedRealtime() - started
         }.getOrNull()
+    }
+
+    /**
+     * A probe socket that bypasses our own tun. Without VpnService.protect() the handshake is
+     * answered by the engine on the phone itself and every node looks like "1 мс" (the owner saw
+     * exactly that on 14.11.2026). When the tunnel is down there is nothing to exclude and the
+     * plain socket is already the real path.
+     */
+    private fun openSocket(): Socket {
+        val socket = Socket()
+        runCatching { com.maestrovpn.tv.bg.VPNService.current?.protect(socket) }
+        return socket
     }
 
     private fun measure(port: Int): Long? = runCatching {

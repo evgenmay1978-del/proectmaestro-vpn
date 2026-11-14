@@ -3,6 +3,7 @@ package com.maestrovpn.tv.whitelist
 import android.content.Context
 import android.util.Log
 import com.maestrovpn.tv.Application
+import com.maestrovpn.tv.utils.CommandTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -20,6 +21,9 @@ internal object SubXhttpSession {
     private const val PREFS = "subxhttp"
     private const val KEY_ACTIVE = "active_tag"
 
+    /** Group the engine's automatic pick lives in; the safe place to park a failed selection. */
+    private const val FALLBACK_TAG = "auto"
+
     private fun prefs() = Application.application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** Remembered pick, so a service restart resumes the runner the engine still routes into. */
@@ -28,29 +32,43 @@ internal object SubXhttpSession {
     /**
      * Called right after libbox accepted a new selection. The process must be up before traffic is
      * routed into it, so the start runs off the main thread (it waits for the SOCKS port).
+     *
+     * Returns false when the pick could NOT be served. That matters more than it looks: libbox has
+     * already accepted the selection by now, so a dead runner leaves the whole tunnel pointing at a
+     * closed 127.0.0.1 port — the VPN looks connected and the phone has no internet. The owner hit
+     * exactly this on the Turkish node (14.11.2026) and had to switch servers himself. So on failure
+     * the selection is rolled back to the automatic group instead of being left dead.
      */
-    suspend fun onSelected(tag: String?) = withContext(Dispatchers.IO) {
+    suspend fun onSelected(groupTag: String?, tag: String?): Boolean = withContext(Dispatchers.IO) {
         if (tag == null || !SubXhttpRuntime.isSubXhttpTag(tag)) {
             if (SubXhttpProcess.runningTag() != null) Log.d(TAG, "stop: selection moved away")
             SubXhttpProcess.stop()
             prefs().edit().remove(KEY_ACTIVE).apply()
-            return@withContext
-        }
-        if (!SubXhttpProcess.available()) {
-            Log.w(TAG, "runner binary unavailable, node " + tag + " stays dead")
-            return@withContext
+            return@withContext true
         }
         val node = SubXhttpRuntime.node(tag)
-        if (node == null) {
-            Log.w(TAG, "no manifest entry for " + tag)
-            return@withContext
-        }
-        val address = SubXhttpRuntime.resolve(node) ?: node.address
-        val started = SubXhttpProcess.start(node, address)
+        val address = node?.let { SubXhttpRuntime.resolve(it) ?: it.address }
+        val started = node != null && SubXhttpProcess.available() &&
+            address != null && SubXhttpProcess.start(node, address)
         prefs().edit().apply { if (started) putString(KEY_ACTIVE, tag) else remove(KEY_ACTIVE) }.apply()
-        Log.d(TAG, "onSelected " + tag + " started=" + started + " addr=" + address)
-        SubXhttpProcess.fileLog("onSelected " + tag + " started=" + started + " addr=" + address)
-        if (started) SubXhttpRuntime.refreshDelay(node)
+        SubXhttpProcess.fileLog(
+            "onSelected " + tag + " started=" + started + " addr=" + (address ?: "-") +
+                " available=" + SubXhttpProcess.available(),
+        )
+        Log.d(TAG, "onSelected " + tag + " started=" + started + " addr=" + (address ?: "-"))
+        if (started) {
+            node?.let { SubXhttpRuntime.refreshDelay(it) }
+            return@withContext true
+        }
+        // Never leave the tunnel aimed at a dead port: park the group back on the automatic pick.
+        if (groupTag != null) {
+            val rolledBack = runCatching {
+                CommandTarget.standaloneClient().selectOutbound(groupTag, FALLBACK_TAG)
+            }
+            SubXhttpProcess.fileLog("rollback " + groupTag + " -> " + FALLBACK_TAG + " ok=" + rolledBack.isSuccess)
+            Log.w(TAG, "rollback " + groupTag + " -> " + FALLBACK_TAG + " ok=" + rolledBack.isSuccess)
+        }
+        false
     }
 
     /** After the engine (re)started: bring up the runner for the remembered pick, if any. */

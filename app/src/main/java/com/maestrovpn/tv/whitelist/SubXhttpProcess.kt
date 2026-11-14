@@ -48,10 +48,17 @@ internal object SubXhttpProcess {
      * the fact: logcat is not readable from the app itself and Log.* is wiped on restart.
      */
     fun fileLog(message: String) {
-        runCatching {
-            val file = File(Application.application.filesDir, "subxhttp.log")
-            if (file.isFile && file.length() > 64 * 1024) file.delete()
-            file.appendText(System.currentTimeMillis().toString() + " " + message + "\n")
+        // Two sinks on purpose: the internal file is what a bug report can carry, the external one
+        // is the only copy a shell can read on a release build (internal paths are refused), and
+        // this runner has to be diagnosable from the phone itself (14.11.2026).
+        val line = System.currentTimeMillis().toString() + " " + message + "\n"
+        val dirs = listOfNotNull(Application.application.filesDir, Application.application.getExternalFilesDir(null))
+        for (dir in dirs) {
+            runCatching {
+                val file = File(dir, "subxhttp.log")
+                if (file.isFile && file.length() > 64 * 1024) file.delete()
+                file.appendText(line)
+            }
         }
     }
 

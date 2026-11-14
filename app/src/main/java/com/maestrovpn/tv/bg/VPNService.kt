@@ -22,9 +22,22 @@ class VPNService :
     PlatformInterfaceWrapper {
     companion object {
         private const val TAG = "VPNService"
+
+        /**
+         * The live tunnel. SubXhttpRuntime calls protect() on its latency probes: without it a
+         * probe socket leaves through the tun, the engine answers locally and the list shows
+         * "1 мс" for a node that is 60+ ms away (measured on the owner's phone, 14.11.2026).
+         */
+        @Volatile
+        internal var current: VPNService? = null
     }
 
     private val service = BoxService(this, this)
+
+    override fun onCreate() {
+        super.onCreate()
+        current = this
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = service.onStartCommand()
 
@@ -37,6 +50,7 @@ class VPNService :
     }
 
     override fun onDestroy() {
+        if (current === this) current = null
         service.onDestroy()
     }
 

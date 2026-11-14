@@ -552,12 +552,19 @@ private fun PhoneServerRow(
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
         }
         val effectivePing = ping ?: subXhttpPing(tag)
-        val pingText = pingLabel(effectivePing)
-            ?: if (SubXhttpRuntime.isSubXhttpTag(tag)) "недоступен" else null
+        // A row without a number must still say something (owner 14.11.2026). A subscription node
+        // that failed its probe is "недоступен"; a regular node libbox has not tested yet gets a
+        // neutral dash instead, because claiming it is unreachable would be a lie.
+        val subXhttpRow = SubXhttpRuntime.isSubXhttpTag(tag)
+        val pingText = pingLabel(effectivePing) ?: if (subXhttpRow) "недоступен" else "—"
         if (pingText != null) {
             Text(
                 pingText,
-                color = if (effectivePing == null) PremiumRuby else phonePingColor(effectivePing),
+                color = when {
+                    effectivePing != null -> phonePingColor(effectivePing)
+                    subXhttpRow -> PremiumRuby
+                    else -> PremiumGold.copy(alpha = 0.55f)
+                },
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.Bold,

@@ -593,6 +593,15 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
                                 },
                             )
                         }
+                        else -> {
+                            // Same rule as the phone list: never leave the column blank, but do not
+                            // claim a node is down just because the engine has not tested it yet.
+                            Text(
+                                text = "—",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        }
                     }
                 }
             }
