@@ -210,7 +210,7 @@ fun SFANavHost(
                         } else selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
                             if (serviceStatus == Status.Started) {
                                 // VPN already up — just switch the live protocol.
-                                groupsViewModel.selectGroupItem(g.tag, tag)
+                                groupsViewModel.selectGroupItem(g.tag, tag, startService = { dashboardViewModel?.toggleService() })
                             } else {
                                 // VPN off/starting — remember this protocol and turn the VPN ON
                                 // (unless it's already coming up); GroupsViewModel applies the pick
@@ -346,12 +346,14 @@ fun SFANavHost(
                 GroupsCard(
                     serviceStatus = serviceStatus,
                     viewModel = groupsViewModel,
+                    onToggleService = { dashboardViewModel?.toggleService() },
                     showTopBar = true,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
                 GroupsCard(
                     serviceStatus = serviceStatus,
+                    onToggleService = { dashboardViewModel?.toggleService() },
                     showTopBar = true,
                     modifier = Modifier.fillMaxSize(),
                 )
