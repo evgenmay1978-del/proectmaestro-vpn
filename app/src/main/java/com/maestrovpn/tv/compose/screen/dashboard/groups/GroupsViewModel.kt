@@ -397,7 +397,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 .onFailure { sendError(it) }
             withContext(Dispatchers.Main) {
                 refreshCdnMenu()
-                urlTest("auto")
+                urlTestServerList()
             }
         }
     }
@@ -538,6 +538,19 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         updateState {
             copy(showCloseConnectionsSnackbar = false)
         }
+    }
+
+    /**
+     * Latency of every server the lists show. The manual selector («select») holds all of them;
+     * «Авто» no longer does — our own servers were taken out of it (owner, 15.11.2026) — so testing
+     * only «Авто» left our rows without a number. Falls back to «auto» for a profile without «select».
+     */
+    fun urlTestServerList() {
+        val groups = uiState.value.groups
+        val target = groups.firstOrNull { it.tag == "select" && it.selectable }?.tag
+            ?: groups.firstOrNull { it.tag == "auto" }?.tag
+            ?: "auto"
+        urlTest(target)
     }
 
     fun urlTest(groupTag: String) {

@@ -72,9 +72,9 @@ import com.maestrovpn.tv.compat.LazyColumnCompat
 import com.maestrovpn.tv.compat.rememberOverscrollEffectCompat
 import com.maestrovpn.tv.compose.model.Group
 import com.maestrovpn.tv.compose.model.GroupItem
+import com.maestrovpn.tv.compose.model.serverLabel
 import com.maestrovpn.tv.compose.model.visibleProtocolGroups
 import com.maestrovpn.tv.compose.premium.CountryFlagBadge
-import com.maestrovpn.tv.compose.premium.flagEmojiOf
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
@@ -506,13 +506,10 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
     // Nodes of the external xhttp subscription: the engine has no url-test for them, so the
     // latency comes from our own runner and is refreshed while the row is on screen.
     val subXhttp = remember(item.tag) { SubXhttpRuntime.isSubXhttpTag(item.tag) }
-    // A subscription row keeps the app's shape on TV as well: a flag badge and the country name,
-    // never the raw tag with the provider prefix.
-    val subFlag = remember(item.tag, subXhttp) { if (subXhttp) flagEmojiOf(item.tag) else "" }
-    val subName =
-        remember(item.tag, subXhttp) {
-            if (subXhttp) item.tag.substringAfter(" · ", item.tag).trim().ifEmpty { item.tag } else item.tag
-        }
+    // Every server row keeps the app's shape here as well: the round flag badge, the name without
+    // provider prefixes and the transport — the same ServerLabel as the phone list and the TV tiles.
+    // Service entries («auto», CDN, short legacy keys) keep their raw tag and engine type.
+    val label = remember(item.tag, item.type, subXhttp) { serverLabel(item.tag, item.type, subXhttp) }
     val subDelay by produceState<Long?>(initialValue = SubXhttpRuntime.cachedDelay(item.tag), item.tag) {
         while (subXhttp) {
             value = SubXhttpRuntime.cachedDelay(item.tag)
@@ -560,8 +557,8 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (subXhttp && subFlag.isNotEmpty()) {
-                CountryFlagBadge(flag = subFlag, icon = Icons.Default.Public, size = 22.dp)
+            if (label != null) {
+                CountryFlagBadge(flag = label.flag, icon = Icons.Default.Public, size = 22.dp)
                 Spacer(Modifier.size(8.dp))
             }
             Column(
@@ -570,7 +567,7 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
             ) {
                 // First line: Name
                 Text(
-                    text = subName,
+                    text = label?.name ?: item.tag,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     color =
@@ -591,7 +588,7 @@ private fun ProxyChip(item: GroupItem, isSelected: Boolean, isSelectable: Boolea
                 ) {
                     // Type
                     Text(
-                        text = if (subXhttp) "Внешняя подписка" else Libbox.proxyDisplayType(item.type),
+                        text = label?.detail ?: Libbox.proxyDisplayType(item.type),
                         style = MaterialTheme.typography.labelSmall,
                         color =
                         if (isSelected) {

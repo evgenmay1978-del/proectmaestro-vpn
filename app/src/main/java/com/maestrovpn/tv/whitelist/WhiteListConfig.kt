@@ -26,7 +26,13 @@ internal object WhiteListConfig {
                 "selector", "urltest", "vless", "hysteria2", "naive", "anytls", "trojan", "vmess", "shadowsocks", "wireguard", "awg",
             ) }
         }
-        return selector.text("default")?.takeIf { it in usable } ?: "auto".takeIf { it in usable } ?: usable.firstOrNull()
+        // Without a default and without «Авто» the app picks for the user: a third-party server
+        // first, our own one only when nothing else is left (owner, 15.11.2026).
+        val thirdParty = usable.firstOrNull { tag ->
+            selectable.firstOrNull { it.text("tag") == tag }?.let { !OwnServers.isOwnOutbound(it) } == true
+        }
+        return selector.text("default")?.takeIf { it in usable } ?: "auto".takeIf { it in usable }
+            ?: thirdParty ?: usable.firstOrNull()
     }
 
     /**

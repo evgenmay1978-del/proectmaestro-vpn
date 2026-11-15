@@ -38,6 +38,7 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.vendor.Vendor
+import com.maestrovpn.tv.whitelist.AutoSelectPool
 import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.SubXhttpSession
 import com.maestrovpn.tv.whitelist.TunIpv6
@@ -203,10 +204,20 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
                 })
+                // «Авто» chooses among third-party servers only (owner, 15.11.2026). This is the
+                // single place every start/reload passes, so no path reaches the engine around it.
+                val pool = AutoSelectPool.exclude(base)
+                if (pool.removed.isNotEmpty() || pool.ownOnly.isNotEmpty()) {
+                    StartupDiag.log(
+                        "apply",
+                        "auto pool: own excluded=" + pool.removed.values.sumOf { it.size } +
+                            " groups=" + pool.removed.keys + " ownOnlyKept=" + pool.ownOnly,
+                    )
+                }
                 // xhttp-узлы подписки: дочерний Xray не может вызвать VpnService.protect(),
                 // поэтому его TCP до entry-IP должно уходить мимо tun правилом DIRECT.
                 // Правило вставляется до TunIpv6: конфиг для ядра — это уже финальные байты.
-                val effective = SubXhttpRuntime.patchDirectRules(base)
+                val effective = SubXhttpRuntime.patchDirectRules(pool.config)
                 // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
                 // untouched. The engine merges all "address" entries into the device, so the family is
                 // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and

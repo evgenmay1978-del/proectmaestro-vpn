@@ -154,14 +154,22 @@ fun SFANavHost(
             if (groupsViewModel != null) {
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
-                // Live latency per server for both homes. The urltest group ("auto") carries
-                // urlTestTime/urlTestDelay for every outbound it watches — including the 33 JFL
-                // servers — so one map feeds the TV tiles and the phone rows (owner, 03.11.2026).
+                // Live latency per server for both homes: every group item carries the engine's
+                // urlTestTime/urlTestDelay for its tag, so one map feeds the TV tiles and the phone
+                // rows (owner, 03.11.2026). The probe covers the manual list, not just «Авто»: our own
+                // servers are no longer in «Авто» (15.11.2026) but stay in the list.
                 val delays = remember(groupsUi.groups) {
                     groupsUi.groups
                         .flatMap { it.items }
                         .filter { it.urlTestTime > 0 && it.urlTestDelay > 0 }
                         .associate { it.tag to it.urlTestDelay }
+                }
+                // Outbound type per tag (vless, hysteria2, socks…): the transport line of a row.
+                val serverTypes = remember(groupsUi.groups) {
+                    groupsUi.groups
+                        .flatMap { it.items }
+                        .filter { it.type.isNotBlank() }
+                        .associate { it.tag to it.type }
                 }
                 var pingRequested by remember { mutableStateOf(false) }
                 // Only while libbox is fully STARTED: "connected" also covers Starting, and the
@@ -174,7 +182,7 @@ fun SFANavHost(
                     } else if (groupsUi.groups.isNotEmpty() && !pingRequested) {
                         // One URL test per connection: enough for the home lists, cheap for 1 GB boxes.
                         pingRequested = true
-                        groupsViewModel.urlTest("auto")
+                        groupsViewModel.urlTestServerList()
                     }
                 }
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
@@ -198,6 +206,7 @@ fun SFANavHost(
                     protocols = (visibleProtocolTags(selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
                     selected = groupsUi.cdnSelected ?: selectGroup?.selected?.takeUnless { it.startsWith("cdn:") && groupsUi.cdnActive != it },
                     delays = delays,
+                    types = serverTypes,
                     activeProtocol = groupsUi.cdnActive ?: activeProtocol?.takeUnless { it.startsWith("cdn:") },
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
