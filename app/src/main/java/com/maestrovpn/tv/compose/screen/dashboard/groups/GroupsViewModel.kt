@@ -44,6 +44,15 @@ import java.util.concurrent.atomic.AtomicInteger
 // dialog — a user reading it slower than the TTL silently lost the protocol pick to «Авто».
 private const val PENDING_SELECT_TTL_MS = 60_000L
 
+// Raw libbox chatter the client must never see: the command server answers
+// "rpc error ... invalid argument" whenever it is not started and "not found" after a profile
+// swap moved the group. Both are our own races — never surface them as a dialog (15.11.2026,
+// filatovlug got the raw "select outbound: invalid argument" text).
+internal fun isUnhelpfulCoreError(message: String?): Boolean {
+    val text = message.orEmpty()
+    return text.contains("invalid argument") || text.contains("not found", ignoreCase = true)
+}
+
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
     val isLoading: Boolean = false,
@@ -312,6 +321,13 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     sendError(IllegalStateException("Сервер " + itemTag + " не отвечает"))
                     return@launch
                 }
+                // The box may have died during preflight/onSelected — never push a selection at a
+                // torn-down command server (libbox answers raw "invalid argument", 15.11.2026).
+                // Re-arm the pick: the next live selector applies it, bounded by the TTL watchdog.
+                if (_serviceStatus.value != Status.Started) {
+                    setPendingSelect(groupTag, itemTag)
+                    return@launch
+                }
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
                 // Pin the chip to the picked protocol: a live-groups payload racing in right after
                 // the box starts reports the momentary "auto", which would otherwise flick the
@@ -322,6 +338,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     }
                 }
             } catch (e: Exception) {
+                if (isUnhelpfulCoreError(e.message)) return@launch
                 sendError(e)
             }
         }
@@ -432,9 +449,17 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         return true
     }
 
-    fun selectGroupItem(groupTag: String, itemTag: String) {
+    fun selectGroupItem(groupTag: String, itemTag: String, startService: (() -> Unit)? = null) {
         if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
         if (selectCdnOrRestore(groupTag, itemTag)) return
+        // Tap while the core is down: arm the pick and bring the VPN up (same contract as the
+        // home screen). Never push SelectOutbound at a stopped core — libbox answers the raw
+        // "select outbound: rpc error ... invalid argument" the client saw on 15.11.2026.
+        if (_serviceStatus.value != Status.Started) {
+            setPendingSelect(groupTag, itemTag)
+            if (_serviceStatus.value == Status.Stopped) startService?.invoke()
+            return
+        }
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
         if (currentGroup?.selected == itemTag) {
@@ -459,6 +484,13 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     sendError(IllegalStateException("Сервер " + itemTag + " не отвечает"))
                     return@launch
                 }
+                // The core may have stopped during preflight/onSelected — never push a selection
+                // at a torn-down command server (raw "invalid argument" dialog). Re-arm the pick
+                // instead: the next live selector applies it, bounded by the TTL watchdog.
+                if (_serviceStatus.value != Status.Started) {
+                    setPendingSelect(groupTag, itemTag)
+                    return@launch
+                }
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
 
@@ -480,6 +512,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     sendEvent(GroupsEvent.GroupSelected(groupTag, itemTag))
                 }
             } catch (e: Exception) {
+                if (isUnhelpfulCoreError(e.message)) return@launch
                 sendError(e)
             }
         }
@@ -516,10 +549,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             try {
                 CommandTarget.standaloneClient().urlTest(groupTag)
             } catch (e: Exception) {
-                val message = e.message.orEmpty()
-                if (message.contains("invalid argument") || message.contains("not found", ignoreCase = true)) {
-                    return@launch
-                }
+                if (isUnhelpfulCoreError(e.message)) return@launch
                 sendError(e)
             }
         }

@@ -88,6 +88,7 @@ fun GroupsCard(
     serviceStatus: Status,
     commandClient: CommandClient? = null,
     viewModel: GroupsViewModel? = null,
+    onToggleService: (() -> Unit)? = null,
     showTopBar: Boolean = false,
     listHeaderContent: (@Composable () -> Unit)? = null,
     asSheet: Boolean = false,
@@ -154,8 +155,10 @@ fun GroupsCard(
             { groupTag: String -> actualViewModel.toggleGroupExpand(groupTag) }
         }
     val onItemSelected =
-        remember(actualViewModel) {
-            { groupTag: String, itemTag: String -> actualViewModel.selectGroupItem(groupTag, itemTag) }
+        remember(actualViewModel, onToggleService) {
+            { groupTag: String, itemTag: String ->
+                actualViewModel.selectGroupItem(groupTag, itemTag, onToggleService)
+            }
         }
     val onUrlTest =
         remember(actualViewModel) {

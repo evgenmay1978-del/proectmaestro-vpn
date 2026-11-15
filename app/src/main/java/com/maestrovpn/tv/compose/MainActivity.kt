@@ -1452,6 +1452,7 @@ class MainActivity :
                         serviceStatus = currentServiceStatus,
                         commandClient = dashboardViewModel.commandClient,
                         viewModel = groupsViewModel,
+                        onToggleService = { dashboardViewModel.toggleService() },
                         listHeaderContent = {
                             Row(
                                 modifier =
