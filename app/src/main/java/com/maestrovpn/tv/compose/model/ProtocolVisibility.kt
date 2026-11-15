@@ -43,10 +43,16 @@ internal fun jflServerTags(tags: List<String>): List<String> = visibleProtocolTa
  * What the home grid shows: the visible profile tags without CDN and without the raw JFL country
  * tags, plus a single "jfl" tile when the subscription carries any JFL server. CDN stays off the
  * TV home on purpose (owner: «CDN на тв версии быть не должно»).
+ *
+ * The JFL tile goes right after «Авто», not to the end: the grid holds 8 tiles, and since the
+ * subscription grew past that (10 xhttp nodes, 14.11.2026) a tile appended last was cut off and
+ * the JFL servers vanished from the TV (owner's report, 15.11.2026).
  */
 internal fun tvHomeProtocolTags(tags: List<String>): List<String> {
     val visible = visibleProtocolTags(tags).filterNot { it.startsWith("cdn:") || isJflServerTag(it) }
-    return if (jflServerCount(tags) > 0) visible + JFL_GROUP_TAG else visible
+    if (jflServerCount(tags) == 0) return visible
+    val auto = visible.indexOfFirst { it == "auto" || it == "urltest" }
+    return visible.toMutableList().apply { add(auto + 1, JFL_GROUP_TAG) }
 }
 
 /** "42 мс"; null while the server has not been URL-tested yet (delay == 0). */

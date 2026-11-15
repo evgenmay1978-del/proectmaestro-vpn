@@ -45,8 +45,10 @@ import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.model.isJflServerTag
 import com.maestrovpn.tv.compose.model.jflServerTags
 import com.maestrovpn.tv.compose.model.pingLabel
+import com.maestrovpn.tv.compose.model.serverLabel
 import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
+import com.maestrovpn.tv.whitelist.OwnServers
 import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.BuildConfig
@@ -67,6 +69,8 @@ internal fun PhoneDashboard(
     protocols: List<String>,
     selected: String?,
     delays: Map<String, Int> = emptyMap(),
+    /** libbox outbound type per tag (groups feed / saved profile): the transport line of a row. */
+    types: Map<String, String> = emptyMap(),
     activeProtocol: String?,
     accountLogin: String?,
     daysLeft: Int?,
@@ -124,7 +128,7 @@ internal fun PhoneDashboard(
         }
     }
     fun refreshAccount() { refresh++; onRefreshServers() }
-    val server = phoneServer(actual, actual?.let { cdnView.labels[it] })
+    val server = phoneServer(actual, actual?.let { cdnView.labels[it] }, actual?.let { types[it] })
     val activeTab = when (page) { "cdn", "account" -> "account"; "servers" -> "servers"; "settings", "update" -> "settings"; else -> "home" }
 
     Box(modifier.fillMaxSize()) {
@@ -193,7 +197,10 @@ internal fun PhoneDashboard(
                             }
                             }
                             PhoneModes(cdnSelected, onOrdinary = {
-                                val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" } ?: ordinary.firstOrNull()
+                                // «Обычный VPN» = «Авто». A profile without it gets a third-party server,
+                                // our own one only when nothing else is there (owner, 15.11.2026).
+                                val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" }
+                                    ?: ordinary.firstOrNull { !OwnServers.isOwnTag(it) } ?: ordinary.firstOrNull()
                                 if (choice == null) onEnterCode() else onSelectProtocol(choice)
                             }, onCdn = { navigate("cdn") })
                             PhoneServerRow(server, false, ping = actual?.let { delays[it] }, tag = actual) { showCdnServers = cdnSelected; navigate("servers") }
@@ -227,10 +234,11 @@ internal fun PhoneDashboard(
                             if (!showCdnServers && jflTags.isNotEmpty()) {
                                 PhoneServerRow(
                                     server = PhoneServer(
-                                        flag = "🛰️",
+                                        // The folded row has no country: the globe badge, like every
+                                        // other server row without a flag.
+                                        flag = "",
                                         name = "JFL",
-                                        detail = jflTags.size.toString() + " " + jflServerWord(jflTags.size) +
-                                            " · внешняя подписка",
+                                        detail = jflTags.size.toString() + " " + jflServerWord(jflTags.size),
                                     ),
                                     active = isJflServerTag(selected),
                                     selectable = true,
@@ -238,7 +246,7 @@ internal fun PhoneDashboard(
                             }
                             tags.forEach { tag ->
                                 PhoneServerRow(
-                                    server = phoneServer(tag, cdnView.labels[tag]),
+                                    server = phoneServer(tag, cdnView.labels[tag], types[tag]),
                                     active = selected == tag,
                                     selectable = true,
                                     ping = delays[tag],
@@ -362,6 +370,7 @@ internal fun PhoneDashboard(
                 tags = jflTags,
                 selected = selected,
                 delays = delays,
+                types = types,
                 onSelect = { tag ->
                     jflPicker = false
                     onSelectProtocol(tag)
@@ -455,33 +464,16 @@ private fun android.content.Context.openTelegramChat(username: String): Boolean 
     return false
 }
 
-private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
+private fun phoneServer(tag: String?, runtimeLabel: String?, type: String? = null): PhoneServer {
     if (runtimeLabel == null && tag?.trim()?.lowercase() == "awg") {
         return PhoneServer("", AWG_SERVER_NAME, AWG_SERVER_DETAIL, Icons.Default.VpnLock)
     }
-    if (runtimeLabel == null && SubXhttpRuntime.isSubXhttpTag(tag)) {
-        // Subscription node that runs outside the engine (xhttp through the child Xray runner).
-        // Same shape as a JFL row: flag badge, country name, and the "where it comes from" line.
-        val raw = tag!!.trim()
-        val flag = flagEmojiOf(raw)
-        val name = stripServerDecorations(raw.removePrefix(flag)).substringAfter(" · ").trim()
-        return PhoneServer(
-            flag = flag,
-            name = name.ifEmpty { raw },
-            detail = "Внешняя подписка",
-            icon = Icons.Default.Public,
-        )
-    }
-    if (runtimeLabel == null && isJflServerTag(tag)) {
-        val raw = tag!!.trim().removePrefix("JFL · ").trim()
-        val flag = flagEmojiOf(raw).ifEmpty { "🛰️" }
-        val name = stripServerDecorations(raw.removePrefix(flagEmojiOf(raw)))
-        return PhoneServer(
-            flag = flag,
-            name = name.ifEmpty { raw },
-            detail = "JFL · внешний сервер",
-            icon = Icons.Default.Public,
-        )
+    // A server that names itself (country flag or provider prefix — JFL, WL, xhttp nodes, our
+    // relabeled nodes) gets the same flag/name/transport as on every other screen (ServerLabel).
+    if (runtimeLabel == null) {
+        serverLabel(tag, type, SubXhttpRuntime.isSubXhttpTag(tag))?.let { label ->
+            return PhoneServer(label.flag, label.name, label.detail)
+        }
     }
     val raw = runtimeLabel ?: when (tag?.lowercase()) {
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
@@ -493,23 +485,20 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
         "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()
     }
-    // The panel prefixes whitelist routes with "БС/Yandex " (backend/internal/subgen/whitelist.go:151)
-    // and the app marks them with "WL · "; both are service text, not part of the server name.
-    var text = raw.removePrefix("БС/Yandex ").trim()
-    val whitelist = text.startsWith("WL · ")
-    if (whitelist) text = text.removePrefix("WL · ").trim()
-    // Whitelist labels carry the country flag inside the label ("WL · 🇪🇪 🌀 Раю - Эстония ⚡"):
-    // the badge takes the flag, the row prints the name without the panel's pictographs.
+    // The panel prefixes whitelist routes with "БС/Yandex " (backend/internal/subgen/whitelist.go:151);
+    // it is service text, not part of the server name.
+    val text = raw.removePrefix("БС/Yandex ").trim()
+    // A CDN label may carry the country flag inside it: the badge takes the flag, the row prints
+    // the name without the panel's pictographs.
     val flag = flagEmojiOf(text)
     val clean = stripServerDecorations(text)
     val name = when {
         clean.isEmpty() -> text
-        flag.isNotEmpty() || whitelist -> clean.substringBefore(" · ").trim()
+        flag.isNotEmpty() -> clean.substringBefore(" · ").trim()
         else -> clean
     }
     val detail = when {
         tag?.startsWith("cdn:") == true -> "CDN · XHTTP"
-        whitelist -> "WL · внешний сервер"
         flag.isNotEmpty() -> stripServerDecorations(text.substringAfter(" · ", "")).ifEmpty { "Обычный VPN" }
         else -> "Обычный VPN"
     }
@@ -633,12 +622,13 @@ private fun PhoneNeuroProtocolRow(onClick: () -> Unit) {
     }
 }
 
-/** Full-screen country picker for the folded "JFL" row (phone): all external servers, live ping. */
+/** Full-screen country picker for the folded "JFL" row (phone): every JFL server, live ping. */
 @Composable
 private fun PhoneJflPicker(
     tags: List<String>,
     selected: String?,
     delays: Map<String, Int>,
+    types: Map<String, String>,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -649,7 +639,7 @@ private fun PhoneJflPicker(
                 Column(Modifier.weight(1f)) {
                     Text("JFL", color = PremiumText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        tags.size.toString() + " " + jflServerWord(tags.size) + " · внешняя подписка",
+                        tags.size.toString() + " " + jflServerWord(tags.size),
                         color = PremiumGold,
                         fontSize = 12.sp,
                     )
@@ -659,7 +649,7 @@ private fun PhoneJflPicker(
             Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
                 tags.forEach { tag ->
                     PhoneServerRow(
-                        server = phoneServer(tag, null),
+                        server = phoneServer(tag, null, types[tag]),
                         active = tag == selected,
                         selectable = true,
                         ping = delays[tag],

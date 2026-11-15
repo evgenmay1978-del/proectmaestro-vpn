@@ -71,6 +71,8 @@ fun TvHomeScreen(
     protocols: List<String>,
     selected: String?,
     delays: Map<String, Int> = emptyMap(),
+    /** libbox outbound type per server tag: the transport line of the server rows and tiles. */
+    types: Map<String, String> = emptyMap(),
     activeProtocol: String? = null,
     accountLogin: String? = null,
     daysLeft: Int? = null,
@@ -131,6 +133,7 @@ fun TvHomeScreen(
                     protocols = protocols,
                     selected = selected,
                     delays = delays,
+                    types = types,
                     activeProtocol = activeProtocol,
                     accountLogin = accountLogin,
                     daysLeft = daysLeft,
@@ -158,6 +161,7 @@ fun TvHomeScreen(
                     protocols = protocols,
                     selected = selected,
                     delays = delays,
+                    types = types,
                     activeProtocol = activeProtocol,
                     accountLogin = accountLogin,
                     daysLeft = daysLeft,
@@ -206,68 +210,6 @@ internal fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Mo
         wood = wood,
         modifier = modifier,
     )
-}
-
-/** PHONE status row under the medallion: a state dot + status text, plus the active protocol
- *  line when connected. Mirrors the HeroPane status semantics but flat (no breath clock). */
-@Composable
-internal fun PhoneStatusRow(
-    statusText: String,
-    connected: Boolean,
-    activeProtocol: String?,
-    selected: String?,
-) {
-    // 1:1 к эталону owner: ОТКЛЮЧЕНО = красная точка + красный текст (было серебро/белый),
-    // и строка протокола видна в ОБОИХ состояниях («Отключён: Vless-s3 • авто»).
-    val stateRed = Color(0xFFFF4040)
-    val protoMain = visibleActiveProtocol(activeProtocol, selected)
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 6.dp)
-            .testTag("premium-status"),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))
-            Spacer(Modifier.width(9.dp))
-            Text(
-                statusText.uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (connected) NeonGreen else stateRed,
-            )
-        }
-        if (!protoMain.isNullOrBlank()) {
-            val viaAuto = selected == "auto" && protoMain != "auto"
-            val prefix = if (connected) "Подключён" else "Отключён"
-            Text(
-                if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaestroOrange,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-            )
-        }
-    }
-}
-
-/** Small per-protocol glyph for the chips. */
-internal fun protocolIcon(tag: String): ImageVector = when (tag) {
-    "auto" -> Icons.Filled.Speed
-    "hysteria2" -> Icons.Filled.Bolt
-    "vless" -> Icons.Filled.Shield
-    "naive" -> Icons.Filled.Hub
-    "anytls" -> Icons.Filled.Lock
-    "olcrtc" -> Icons.Filled.Videocam
-    "vk-turn" -> Icons.Filled.Videocam
-    "awg" -> Icons.Filled.VpnLock
-    else -> Icons.Filled.Layers
 }
 
 /** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */

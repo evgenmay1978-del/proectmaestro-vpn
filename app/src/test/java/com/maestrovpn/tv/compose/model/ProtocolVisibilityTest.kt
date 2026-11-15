@@ -71,8 +71,9 @@ class ProtocolVisibilityTest {
             listOf("JFL · 🇩🇪 Германия", "JFL · 🇳🇱 Нидерланды", "JFL · 🇸🇪 Швеция"),
             jflServerTags(tags),
         )
+        // The JFL tile sits right after «Авто» so the 8-tile grid can never cut it off (15.11.2026).
         assertEquals(
-            listOf("auto", "🇪🇸 MaestroVPN VLESS", "🇮🇹 Италия · AnyTLS", "jfl"),
+            listOf("auto", "jfl", "🇪🇸 MaestroVPN VLESS", "🇮🇹 Италия · AnyTLS"),
             tvHomeProtocolTags(tags),
         )
     }
