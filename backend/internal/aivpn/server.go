@@ -29,6 +29,7 @@ import (
 type ServerConfig struct {
 	Enabled        bool
 	Logins         []string
+	LoginsAll      bool // owner-set "*" (EnvLogins): every active subscription may mint a key
 	MinVersionCode int
 
 	SocketPath    string // management REST over this unix socket
@@ -71,9 +72,10 @@ type cachedKey struct {
 
 var _ Source = (*Server)(nil)
 
-// NewServer validates cfg and builds the source. Both modes require a non-empty
-// logins whitelist and MinVersionCode > 0: an AIVPN key is a live credential, so
-// "everyone with a subscription token" is not an acceptable default.
+// NewServer validates cfg and builds the source. Both modes require either a
+// non-empty logins whitelist or the explicit LoginsAll override, plus
+// MinVersionCode > 0: an AIVPN key is a live credential, so "everyone with a
+// subscription token" is never the default — "*" has to be set by the owner.
 func NewServer(cfg ServerConfig) (*Server, error) {
 	if !cfg.Enabled {
 		return nil, ErrDisabled
@@ -81,7 +83,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.MinVersionCode <= 0 {
 		return nil, fmt.Errorf("aivpn: server source needs %s > 0", EnvMinVC)
 	}
-	if len(cfg.Logins) == 0 {
+	if len(cfg.Logins) == 0 && !cfg.LoginsAll {
 		return nil, fmt.Errorf("aivpn: server source needs %s", EnvLogins)
 	}
 	allowed := make(map[string]bool, len(cfg.Logins))
@@ -138,7 +140,7 @@ func (s *Server) MinVersionCode() int {
 }
 
 // Allowed implements Source.
-func (s *Server) Allowed(login string) bool { return s != nil && s.allowed[login] }
+func (s *Server) Allowed(login string) bool { return s != nil && (s.cfg.LoginsAll || s.allowed[login]) }
 
 // Key implements Source: cached key, else create/fetch on the AIVPN server.
 // It is the legacy single-client path: the AIVPN client is named after the login.

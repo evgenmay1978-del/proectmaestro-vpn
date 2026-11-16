@@ -178,7 +178,8 @@ const (
 	EnvSource = "MAESTRO_AIVPN_SOURCE"
 	// EnvFile is the static pilot config (see StaticConfig).
 	EnvFile = "MAESTRO_AIVPN_FILE"
-	// EnvLogins is a comma separated whitelist (http/cli sources).
+	// EnvLogins is a comma separated whitelist (http/cli sources). The single
+	// value "*" is the owner-set wildcard: every active subscription may mint a key.
 	EnvLogins = "MAESTRO_AIVPN_LOGINS"
 	// EnvMinVC is the minimum app versionCode that may receive a key.
 	EnvMinVC = "MAESTRO_AIVPN_MIN_VC"
@@ -220,13 +221,19 @@ func OpenOS(getenv func(string) string) (Source, error) {
 
 // openServer builds the S1-backed source (management REST or CLI).
 func openServer(getenv func(string) string, cli bool) (Source, error) {
-	logins, err := splitLogins(getenv(EnvLogins))
-	if err != nil {
-		return nil, err
+	raw := strings.TrimSpace(getenv(EnvLogins))
+	wildcard := raw == "*"
+	var logins []string
+	if !wildcard {
+		var err error
+		if logins, err = splitLogins(raw); err != nil {
+			return nil, err
+		}
 	}
 	cfg := ServerConfig{
 		Enabled:        true,
 		Logins:         logins,
+		LoginsAll:      wildcard,
 		MinVersionCode: atoi(getenv(EnvMinVC)),
 	}
 	if cli {

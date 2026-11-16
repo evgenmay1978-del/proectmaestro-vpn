@@ -106,7 +106,7 @@ AIVPN — собственный UDP-протокол приложения (Rust
 |---|---|
 | `MAESTRO_AIVPN_SOURCE` | `static` (по умолчанию) · `http` · `cli` |
 | `MAESTRO_AIVPN_FILE` | путь к static-конфигу (§6.1); пусто/нет файла = OFF |
-| `MAESTRO_AIVPN_LOGINS` | whitelist логинов через запятую (http/cli); charset `[A-Za-z0-9._@-]{1,64}` |
+| `MAESTRO_AIVPN_LOGINS` | whitelist логинов через запятую (http/cli); charset `[A-Za-z0-9._@-]{1,64}`. Единственное значение `*` — wildcard: владелец явно разрешает выдачу всем активным подпискам (так живёт S1 с 03.11.2026); смешивать `*` с логинами нельзя |
 | `MAESTRO_AIVPN_MIN_VC` | минимальный versionCode приложения; при включённой фиче обязан быть > 0 |
 | `MAESTRO_AIVPN_SOCKET` | unix-сокет management API; по умолчанию `/run/aivpn/api.sock` |
 | `MAESTRO_AIVPN_CLI` | путь к `aivpn-server` (только cli) |

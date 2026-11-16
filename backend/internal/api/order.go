@@ -23,7 +23,7 @@ func (s *Server) handleTariffs(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleOrderCreate (public): POST {tariff} → a pending order with СБП details the
-// TV shows. The customer pays from their phone with Code as the transfer comment.
+// TV shows. The customer pays from their phone with the customer login as the transfer comment.
 func (s *Server) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -62,7 +62,7 @@ func (s *Server) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"order_id": o.ID, "code": o.Code, "rub": o.Rub, "days": o.Days,
+		"order_id": o.ID, "code": o.PaymentComment(), "rub": o.Rub, "days": o.Days,
 		"tariff": t.Name, "sbp_phone": s.cfg.SBPPhone, "pay_url": s.cfg.PayURL, "status": o.Status,
 	})
 }
@@ -84,7 +84,7 @@ func (s *Server) handleOrderGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	resp := map[string]any{"order_id": o.ID, "status": o.Status, "rub": o.Rub, "code": o.Code}
+	resp := map[string]any{"order_id": o.ID, "status": o.Status, "rub": o.Rub, "code": o.PaymentComment()}
 	if o.Status == "paid" && o.SubToken != "" {
 		resp["sub_url"] = s.cfg.SubBaseURL + "/sub/" + o.SubToken
 	}
@@ -119,8 +119,8 @@ func (s *Server) handleOrderPaidClaim(w http.ResponseWriter, r *http.Request) {
 	if claimed, err := s.orders.MarkPaidClaimed(o.ID); err == nil {
 		o = claimed
 	}
-	text := fmt.Sprintf("💳 Оплата подписки\nТариф: %s · %d ₽\nКод платежа: %s\nЗаказ: %s\n\nКлиент нажал «Я оплатил». Проверьте поступление по СБП и подтвердите.",
-		o.Tariff, o.Rub, o.Code, o.ID)
+	text := fmt.Sprintf("💳 Оплата подписки\nТариф: %s · %d ₽\nКомментарий к переводу: %s\nЗаказ: %s\n\nКлиент нажал «Я оплатил». Проверьте поступление по СБП и подтвердите.",
+		o.Tariff, o.Rub, o.PaymentComment(), o.ID)
 	_ = s.tg.NotifyOrder(s.cfg.TGAdminID, text, o.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "awaiting_confirm"})
 }

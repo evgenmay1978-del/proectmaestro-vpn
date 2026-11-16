@@ -17,10 +17,10 @@ type legacyShareEndpoint struct {
 	port   string
 }
 
-// Country facts were resolved for the current S1..S4 exits on 2026-09-06:
-// S1 ES (RIPE, Madrid), S2 CZ (smartape geofeed), S3 NL (ehostiron
-// geofeed), S4 DE (Snowd geofeed, Frankfurt). Match the configured service
-// endpoint, never a customer's name or an unverified hostname suffix.
+// Country facts (updated 2026-11-03): S1 ES (RIPE, Madrid), S3 NL (ehostiron
+// geofeed); S2 and S4 are the Italian node 94.177.106.114 since 31.10.2026 —
+// the Czech host left the fleet. Match the configured service endpoint, never a
+// customer's name or an unverified hostname suffix.
 func newLegacyShareLabeler(topology subgen.Customer) legacyShareLabeler {
 	labels := make(map[legacyShareEndpoint]string)
 	add := func(scheme, host string, port int, label string) {
