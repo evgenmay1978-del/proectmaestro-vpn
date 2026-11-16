@@ -112,8 +112,8 @@ func TestSubscriptionDeliveryUsesTask9ClientContract(t *testing.T) {
 		if delivery.Format != test.format || delivery.URL == "" {
 			t.Fatalf("delivery for %s = %#v", test.client, delivery)
 		}
-		if test.client == "happ" && delivery.URL != sourceURL+"?format=links" {
-			t.Fatalf("Happ delivery URL = %q, want stable links URL", delivery.URL)
+		if test.client == "happ" && delivery.URL != sourceURL+"?format=xray" {
+			t.Fatalf("Happ delivery URL = %q, want Xray subscription URL", delivery.URL)
 		}
 	}
 }
