@@ -1,18 +1,14 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -21,22 +17,28 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 /**
- * Декоративный слой вокруг медальона (07.11.2026, по референсу владельца): тонкие золотые лучи
- * разной длины, горизонтальные бронзово-золотые направляющие с ромбами и изумрудами, верхний и
- * нижний наконечники. Рисуется кодом (векторно), растров нет.
+ * Декор вокруг медальона — «роза ветров» (16.11.2026, владелец: «не нравятся пики вокруг
+ * медальона и пульсации… сделай эффектнее»). Рисуется кодом (векторно), растров нет.
  *
- * Слой лежит ПОД медальоном и начинается за диском и плашками камней ([ORNAMENT_CLEAR]):
- * медальон, буква «M», кольцо и четыре его камня не меняются.
+ * Состав: четыре гранёных клинка по осям с изумрудом в оправе, четыре тонких клинка по
+ * диагоналям, бусинный пояс сразу за кольцом и тонкие сужающиеся лучи. У каждого клинка две
+ * грани — освещённая (свет сверху слева) и теневая — и световое ребро: металл объёмный без
+ * всякого свечения.
  *
- * Два состояния по реальному статусу VPN ([active] = подключено и не «Подключение…»):
- *  - ACTIVE: светлое золото с бликами, яркие изумруды с внутренним светом, заметные лучи,
- *    мягкое дыхание свечения (2,4 с) и узкий ореол вдоль кольца;
- *  - INACTIVE: тёмная бронза, тёмные изумруды без блика, лучи почти не видны; ореола, свечения
- *    и пульсации нет вовсе (всё световое умножается на [level] = 0).
- * Декор не скрывается: меняются только цвет, яркость, насыщенность и прозрачность.
+ * Слой лежит ПОД медальоном и начинается за диском и плашками камней ([ORNAMENT_CLEAR]).
+ *
+ * Свет НЕ пульсирует (правило владельца 10.09.2026: световая пульсация запрещена; прежние
+ * «дыхание» 2,4 с и ореол убраны). Движение одно и разовое — смена состояния:
+ *  - подключение: металл разгорается из тёмной бронзы в золото от кольца наружу — сначала
+ *    бусины, затем осевые клинки, диагональные, и последними прорастают лучи (~1,1 с);
+ *  - отключение: всё ровно гаснет в бронзу (0,6 с). Дальше картинка статична.
  *
  * @param bottomLimitPx верх подписи статуса внутри бокса героя: декор ниже не рисуется.
  */
@@ -49,20 +51,10 @@ internal fun MedallionOrnament(
     bottomLimitPx: Float,
     modifier: Modifier = Modifier,
 ) {
-    val level by animateFloatAsState(
+    val progress by animateFloatAsState(
         targetValue = if (active) 1f else 0f,
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
-        label = "ornamentLevel",
-    )
-    val transition = rememberInfiniteTransition(label = "ornamentPulse")
-    val pulse by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "ornamentBreath",
+        animationSpec = if (active) tween(IGNITE_MS, easing = LinearOutSlowInEasing) else tween(FADE_OUT_MS, easing = FastOutSlowInEasing),
+        label = "ornamentIgnite",
     )
     Canvas(modifier) {
         val layout = medallionOrnamentLayout(
@@ -74,257 +66,215 @@ internal fun MedallionOrnament(
             bottomLimit = bottomLimitPx,
             margin = 1.5f * density,
         )
-        // Свет есть только в ACTIVE: при level = 0 и дыхание, и ореол, и свечение камней — ноль.
-        val breath = 0.78f + 0.22f * pulse
-        val glow = level * breath
-        val metal = ornamentMetal(level)
-        val emerald = ornamentEmerald(level)
+        val stages = ornamentStages(progress)
         clipRect(layout.clipLeft, layout.clipTop, layout.clipRight, layout.clipBottom) {
-            drawHalo(layout, glow)
-            drawRays(layout, level, breath)
-            drawGuide(layout, side = -1f, metal = metal, emerald = emerald, glow = glow, level = level)
-            drawGuide(layout, side = 1f, metal = metal, emerald = emerald, glow = glow, level = level)
-            drawSpike(layout, dir = -1f, metal = metal, emerald = emerald, glow = glow, level = level)
-            drawSpike(layout, dir = 1f, metal = metal, emerald = emerald, glow = glow, level = level)
+            drawRays(layout, stages.rays)
+            drawDiagonalBlades(layout, stages.diagonals)
+            drawAxisBlades(layout, stages.axes)
+            drawBeads(layout, stages.beads)
         }
     }
 }
 
-private class Metal(val hi: Color, val mid: Color, val low: Color, val edge: Color)
-private class Emerald(val light: Color, val base: Color, val dark: Color)
+private const val IGNITE_MS = 1100
+private const val FADE_OUT_MS = 600
 
-// ACTIVE: старое полированное золото; INACTIVE: потухшая тёмная бронза.
-private val GoldHi = Color(0xFFFFE6A0)
-private val GoldMid = Color(0xFFD3A447)
-private val GoldLow = Color(0xFF8C601E)
-private val GoldEdge = Color(0xFF4A3010)
+/** Уровни яркости слоёв (0 — бронза, 1 — золото) для общего прогресса разгорания. */
+internal data class OrnamentStages(val beads: Float, val axes: Float, val diagonals: Float, val rays: Float)
+
+/**
+ * Разгорание от кольца наружу. При progress = 0 и 1 все слои одинаковы (0 или 1): декор в покое
+ * всегда в одном из двух согласованных состояний, а не «наполовину».
+ */
+internal fun ornamentStages(progress: Float): OrnamentStages {
+    fun stage(delay: Float, span: Float) = ((progress - delay) / span).coerceIn(0f, 1f)
+    return OrnamentStages(
+        beads = stage(0.00f, 0.40f),
+        axes = stage(0.15f, 0.45f),
+        diagonals = stage(0.30f, 0.45f),
+        rays = stage(0.45f, 0.55f),
+    )
+}
+
+private class Metal(val hi: Color, val mid: Color, val low: Color, val edge: Color)
+
+// ACTIVE: полированное старое золото; INACTIVE: потухшая тёмная бронза.
+private val GoldHi = Color(0xFFFFE9A8)
+private val GoldMid = Color(0xFFD9A846)
+private val GoldLow = Color(0xFF8A5C1A)
+private val GoldEdge = Color(0xFF3E270B)
 private val BronzeHi = Color(0xFF5B4630)
 private val BronzeMid = Color(0xFF443321)
 private val BronzeLow = Color(0xFF2E2216)
 private val BronzeEdge = Color(0xFF1C140B)
 
-private val EmeraldLight = Color(0xFF8CFFC0)
+private val EmeraldLight = Color(0xFF9DFFC9)
 private val EmeraldBase = Color(0xFF17C25A)
-private val EmeraldDark = Color(0xFF06572A)
-private val EmeraldDeadLight = Color(0xFF123522)
+private val EmeraldDark = Color(0xFF054A23)
+private val EmeraldDeadLight = Color(0xFF173F29)
 private val EmeraldDeadBase = Color(0xFF0B2516)
 private val EmeraldDeadDark = Color(0xFF05140C)
-private val EmeraldGlow = Color(0xFF2EF27A)
-private val RayGold = Color(0xFFFFD877)
+private val RayGold = Color(0xFFFFD27A)
 private val RayBronze = Color(0xFF6B5434)
 
-private fun ornamentMetal(t: Float) = Metal(
+private fun metal(t: Float) = Metal(
     hi = lerp(BronzeHi, GoldHi, t),
     mid = lerp(BronzeMid, GoldMid, t),
     low = lerp(BronzeLow, GoldLow, t),
     edge = lerp(BronzeEdge, GoldEdge, t),
 )
 
-private fun ornamentEmerald(t: Float) = Emerald(
-    light = lerp(EmeraldDeadLight, EmeraldLight, t),
-    base = lerp(EmeraldDeadBase, EmeraldBase, t),
-    dark = lerp(EmeraldDeadDark, EmeraldDark, t),
-)
+/** Направление луча из центра: угол в градусах экрана (0 — вправо, 90 — вниз). */
+private fun dir(deg: Float): Offset {
+    val a = deg * PI.toFloat() / 180f
+    return Offset(cos(a), sin(a))
+}
 
 /**
- * Узкий ореол сразу за кольцом — только ACTIVE (glow = 0 в INACTIVE). Радиус ограничен ближайшей
- * границей клипа: иначе над подписью статуса ореол обрезался бы прямой линией.
+ * Гранёный клинок вдоль [d] от [start] до [end] (расстояния от центра): узкое основание, плечо
+ * и острие. Две грани по обе стороны ребра: освещённая (к свету сверху слева) светлее.
  */
-private fun DrawScope.drawHalo(l: OrnamentLayout, glow: Float) {
-    if (glow <= 0.001f) return
-    val reach = minOf(1.12f * l.r, l.cy - l.clipTop, l.clipBottom - l.cy, l.clipRight - l.cx)
-    val inner = 0.74f * l.r
-    if (reach <= inner + 0.08f * l.r) return
-    val peak = minOf(0.82f * l.r, (inner + reach) / 2f)
-    drawCircle(
-        brush = Brush.radialGradient(
-            inner / reach to Color.Transparent,
-            peak / reach to RayGold.copy(alpha = 0.15f * glow),
-            1f to Color.Transparent,
-            center = Offset(l.cx, l.cy),
-            radius = reach,
-        ),
-        radius = reach,
-        center = Offset(l.cx, l.cy),
+private fun DrawScope.drawBlade(
+    l: OrnamentLayout,
+    d: Offset,
+    start: Float,
+    end: Float,
+    baseHalf: Float,
+    shoulderAt: Float,
+    shoulderHalf: Float,
+    m: Metal,
+) {
+    if (end - start < shoulderAt + 0.04f * l.r) return
+    val c = Offset(l.cx, l.cy)
+    val p = Offset(-d.y, d.x) // перпендикуляр
+    val base = c + d * start
+    val shoulder = c + d * (start + shoulderAt)
+    val tip = c + d * end
+    val baseA = base + p * baseHalf
+    val baseB = base - p * baseHalf
+    val shA = shoulder + p * shoulderHalf
+    val shB = shoulder - p * shoulderHalf
+    // Какая сторона смотрит на свет (сверху слева = −x, −y).
+    val aLit = (p.x * -0.6f + p.y * -0.8f) > 0f
+    val faceA = Path().apply { moveTo(base.x, base.y); lineTo(baseA.x, baseA.y); lineTo(shA.x, shA.y); lineTo(tip.x, tip.y); close() }
+    val faceB = Path().apply { moveTo(base.x, base.y); lineTo(tip.x, tip.y); lineTo(shB.x, shB.y); lineTo(baseB.x, baseB.y); close() }
+    val lit = Brush.linearGradient(listOf(m.hi, m.mid, m.low), start = base, end = tip)
+    val shade = Brush.linearGradient(listOf(m.mid, m.low, m.edge), start = base, end = tip)
+    drawPath(faceA, if (aLit) lit else shade)
+    drawPath(faceB, if (aLit) shade else lit)
+    val outline = Path().apply {
+        moveTo(baseA.x, baseA.y); lineTo(shA.x, shA.y); lineTo(tip.x, tip.y)
+        lineTo(shB.x, shB.y); lineTo(baseB.x, baseB.y); close()
+    }
+    drawPath(outline, m.edge, style = Stroke(width = max(1f, l.r * 0.005f)))
+    // Световое ребро по оси клинка — тонкая линия, гаснущая к острию.
+    drawLine(
+        brush = Brush.linearGradient(listOf(m.hi, m.hi.copy(alpha = 0f)), start = base, end = tip),
+        start = base,
+        end = tip - d * (0.02f * l.r),
+        strokeWidth = max(1f, l.r * 0.006f),
+        cap = StrokeCap.Round,
     )
 }
 
-private fun DrawScope.drawRays(l: OrnamentLayout, level: Float, breath: Float) {
-    val width = max(1f, l.r * 0.0055f)
-    val color = lerp(RayBronze, RayGold, level)
-    for (ray in l.rays) {
-        // INACTIVE: 0.045 — лучи «практически незаметны»; ACTIVE: 0.30..0.65 с дыханием.
-        val activeAlpha = (0.30f + 0.35f * ray.weight) * breath
-        val alpha = 0.045f + (activeAlpha - 0.045f) * level
-        val start = Offset(ray.x0, ray.y0)
-        val end = Offset(ray.x1, ray.y1)
-        drawLine(
-            brush = Brush.linearGradient(
-                listOf(color.copy(alpha = alpha), color.copy(alpha = 0f)),
-                start = start,
-                end = end,
-            ),
-            start = start,
-            end = end,
-            strokeWidth = width,
-            cap = StrokeCap.Round,
-        )
+/** Изумруд в золотой оправе на плече осевого клинка (ромб вдоль клинка). */
+private fun DrawScope.drawEmerald(center: Offset, d: Offset, along: Float, across: Float, m: Metal, level: Float) {
+    val p = Offset(-d.y, d.x)
+    fun rhomb(a: Float, b: Float) = Path().apply {
+        val q1 = center + d * a
+        val q2 = center + p * b
+        val q3 = center - d * a
+        val q4 = center - p * b
+        moveTo(q1.x, q1.y); lineTo(q2.x, q2.y); lineTo(q3.x, q3.y); lineTo(q4.x, q4.y); close()
     }
-}
-
-private fun metalBrushV(m: Metal, top: Float, bottom: Float) = Brush.verticalGradient(
-    0f to m.edge, 0.22f to m.hi, 0.5f to m.mid, 0.82f to m.low, 1f to m.edge,
-    startY = top, endY = bottom,
-)
-
-private fun metalBrushH(m: Metal, left: Float, right: Float) = Brush.horizontalGradient(
-    0f to m.edge, 0.22f to m.hi, 0.5f to m.mid, 0.82f to m.low, 1f to m.edge,
-    startX = left, endX = right,
-)
-
-private fun rhombPath(cx: Float, cy: Float, hw: Float, hh: Float) = Path().apply {
-    moveTo(cx, cy - hh)
-    lineTo(cx + hw, cy)
-    lineTo(cx, cy + hh)
-    lineTo(cx - hw, cy)
-    close()
-}
-
-/** Ромб: золотая оправа, изумрудная вставка, блик и (только ACTIVE) внутренний свет. */
-private fun DrawScope.drawJewel(
-    cx: Float, cy: Float, hw: Float, hh: Float,
-    metal: Metal, emerald: Emerald, glow: Float, level: Float,
-) {
-    if (glow > 0.001f) {
-        val gr = max(hw, hh) * 1.8f
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to EmeraldGlow.copy(alpha = 0.30f * glow),
-                1f to Color.Transparent,
-                center = Offset(cx, cy),
-                radius = gr,
-            ),
-            radius = gr,
-            center = Offset(cx, cy),
-        )
-    }
-    val frame = rhombPath(cx, cy, hw, hh)
-    drawPath(frame, metalBrushV(metal, cy - hh, cy + hh))
-    drawPath(frame, metal.edge, style = Stroke(width = max(1f, hw * 0.06f)))
-    val iw = hw * 0.58f
-    val ih = hh * 0.58f
-    val stone = rhombPath(cx, cy, iw, ih)
+    drawPath(rhomb(along * 1.32f, across * 1.32f), Brush.linearGradient(listOf(m.hi, m.mid, m.low), center - p * across - d * along, center + p * across + d * along))
+    drawPath(rhomb(along * 1.32f, across * 1.32f), m.edge, style = Stroke(width = max(1f, across * 0.12f)))
+    val stone = rhomb(along, across)
     drawPath(
         stone,
         Brush.linearGradient(
-            listOf(emerald.light, emerald.base, emerald.dark),
-            start = Offset(cx - iw, cy - ih),
-            end = Offset(cx + iw, cy + ih),
+            listOf(lerp(EmeraldDeadLight, EmeraldLight, level), lerp(EmeraldDeadBase, EmeraldBase, level), lerp(EmeraldDeadDark, EmeraldDark, level)),
+            start = center - p * across - d * along,
+            end = center + p * across + d * along,
         ),
     )
-    drawPath(stone, metal.edge.copy(alpha = 0.8f), style = Stroke(width = max(1f, iw * 0.07f)))
     if (level > 0.001f) {
-        // Блик на верхней левой грани камня и оправы — только в ACTIVE.
-        drawPath(rhombPath(cx - iw * 0.28f, cy - ih * 0.30f, iw * 0.26f, ih * 0.22f), Color.White.copy(alpha = 0.55f * level))
-        drawLine(
-            Color.White.copy(alpha = 0.45f * level),
-            Offset(cx - hw * 0.92f, cy - hh * 0.04f),
-            Offset(cx - hw * 0.08f, cy - hh * 0.88f),
-            strokeWidth = max(1f, hw * 0.05f),
-            cap = StrokeCap.Round,
-        )
+        // Блик на камне — неподвижный, как отражение на огранке; не светится и не мигает.
+        val spot = center - p * (across * 0.32f) - d * (along * 0.30f)
+        drawCircle(Color.White.copy(alpha = 0.65f * level), radius = across * 0.22f, center = spot)
     }
 }
 
-/** Горизонтальная направляющая: тонкие нити, клиновидная планка, муфта, большой и малый ромбы. */
-private fun DrawScope.drawGuide(l: OrnamentLayout, side: Float, metal: Metal, emerald: Emerald, glow: Float, level: Float) {
+private fun DrawScope.drawAxisBlades(l: OrnamentLayout, level: Float) {
+    val m = metal(level)
     val r = l.r
-    val u0 = l.guideStart
-    val uEnd = l.guideEnd
-    if (uEnd - u0 < 0.18f * r) return
-    fun x(u: Float) = l.cx + side * u
-    val cy = l.cy
-
-    // Нити над и под планкой.
-    val hair = max(1f, r * 0.008f)
-    for (dy in floatArrayOf(-0.052f * r, 0.052f * r)) {
-        drawLine(
-            brush = Brush.horizontalGradient(
-                listOf(metal.mid, metal.mid.copy(alpha = 0f)),
-                startX = x(u0), endX = x(u0 + (uEnd - u0) * 0.9f),
-            ),
-            start = Offset(x(u0 + 0.02f * r), cy + dy),
-            end = Offset(x(u0 + (uEnd - u0) * 0.9f), cy + dy),
-            strokeWidth = hair,
-            cap = StrokeCap.Round,
-        )
+    val start = l.guideStart
+    for ((deg, end) in listOf(0f to l.guideEnd, 180f to l.guideEnd, 270f to l.topSpikeEnd, 90f to l.bottomSpikeEnd)) {
+        val d = dir(deg)
+        drawBlade(l, d, start, end, baseHalf = 0.030f * r, shoulderAt = 0.075f * r, shoulderHalf = 0.064f * r, m = m)
+        if (end - start > 0.15f * r) {
+            drawEmerald(Offset(l.cx, l.cy) + d * (start + 0.075f * r), d, along = 0.034f * r, across = 0.024f * r, m = m, level = level)
+        }
     }
+}
 
-    // Клиновидная планка: толще у медальона, остриё у края.
-    val t0 = 0.030f * r
-    val t1 = 0.020f * r
-    val ub = (u0 + 0.12f * r).coerceAtMost(uEnd - 0.14f * r).coerceAtLeast(u0 + 0.09f * r)
-    val bar = Path().apply {
-        moveTo(x(u0), cy - t0)
-        lineTo(x(ub), cy - t1)
-        lineTo(x(uEnd), cy)
-        lineTo(x(ub), cy + t1)
-        lineTo(x(u0), cy + t0)
+private fun DrawScope.drawDiagonalBlades(l: OrnamentLayout, level: Float) {
+    val m = metal(level)
+    val r = l.r
+    for (deg in floatArrayOf(45f, 135f, 225f, 315f)) {
+        drawBlade(l, dir(deg), l.guideStart + 0.01f * r, l.diagonalEnd, baseHalf = 0.012f * r, shoulderAt = 0.05f * r, shoulderHalf = 0.030f * r, m = m)
+    }
+}
+
+/** Бусинный пояс сразу за кольцом — между клинками, как зернь на ювелирной оправе. */
+private fun DrawScope.drawBeads(l: OrnamentLayout, level: Float) {
+    val r = l.r
+    val radius = (ORNAMENT_CLEAR + 0.03f) * r
+    val bead = max(1.2f, 0.0085f * r)
+    val m = metal(level)
+    var deg = 0f
+    while (deg < 360f) {
+        val fromAxis = abs(((deg + 45f) % 90f) - 45f)
+        if (fromAxis > 7f && abs(fromAxis - 45f) > 5f) {
+            val c = Offset(l.cx, l.cy) + dir(deg) * radius
+            drawCircle(m.low, radius = bead * 1.15f, center = c)
+            drawCircle(m.mid, radius = bead, center = c)
+            drawCircle(m.hi, radius = bead * 0.45f, center = c - Offset(bead * 0.3f, bead * 0.3f))
+        }
+        deg += 3.75f
+    }
+}
+
+/**
+ * Тонкие сужающиеся лучи: бронзовый след виден всегда едва-едва, золото при подключении
+ * прорастает от кольца к кончику ([level] — доля длины).
+ */
+private fun DrawScope.drawRays(l: OrnamentLayout, level: Float) {
+    val r = l.r
+    val half = max(0.5f, r * 0.0034f)
+    for (ray in l.rays) {
+        val a = Offset(ray.x0, ray.y0)
+        val b = Offset(ray.x1, ray.y1)
+        drawTaper(a, b, half, Brush.linearGradient(listOf(RayBronze.copy(alpha = 0.08f), RayBronze.copy(alpha = 0f)), a, b))
+        if (level > 0.001f) {
+            val lit = a + (b - a) * level
+            val alpha = 0.14f + 0.30f * ray.weight
+            drawTaper(a, lit, half, Brush.linearGradient(listOf(RayGold.copy(alpha = alpha), RayGold.copy(alpha = 0f)), a, lit))
+        }
+    }
+}
+
+/** Треугольный луч: полуширина [half] у основания, острие на конце. */
+private fun DrawScope.drawTaper(a: Offset, b: Offset, half: Float, brush: Brush) {
+    val v = b - a
+    val len = v.getDistance()
+    if (len < 1f) return
+    val p = Offset(-v.y / len, v.x / len) * half
+    val path = Path().apply {
+        moveTo(a.x + p.x, a.y + p.y)
+        lineTo(b.x, b.y)
+        lineTo(a.x - p.x, a.y - p.y)
         close()
     }
-    drawPath(bar, metalBrushV(metal, cy - t0, cy + t0))
-    drawPath(bar, metal.edge, style = Stroke(width = max(1f, r * 0.004f)))
-
-    // Муфта у кольца.
-    val ch = 0.048f * r
-    val cw = 0.030f * r
-    val cl = minOf(x(u0), x(u0 + cw))
-    drawRect(metalBrushV(metal, cy - ch, cy + ch), topLeft = Offset(cl, cy - ch), size = Size(cw, ch * 2f))
-
-    // Большой ромб с изумрудом и малый — ближе к краю.
-    drawJewel(x(ub), cy, 0.072f * r, 0.085f * r, metal, emerald, glow, level)
-    val us = ub + (uEnd - ub) * 0.55f
-    if (uEnd - ub > 0.16f * r) drawJewel(x(us), cy, 0.040f * r, 0.048f * r, metal, emerald, glow, level)
-}
-
-/** Вертикальный наконечник: муфта, ромб с изумрудом, боковые шипы и клинок к острию. */
-private fun DrawScope.drawSpike(l: OrnamentLayout, dir: Float, metal: Metal, emerald: Emerald, glow: Float, level: Float) {
-    val r = l.r
-    val v0 = l.spikeStart
-    val vEnd = if (dir < 0f) l.topSpikeEnd else l.bottomSpikeEnd
-    if (vEnd - v0 < 0.06f * r) return // места нет (низкий экран) — наконечник не рисуем
-    fun y(v: Float) = l.cy + dir * v
-    val cx = l.cx
-
-    val cw = 0.068f * r
-    val ch = 0.026f * r
-    val ct = minOf(y(v0), y(v0 + ch))
-    drawRect(metalBrushH(metal, cx - cw, cx + cw), topLeft = Offset(cx - cw, ct), size = Size(cw * 2f, ch))
-
-    val jv = v0 + ch + 0.050f * r
-    val jh = 0.050f * r
-    val bladeStart = jv + jh
-    if (vEnd > bladeStart + 0.04f * r) {
-        val bw = 0.030f * r
-        val blade = Path().apply {
-            moveTo(cx - bw, y(bladeStart - 0.01f * r))
-            lineTo(cx, y(vEnd))
-            lineTo(cx + bw, y(bladeStart - 0.01f * r))
-            close()
-        }
-        drawPath(blade, metalBrushH(metal, cx - bw, cx + bw))
-        drawPath(blade, metal.edge, style = Stroke(width = max(1f, r * 0.004f)))
-        // Боковые шипы у основания клинка — зеркально.
-        for (s in floatArrayOf(-1f, 1f)) {
-            val spur = Path().apply {
-                moveTo(cx + s * 0.020f * r, y(bladeStart))
-                lineTo(cx + s * 0.090f * r, y(bladeStart + 0.055f * r))
-                lineTo(cx + s * 0.030f * r, y(bladeStart + 0.030f * r))
-                close()
-            }
-            drawPath(spur, metal.mid)
-            drawPath(spur, metal.edge, style = Stroke(width = max(1f, r * 0.003f)))
-        }
-    }
-    if (vEnd >= jv + jh) drawJewel(cx, y(jv), 0.042f * r, jh, metal, emerald, glow, level)
+    drawPath(path, brush)
 }
