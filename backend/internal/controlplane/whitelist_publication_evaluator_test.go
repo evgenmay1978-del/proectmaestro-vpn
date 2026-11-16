@@ -160,7 +160,7 @@ func TestEvaluateWhiteListPublicationUsesSeparateBoundedAdmissionDeadline(t *tes
 func TestWhiteListPublicationRechecksClockAfterReadsWithoutExtendingDeadlines(t *testing.T) {
 	facts := validWhiteListPublicationFacts()
 	requestNow := facts.NowUnix
-	facts.ObservedThroughUnix = 0 // Byte-budgeted admission has no synthetic usage watermark.
+	facts.ObservedThroughUnix = 0                  // Byte-budgeted admission has no synthetic usage watermark.
 	facts.AdmissionFreshUntilUnix = requestNow + 7 // Five seconds from a read completed at requestNow+2.
 	facts.ReceiptsFreshUntilUnix = requestNow + 120
 	original := facts
@@ -199,29 +199,35 @@ func publicationBatchRoutes() []WhiteListPublicationRoute {
 func TestWhiteListPublicationBatchAllocationsStayExactAndClosed(t *testing.T) {
 	const entitlementID = "wl-ent-11111111111111111111111111111111"
 	for _, test := range []struct {
-		name string
+		name   string
 		mutate func(*whiteListSidecarRuntimeState, []rqlite.Result)
 		closed bool
-		calls int
+		calls  int
 	}{
 		{name: "all four exact", calls: 3},
 		{name: "missing allocation", closed: true, calls: 3, mutate: func(_ *whiteListSidecarRuntimeState, rows []rqlite.Result) { rows[2].Rows = nil }},
 		{name: "swapped allocation results", closed: true, calls: 3, mutate: func(_ *whiteListSidecarRuntimeState, rows []rqlite.Result) { rows[0], rows[1] = rows[1], rows[0] }},
-		{name: "different boot", closed: true, calls: 3, mutate: func(_ *whiteListSidecarRuntimeState, rows []rqlite.Result) { rows[3].Rows[0]["xray_process_boot_id"] = "other-boot" }},
-		{name: "different period", closed: true, calls: 3, mutate: func(_ *whiteListSidecarRuntimeState, rows []rqlite.Result) { rows[3].Rows[0]["billing_period_id"] = "other-period" }},
-		{name: "last exit unhealthy", closed: true, calls: 0, mutate: func(state *whiteListSidecarRuntimeState, _ []rqlite.Result) { state.exits["exit-s4"] = WhiteListExit{Healthy: false} }},
+		{name: "different boot", closed: true, calls: 3, mutate: func(_ *whiteListSidecarRuntimeState, rows []rqlite.Result) {
+			rows[3].Rows[0]["xray_process_boot_id"] = "other-boot"
+		}},
+		{name: "different period", closed: true, calls: 3, mutate: func(_ *whiteListSidecarRuntimeState, rows []rqlite.Result) {
+			rows[3].Rows[0]["billing_period_id"] = "other-period"
+		}},
+		{name: "last exit unhealthy", closed: true, calls: 0, mutate: func(state *whiteListSidecarRuntimeState, _ []rqlite.Result) {
+			state.exits["exit-s4"] = WhiteListExit{Healthy: false}
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db := &recordingRQLite{}
 			service, _ := testService(t, db)
 			now := service.clock.Now()
 			routes := publicationBatchRoutes()
-			period := whitelistbalance.Period{ID: "batch-period", StartsAtUnix: now.Unix()-10, EndsAtUnix: now.Unix()+3600, AccessOrderID: "batch-order"}
+			period := whitelistbalance.Period{ID: "batch-period", StartsAtUnix: now.Unix() - 10, EndsAtUnix: now.Unix() + 3600, AccessOrderID: "batch-order"}
 			projection := whitelistbalance.BalanceProjection{EntitlementID: entitlementID, CurrentPeriodID: period.ID, PurchasedRemainingBytes: 1_000_000_000, Version: 1, FreshThroughUnix: now.Unix()}
 			state := whiteListSidecarRuntimeState{
-				origins: []WhiteListOrigin{{OriginID: "origin-s4"}},
-				publications: map[string]whiteListRuntimePublication{entitlementID: {Enabled: true, Source: WhiteListActivationAdminEnable, PrimaryStatus: "active", PrimaryExpiresAtUnix: now.Unix()+3600}},
-				credentials: map[string]map[string]struct{}{entitlementID: {}}, exits: map[string]WhiteListExit{},
+				origins:      []WhiteListOrigin{{OriginID: "origin-s4"}},
+				publications: map[string]whiteListRuntimePublication{entitlementID: {Enabled: true, Source: WhiteListActivationAdminEnable, PrimaryStatus: "active", PrimaryExpiresAtUnix: now.Unix() + 3600}},
+				credentials:  map[string]map[string]struct{}{entitlementID: {}}, exits: map[string]WhiteListExit{},
 			}
 			rows := make([]rqlite.Result, len(routes))
 			for index, route := range routes {
@@ -230,13 +236,15 @@ func TestWhiteListPublicationBatchAllocationsStayExactAndClosed(t *testing.T) {
 				rows[index] = rqlite.Result{Rows: []map[string]any{{"entitlement_id": entitlementID, "exit_id": route.ExitID,
 					"origin_id": "origin-s4", "xray_process_boot_id": "boot-s4", "billing_period_id": period.ID, "outstanding_bytes": int64(64_000_000)}}}
 			}
-			if test.mutate != nil { test.mutate(&state, rows) }
+			if test.mutate != nil {
+				test.mutate(&state, rows)
+			}
 			db.linear = []scriptedResult{
 				rowsScript(map[string]any{"period_id": period.ID, "ends_at_unix": period.EndsAtUnix}),
 				rowsScript(whiteListBalanceStateRow(entitlementID, "active", now.Unix()+3600, period, projection, 0)),
 				resultsScript(rows...),
 			}
-			receipts := map[string]WhiteListSidecarReceipt{"origin-s4": {XrayProcessBootID: "boot-s4", ExpiresAt: now.Add(120*time.Second)}}
+			receipts := map[string]WhiteListSidecarReceipt{"origin-s4": {XrayProcessBootID: "boot-s4", ExpiresAt: now.Add(120 * time.Second)}}
 			got := service.whiteListPublicationByteBudgetFreshUntil(context.Background(), entitlementID, routes, state, receipts, now)
 			if (test.closed && got != 0) || (!test.closed && got != now.Unix()+5) {
 				t.Fatalf("unexpected absolute deadline: %d", got)
@@ -270,30 +278,44 @@ func TestWhiteListPublicationBatchMaterialsStayExactAndClosed(t *testing.T) {
 			encryption := "mlkem768x25519plus.native.0rtt." + strings.Repeat("Wlpa", 394) + "Wlo"
 			proof := sha256.Sum256([]byte("maestrovpn:vlessenc-client:v1\x00CLIENT\x00" + encryption))
 			for index, route := range routes {
-				material := WhiteListClientMaterial{PublicHost: "cdn.example.invalid", SecretPath: "/fixture/"+route.ExitID,
+				material := WhiteListClientMaterial{PublicHost: "cdn.example.invalid", SecretPath: "/fixture/" + route.ExitID,
 					ClientID: fmt.Sprintf("%08d-1111-4111-8111-%012d", index+1, index+1), ClientEncryption: encryption,
-					ClientEncryptionRole: "CLIENT", ClientEncryptionProofRef: "xray-vlessenc-client-v1:sha256:"+hex.EncodeToString(proof[:])}
+					ClientEncryptionRole: "CLIENT", ClientEncryptionProofRef: "xray-vlessenc-client-v1:sha256:" + hex.EncodeToString(proof[:])}
 				plaintext, err := json.Marshal(material)
-				if err != nil { t.Fatal(err) }
+				if err != nil {
+					t.Fatal(err)
+				}
 				credential, err := NewWhiteListRouteCredential(box, entitlementID, route.ExitID, plaintext)
-				if err != nil { t.Fatal(err) }
+				if err != nil {
+					t.Fatal(err)
+				}
 				envelope, err := json.Marshal(credential.Payload)
-				if err != nil { t.Fatal(err) }
+				if err != nil {
+					t.Fatal(err)
+				}
 				rows[index] = rqlite.Result{Rows: []map[string]any{{"entitlement_id": entitlementID, "exit_id": route.ExitID,
 					"managed_email": credential.ManagedEmail, "credential_envelope": envelope}}}
 			}
-			deadline := now.Unix()+5
+			deadline := now.Unix() + 5
 			switch mode {
-			case "missing material": rows[2].Rows = nil
-			case "swapped material": rows[0], rows[1] = rows[1], rows[0]
-			case "wrong scope": rows[3].Rows[0]["entitlement_id"] = "wl-ent-22222222222222222222222222222222"
-			case "expired after read": service.clock = fixedClock{value: now.Add(6*time.Second)}
-			case "stable export": deadline = 0; service.clock = fixedClock{value: now.Add(6*time.Second)}
+			case "missing material":
+				rows[2].Rows = nil
+			case "swapped material":
+				rows[0], rows[1] = rows[1], rows[0]
+			case "wrong scope":
+				rows[3].Rows[0]["entitlement_id"] = "wl-ent-22222222222222222222222222222222"
+			case "expired after read":
+				service.clock = fixedClock{value: now.Add(6 * time.Second)}
+			case "stable export":
+				deadline = 0
+				service.clock = fixedClock{value: now.Add(6 * time.Second)}
 			}
 			db.linear = []scriptedResult{resultsScript(rows...)}
 			err := service.fillWhiteListPublicationMaterials(context.Background(), entitlementID, routes, deadline)
 			wantClosed := mode != "valid" && mode != "stable export"
-			if (err != nil) != wantClosed { t.Fatalf("closed=%v, error=%v", wantClosed, err) }
+			if (err != nil) != wantClosed {
+				t.Fatalf("closed=%v, error=%v", wantClosed, err)
+			}
 			if len(db.linearCalls) != 1 || len(db.linearCalls[0].statements) != 4 || len(db.requestCalls) != 0 {
 				t.Fatal("material reads did not remain one read-only batch")
 			}

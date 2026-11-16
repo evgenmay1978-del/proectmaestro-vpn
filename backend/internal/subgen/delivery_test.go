@@ -10,7 +10,7 @@ import (
 
 func TestBuildDeliveryCreatesOfficialIncyOneTapLink(t *testing.T) {
 	const source = "https://sub.example.com/sub/fixture-token"
-	const stableLinks = source + "?format=links"
+	const xraySubscription = source + "?format=xray"
 
 	delivery, err := BuildDelivery("INCY", source)
 	if err != nil {
@@ -26,8 +26,8 @@ func TestBuildDeliveryCreatesOfficialIncyOneTapLink(t *testing.T) {
 	if err != nil {
 		t.Fatal("Incy delivery is not an official crypt1 link")
 	}
-	if decoded.URL != stableLinks {
-		t.Fatalf("Incy delivery URL = %q, want stable links URL %q", decoded.URL, stableLinks)
+	if decoded.URL != xraySubscription {
+		t.Fatalf("Incy delivery URL = %q, want Xray subscription URL %q", decoded.URL, xraySubscription)
 	}
 	if decoded.Name != "MaestroVPN" {
 		t.Fatal("Incy delivery has the wrong display name")
@@ -36,7 +36,7 @@ func TestBuildDeliveryCreatesOfficialIncyOneTapLink(t *testing.T) {
 
 func TestBuildDeliveryKeepsHappOnTheValidatedHTTPSURL(t *testing.T) {
 	const source = "https://sub.example.com/sub/fixture-token"
-	const stableLinks = source + "?format=links"
+	const xraySubscription = source + "?format=xray"
 
 	delivery, err := BuildDelivery("HAPP", source)
 	if err != nil {
@@ -48,8 +48,8 @@ func TestBuildDeliveryKeepsHappOnTheValidatedHTTPSURL(t *testing.T) {
 	if delivery.Format != "COPY_HTTPS_URL_AND_QR" {
 		t.Fatal("Happ delivery has the wrong format")
 	}
-	if delivery.URL != stableLinks {
-		t.Fatalf("Happ delivery URL = %q, want stable links URL %q", delivery.URL, stableLinks)
+	if delivery.URL != xraySubscription {
+		t.Fatalf("Happ delivery URL = %q, want Xray subscription URL %q", delivery.URL, xraySubscription)
 	}
 }
 

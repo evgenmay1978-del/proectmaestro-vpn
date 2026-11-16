@@ -41,8 +41,8 @@ func nativeErrorStatus(err error) int {
 }
 
 type nativeBoundaryPublicationFixture struct {
-	stable, native          WhiteListPublicationSnapshot
-	nativeErr               error
+	stable, native           WhiteListPublicationSnapshot
+	nativeErr                error
 	stableCalls, nativeCalls int
 }
 

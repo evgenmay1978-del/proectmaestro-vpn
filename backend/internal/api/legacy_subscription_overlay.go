@@ -111,14 +111,22 @@ func WrapLegacySubscriptions(
 		}
 	}
 	proxy.ModifyResponse = func(response *http.Response) error {
-		if err := appendLegacyPaidWhiteList(response, publication, publicationTimeout, labeler); err != nil { return err }
+		if err := appendLegacyPaidWhiteList(response, publication, publicationTimeout, labeler); err != nil {
+			return err
+		}
 		mihomo, _ := response.Request.Context().Value(legacySubscriptionMihomoKey{}).(bool)
-		if !mihomo || response.StatusCode != http.StatusOK { return nil }
+		if !mihomo || response.StatusCode != http.StatusOK {
+			return nil
+		}
 		raw, err := io.ReadAll(io.LimitReader(response.Body, maxLegacyLinksBytes+1))
 		_ = response.Body.Close()
-		if err != nil || len(raw) > maxLegacyLinksBytes { return errors.New("subscription unavailable") }
+		if err != nil || len(raw) > maxLegacyLinksBytes {
+			return errors.New("subscription unavailable")
+		}
 		document, err := subgen.MihomoSubscription(string(raw))
-		if err != nil { return errors.New("subscription unavailable") }
+		if err != nil {
+			return errors.New("subscription unavailable")
+		}
 		response.Body = io.NopCloser(bytes.NewReader(document))
 		response.ContentLength = int64(len(document))
 		response.Header.Set("Content-Length", fmt.Sprint(len(document)))
