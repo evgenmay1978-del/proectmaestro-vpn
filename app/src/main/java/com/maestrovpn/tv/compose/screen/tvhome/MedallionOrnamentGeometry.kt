@@ -7,8 +7,9 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Геометрия декоративного слоя вокруг медальона (07.11.2026): лучи, горизонтальные направляющие
- * с ромбами и верхний/нижний наконечники. Чистые числа без Compose — проверяются unit-тестом
+ * Геометрия декоративного слоя вокруг медальона: «роза ветров» из гранёных клинков (четыре по
+ * осям, четыре по диагоналям), тонкие сужающиеся лучи и бусинный пояс (16.11.2026; первая версия
+ * с направляющими и наконечниками — 07.11.2026). Чистые числа без Compose — проверяются unit-тестом
  * ([MedallionOrnamentGeometryTest]): симметрия, ничего не заходит на диск и камни, ничего не
  * выходит за бокс героя и не наезжает на подпись статуса.
  *
@@ -17,13 +18,16 @@ import kotlin.math.sin
  * (= 0.785 r), поэтому декор начинается с [ORNAMENT_CLEAR] и не трогает ни диск, ни камни.
  */
 internal const val ORNAMENT_CLEAR = 0.81f
-private const val GUIDE_REACH = 1.26f
+private const val GUIDE_REACH = 1.14f
 private const val SPIKE_REACH = 0.99f
 private const val RAY_START = ORNAMENT_CLEAR + 0.02f
-private const val RAY_REACH = 0.62f
+private const val RAY_REACH = 0.44f
 private const val RAY_MIN_LEN = 0.05f
 internal const val RAY_COUNT = 96
 private const val RAY_AXIS_GAP_DEG = 10f
+/** Лучи не заходят под диагональные клинки. */
+private const val RAY_DIAGONAL_GAP_DEG = 6f
+private const val DIAGONAL_REACH = 1.08f
 
 /**
  * Длины лучей на 45° (12 лучей по 3,75°). Узор зеркальный: p[i] == p[(12 - i) % 12], поэтому
@@ -52,6 +56,8 @@ internal data class OrnamentLayout(
     /** Конец верхнего / нижнего наконечника от центра; меньше [spikeStart] — наконечника нет. */
     val topSpikeEnd: Float,
     val bottomSpikeEnd: Float,
+    /** Конец диагональных клинков от центра (одинаково во всех четырёх диагоналях). */
+    val diagonalEnd: Float,
     val rays: List<OrnamentRay>,
 )
 
@@ -95,7 +101,8 @@ internal fun medallionOrnamentLayout(
     for (k in 0 until RAY_COUNT) {
         val deg = k * step
         val fromAxis = abs(((deg + 45.0) % 90.0) - 45.0)
-        if (fromAxis < RAY_AXIS_GAP_DEG) continue // на осях — направляющие и наконечники
+        if (fromAxis < RAY_AXIS_GAP_DEG) continue // на осях — клинки розы
+        if (abs(fromAxis - 45.0) < RAY_DIAGONAL_GAP_DEG) continue // на диагоналях — тоже
         val p = RAY_PATTERN[k % RAY_PATTERN.size]
         val a = deg * PI / 180.0
         val dx = cos(a).toFloat()
@@ -116,11 +123,16 @@ internal fun medallionOrnamentLayout(
         rays += OrnamentRay(cx + dx * start, cy + dy * start, cx + dx * end, cy + dy * end, p)
     }
 
+    // Диагональ упирается в ближайшую сторону клипа: по x на half, по y на vHalf.
+    val diagonalLimit = min(half, vHalf) / 0.70710677f - margin
+    val diagonalEnd = min(DIAGONAL_REACH * r, diagonalLimit)
+
     return OrnamentLayout(
         cx = cx, cy = cy, r = r,
         clipLeft = clipLeft, clipTop = clipTop, clipRight = clipRight, clipBottom = clipBottom,
         guideStart = guideStart, guideEnd = guideEnd,
         spikeStart = spikeStart, topSpikeEnd = topSpikeEnd, bottomSpikeEnd = bottomSpikeEnd,
+        diagonalEnd = diagonalEnd,
         rays = rays,
     )
 }

@@ -1,16 +1,15 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -59,29 +58,17 @@ private val MedallionEmerald = Color(0xFF17D141)
  * Живая кромка медальона. Рисуется кодом (drawArc + Stroke) вместо PNG: у прежнего ассета вокруг
  * полосы был белый bloom, который и засвечивал кожу, — удаление слоя ореола этого не лечило.
  * Слой идёт ПОВЕРХ рамы: под ней орнамент перекрывает всё, что нарисовано за краем диска.
+ *
+ * 16.11.2026: кромка горит ровно — мерцание (ключевые кадры 0,85…1 по 1,2 с) убрано: световая
+ * пульсация запрещена владельцем (10.09.2026) и не нравилась ему на экране. Вместо мерцания —
+ * разовое движение при подключении: каждая из четырёх дуг прорисовывается от камней к середине
+ * ([RING_DRAW_MS]), дальше кольцо неподвижно.
  */
 @Composable
 internal fun MonogramGlow(connected: Boolean, modifier: Modifier = Modifier) {
     if (!connected) return
-    val transition = rememberInfiniteTransition(label = "monogramGlow")
-    val ringAlpha by transition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = keyframes {
-                durationMillis = 1200
-                0.85f at 0
-                1f at 90
-                0.90f at 170
-                1f at 260
-                0.93f at 420
-                1f at 700
-                0.97f at 1200
-            },
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "ringFlicker",
-    )
+    val drawn = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { drawn.animateTo(1f, tween(RING_DRAW_MS, easing = FastOutSlowInEasing)) }
     Canvas(modifier) {
         val boxRadius = size.minDimension / 2f
         val stroke = boxRadius * MEDALLION_RING_WIDTH
@@ -89,17 +76,24 @@ internal fun MonogramGlow(connected: Boolean, modifier: Modifier = Modifier) {
         val arcTopLeft = Offset(center.x - radius, center.y - radius)
         val arcSize = Size(radius * 2f, radius * 2f)
         val sweep = 90f - 2f * MEDALLION_RING_GAP_DEG
-        val color = MedallionEmerald.copy(alpha = ringAlpha)
+        val grow = sweep / 2f * drawn.value
         for (quadrant in 0 until 4) {
-            drawArc(
-                color = color,
-                startAngle = 90f * quadrant + MEDALLION_RING_GAP_DEG,
-                sweepAngle = sweep,
-                useCenter = false,
-                topLeft = arcTopLeft,
-                size = arcSize,
-                style = Stroke(width = stroke),
-            )
+            val from = 90f * quadrant + MEDALLION_RING_GAP_DEG
+            // Два встречных отрезка: от камня в начале дуги и от камня в её конце.
+            for (startAngle in floatArrayOf(from, from + sweep - grow)) {
+                drawArc(
+                    color = MedallionEmerald,
+                    startAngle = startAngle,
+                    sweepAngle = grow,
+                    useCenter = false,
+                    topLeft = arcTopLeft,
+                    size = arcSize,
+                    style = Stroke(width = stroke),
+                )
+            }
         }
     }
 }
+
+/** Прорисовка кольца при подключении, мс. */
+internal const val RING_DRAW_MS = 700

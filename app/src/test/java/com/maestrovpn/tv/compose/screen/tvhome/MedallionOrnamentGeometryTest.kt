@@ -83,6 +83,42 @@ class MedallionOrnamentGeometryTest {
     }
 
     @Test
+    fun diagonalBladesStayInsideTheClipAndClearOfTheDisc() = cases.forEach { (w, cap) ->
+        val l = layout(w, cap)
+        val reach = l.diagonalEnd * 0.70710677f
+        assertTrue(l.diagonalEnd > l.guideStart)
+        assertTrue(l.cx + reach <= l.clipRight && l.cx - reach >= l.clipLeft)
+        assertTrue(l.cy + reach <= l.clipBottom && l.cy - reach >= l.clipTop)
+    }
+
+    @Test
+    fun noRaySitsUnderAnAxisOrDiagonalBlade() = cases.forEach { (w, cap) ->
+        val l = layout(w, cap)
+        l.rays.forEach { ray ->
+            val deg = Math.toDegrees(kotlin.math.atan2((ray.y1 - ray.y0).toDouble(), (ray.x1 - ray.x0).toDouble()))
+            val fromAxis = kotlin.math.abs(((deg + 360.0 + 45.0) % 90.0) - 45.0)
+            assertTrue("ray on a blade axis: $deg", fromAxis >= 10.0 && kotlin.math.abs(fromAxis - 45.0) >= 6.0)
+        }
+    }
+
+    /**
+     * Свет не пульсирует (правило владельца 10.09.2026): в покое — при прогрессе 0 и 1 — все слои
+     * в одном и том же состоянии, а при подключении разгораются от кольца наружу.
+     */
+    @Test
+    fun ornamentLightsFromTheRingOutwardAndRestsInOneState() {
+        assertEquals(OrnamentStages(0f, 0f, 0f, 0f), ornamentStages(0f))
+        assertEquals(OrnamentStages(1f, 1f, 1f, 1f), ornamentStages(1f))
+        var previous = ornamentStages(0f)
+        for (i in 1..100) {
+            val s = ornamentStages(i / 100f)
+            assertTrue(s.beads >= s.axes && s.axes >= s.diagonals && s.diagonals >= s.rays)
+            assertTrue(s.beads >= previous.beads && s.axes >= previous.axes && s.diagonals >= previous.diagonals && s.rays >= previous.rays)
+            previous = s
+        }
+    }
+
+    @Test
     fun rayCountIsStable() {
         val l = layout(990f, 190f)
         assertTrue(l.rays.size in 40..RAY_COUNT)
