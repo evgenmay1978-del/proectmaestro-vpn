@@ -21,7 +21,7 @@ func (b adminDeliveryBusiness) CustomerByLogin(context.Context, string) (Custome
 
 func TestAdminCustomerReturnsCanonicalDeliveryChoices(t *testing.T) {
 	const bare = "https://sub.example.com/sub/fixture-token"
-	const xraySubscription = bare + "?format=xray"
+	const links = bare + "?format=links"
 	server := NewControlPlane(adminDeliveryBusiness{view: CustomerView{Login: "fixture", SubURL: bare}}, Config{})
 	recorder := httptest.NewRecorder()
 	server.handleControlPlaneCustomer(recorder, httptest.NewRequest(http.MethodGet, "/admin/customer?login=fixture", nil))
@@ -36,12 +36,12 @@ func TestAdminCustomerReturnsCanonicalDeliveryChoices(t *testing.T) {
 	if recorder.Code != http.StatusOK || response.SubURL != bare {
 		t.Fatalf("admin customer status=%d sub_url=%q", recorder.Code, response.SubURL)
 	}
-	if response.Deliveries["happ"].URL != xraySubscription {
-		t.Fatalf("Happ URL = %q, want %q", response.Deliveries["happ"].URL, xraySubscription)
+	if response.Deliveries["happ"].URL != links {
+		t.Fatalf("Happ URL = %q, want %q", response.Deliveries["happ"].URL, links)
 	}
 	decoded, err := incylink.DecryptLink(response.Deliveries["incy"].URL)
-	if err != nil || decoded.URL != xraySubscription {
-		t.Fatalf("Incy descriptor did not retain the Xray subscription URL: decoded=%#v err=%v", decoded, err)
+	if err != nil || decoded.URL != links {
+		t.Fatalf("Incy descriptor did not retain stable links URL: decoded=%#v err=%v", decoded, err)
 	}
 	const wantKaring = "karing://install-config?url=https%3A%2F%2Fsub.example.com%2Fsub%2Ffixture-token%3Fformat%3Dlinks&name=MaestroVPN"
 	if response.Deliveries["karing"].URL != wantKaring {

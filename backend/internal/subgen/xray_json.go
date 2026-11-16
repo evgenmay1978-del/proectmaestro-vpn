@@ -395,42 +395,42 @@ type xrayJSONTLSSettings struct {
 }
 
 type xrayJSONXHTTPSettings struct {
-	Host                string          `json:"host"`
-	Path                string          `json:"path"`
-	Mode                string          `json:"mode"`
-	UplinkHTTPMethod    string          `json:"uplinkHTTPMethod"`
-	UplinkDataPlacement string          `json:"uplinkDataPlacement"`
-	SessionIDPlacement  string          `json:"sessionIDPlacement"`
-	SessionIDKey        string          `json:"sessionIDKey"`
-	SessionIDLength     int             `json:"sessionIDLength"`
-	SeqPlacement        string          `json:"seqPlacement"`
-	SeqKey              string          `json:"seqKey"`
+	Host                string `json:"host"`
+	Path                string `json:"path"`
+	Mode                string `json:"mode"`
+	UplinkHTTPMethod    string `json:"uplinkHTTPMethod"`
+	UplinkDataPlacement string `json:"uplinkDataPlacement"`
+	SessionIDPlacement  string `json:"sessionIDPlacement"`
+	SessionIDKey        string `json:"sessionIDKey"`
+	SessionIDLength     int    `json:"sessionIDLength"`
+	SeqPlacement        string `json:"seqPlacement"`
+	SeqKey              string `json:"seqKey"`
 	Extra               json.RawMessage `json:"extra,omitempty"`
 }
 
 type xrayJSONXHTTPExtra struct {
-	NoGRPCHeader         bool              `json:"noGRPCHeader"`
-	NoSSEHeader          bool              `json:"noSSEHeader"`
-	SCMaxBufferedPosts   int               `json:"scMaxBufferedPosts"`
-	SCMaxEachPostBytes   int               `json:"scMaxEachPostBytes"`
-	SCMinPostsIntervalMS string            `json:"scMinPostsIntervalMs"`
-	SeqKey               string            `json:"seqKey"`
-	SeqPlacement         string            `json:"seqPlacement"`
-	ServerMaxHeaderBytes int               `json:"serverMaxHeaderBytes"`
-	SessionIDKey         string            `json:"sessionIDKey"`
-	SessionIDLength      string            `json:"sessionIDLength"`
-	SessionIDPlacement   string            `json:"sessionIDPlacement"`
-	SessionKey           string            `json:"sessionKey"`
-	SessionPlacement     string            `json:"sessionPlacement"`
-	UplinkDataPlacement  string            `json:"uplinkDataPlacement"`
-	UplinkHTTPMethod     string            `json:"uplinkHTTPMethod"`
-	XPaddingBytes        string            `json:"xPaddingBytes"`
-	XPaddingHeader       string            `json:"xPaddingHeader"`
-	XPaddingKey          string            `json:"xPaddingKey"`
-	XPaddingMethod       string            `json:"xPaddingMethod"`
-	XPaddingObfsMode     bool              `json:"xPaddingObfsMode"`
-	XPaddingPlacement    string            `json:"xPaddingPlacement"`
-	XMux                 xrayJSONXHTTPXMux `json:"xmux"`
+	NoGRPCHeader          bool             `json:"noGRPCHeader"`
+	NoSSEHeader           bool             `json:"noSSEHeader"`
+	SCMaxBufferedPosts    int              `json:"scMaxBufferedPosts"`
+	SCMaxEachPostBytes    int              `json:"scMaxEachPostBytes"`
+	SCMinPostsIntervalMS  string           `json:"scMinPostsIntervalMs"`
+	SeqKey                string           `json:"seqKey"`
+	SeqPlacement          string           `json:"seqPlacement"`
+	ServerMaxHeaderBytes  int              `json:"serverMaxHeaderBytes"`
+	SessionIDKey          string           `json:"sessionIDKey"`
+	SessionIDLength       string           `json:"sessionIDLength"`
+	SessionIDPlacement    string           `json:"sessionIDPlacement"`
+	SessionKey            string           `json:"sessionKey"`
+	SessionPlacement      string           `json:"sessionPlacement"`
+	UplinkDataPlacement     string            `json:"uplinkDataPlacement"`
+	UplinkHTTPMethod      string           `json:"uplinkHTTPMethod"`
+	XPaddingBytes         string           `json:"xPaddingBytes"`
+	XPaddingHeader        string           `json:"xPaddingHeader"`
+	XPaddingKey           string           `json:"xPaddingKey"`
+	XPaddingMethod        string           `json:"xPaddingMethod"`
+	XPaddingObfsMode      bool             `json:"xPaddingObfsMode"`
+	XPaddingPlacement     string           `json:"xPaddingPlacement"`
+	XMux                   xrayJSONXHTTPXMux `json:"xmux"`
 }
 
 type xrayJSONXHTTPXMux struct {
