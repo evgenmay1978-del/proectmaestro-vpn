@@ -138,9 +138,15 @@ class ApkDownloader : Closeable {
     private suspend fun streamWithResume(url: String, partFile: File, expectedSize: Long) {
         val ctx = coroutineContext
         var have = if (partFile.exists()) partFile.length() else 0L
-        if (expectedSize in 1 until have) { // stale/oversized part → discard and restart
-            partFile.delete()
-            have = 0L
+        when (ResumePlan.step(expectedSize, have)) {
+            ResumePlan.Step.RESTART -> { // stale/oversized part → discard and restart
+                partFile.delete()
+                have = 0L
+            }
+            // .part уже полного размера (обрыв на самом последнем байте). Range отсюда дал бы
+            // HTTP 416 InvalidRange — качать нечего: download() проверит размер/sha256 и завершит.
+            ResumePlan.Step.READY -> return
+            ResumePlan.Step.RESUME -> Unit
         }
 
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -154,10 +160,12 @@ class ApkDownloader : Closeable {
         try {
             conn.connect()
             val append: Boolean
-            when (conn.responseCode) {
-                HttpURLConnection.HTTP_PARTIAL -> append = true            // 206 — server resumed
-                HttpURLConnection.HTTP_OK -> { append = false; have = 0L } // 200 — full body, no resume
-                else -> throw IOException("HTTP ${conn.responseCode}")
+            when (ResumePlan.reply(conn.responseCode, expectedSize, have)) {
+                ResumePlan.Reply.APPEND -> append = true                 // 206 — server resumed
+                ResumePlan.Reply.FULL -> { append = false; have = 0L }   // 200 — full body, no resume
+                // 416 при уже полном .part — файл скачан, серверу нечего отдавать; выходим через finally.
+                ResumePlan.Reply.DONE -> return
+                ResumePlan.Reply.FAIL -> throw IOException("HTTP ${conn.responseCode}")
             }
             val thisLen = conn.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
             val total = when {
