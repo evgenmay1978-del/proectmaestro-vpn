@@ -35,9 +35,10 @@ jobs:
           [ "${{ inputs.emulator_review }}" = true ]
           git diff --exit-code 9dad4b0bec9fdd09a012e00a9b82d7ac391088da HEAD -- app/src/main app/build.gradle.kts
       - name: Preserve ordinary VPN engine
-        # Базлайны перепинены на 9dad4b0b (17.11.2026, задача TV-core v1.14.4): ядро переведено на
-        # v1.14.4, патч libbox-awg/ удалён из репо целиком, пины olcRTC/WDTT убраны из version.properties.
-        run: git diff --exit-code 9dad4b0bec9fdd09a012e00a9b82d7ac391088da HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
+        # Базлайны перепинены на b209c77 (17.11.2026, задача TV-core v1.14.4): ядро переведено на
+        # v1.14.4, патч libbox-awg/ удалён из репо целиком, пины olcRTC/WDTT убраны из version.properties,
+        # libbox.yml грузит legacy-AAR (v1.14.4 non-legacy = androidapi 24 > minSdk 23).
+        run: git diff --exit-code b209c77 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
