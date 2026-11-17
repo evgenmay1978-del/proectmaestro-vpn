@@ -137,11 +137,13 @@ jobs:
         working-directory: sing-box
         run: ls -lh libbox*.aar
 
-      # We only ship the non-legacy AAR: it is built with -androidapi 23, which
-      # matches our minSdk 23 (we drop SFA's otherLegacy/minSdk-21 flavor).
+      # sing-box v1.14.4 builds the non-legacy AAR with -androidapi 24, which
+      # exceeds our app minSdk 23. Ship the legacy variant instead: with our strip
+      # edits both variants carry the identical tag set (naive removed from
+      # sharedTags, legacyTags := sharedTags), so legacy == full minus the API bump.
       - name: Upload libbox.aar
         uses: actions/upload-artifact@v4
         with:
           name: libbox-aar
-          path: sing-box/libbox.aar
+          path: sing-box/libbox-legacy.aar
           if-no-files-found: error
