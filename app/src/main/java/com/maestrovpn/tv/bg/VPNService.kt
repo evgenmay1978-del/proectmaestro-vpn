@@ -79,6 +79,14 @@ class VPNService :
         // what worked without the VPN). A config that already carries a smaller mtu is passed
         // through unchanged.
         val tunMtu = options.mtu.let { if (it in 1..1280) it else 1280 }
+        EngineDiag.log(
+            "tun",
+            "request mtu=" + options.mtu + " autoRoute=" + options.autoRoute + " dnsMode=" + options.dnsMode +
+                " httpProxy=" + options.isHTTPProxyEnabled + " allowBypass=" + Settings.allowBypass,
+        )
+
+        val includeNames = StringBuilder()
+        val excludeNames = StringBuilder()
 
         val builder =
             Builder()
@@ -113,6 +121,7 @@ class VPNService :
         // after a failed start, so the counts go to the diary as well.
         Log.d("VPNService", "tun families: inet4=" + inet4Count + " inet6=" + inet6Count + " mtu=" + tunMtu)
         StartupDiag.log("tun", "families inet4=" + inet4Count + " inet6=" + inet6Count + " mtu=" + tunMtu)
+        EngineDiag.log("tun", "families inet4=" + inet4Count + " inet6=" + inet6Count + " mtu=" + tunMtu)
 
         if (options.autoRoute) {
             if (options.dnsMode.value != Libbox.DNSModeDisabled) {
@@ -174,6 +183,7 @@ class VPNService :
                     try {
                         val nextPackage = includePackage.next()
                         builder.addAllowedApplication(nextPackage)
+                        includeNames.append(nextPackage).append(' ')
                         Log.d("VPNService", "addAllowedApplication: $nextPackage")
                     } catch (e: NameNotFoundException) {
                         Log.e("VPNService", "addAllowedApplication failed", e)
@@ -187,6 +197,7 @@ class VPNService :
                     try {
                         val nextPackage = excludePackage.next()
                         builder.addDisallowedApplication(nextPackage)
+                        excludeNames.append(nextPackage).append(' ')
                         Log.d("VPNService", "addDisallowedApplication: $nextPackage")
                     } catch (e: NameNotFoundException) {
                         Log.e("VPNService", "addDisallowedApplication failed", e)
@@ -212,8 +223,15 @@ class VPNService :
             systemProxyEnabled = false
         }
 
+        EngineDiag.log(
+            "tun",
+            "builder include=[" + includeNames.toString().trim() + "] exclude=[" +
+                excludeNames.toString().trim() + "] proxy=" + systemProxyEnabled,
+        )
         val pfd =
             builder.establish() ?: error("android: the application is not prepared or is revoked")
+        EngineDiag.log("tun", "established fd=" + pfd.fd + " mtu=" + tunMtu)
+        EngineDiag.networkSnapshot("tun-up")
         service.fileDescriptor = pfd
         return pfd.fd
     }
