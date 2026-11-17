@@ -619,6 +619,11 @@ jobs:
             --json databaseId -q '.[0].databaseId // empty')
           [ -n "$RUN_ID" ] || { echo "::error::No successful libbox.yml build found." >&2; exit 1; }
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
+          # sing-box v1.14.4 ships two variants: libbox.aar is androidapi 24 (> app minSdk 23)
+          # while libbox-legacy.aar is androidapi 21, so libbox.yml now uploads the legacy one.
+          # Gradle (files("libs/libbox.aar")), this job and the pinned cdn-runtime artifact all
+          # expect the plain libbox.aar name - normalise it here.
+          if [ -f app/libs/libbox-legacy.aar ]; then mv app/libs/libbox-legacy.aar app/libs/libbox.aar; fi
           test -f app/libs/libbox.aar
           ls -lh app/libs/
 
