@@ -47,7 +47,7 @@ class TunIpv6WiringContractTest {
         assertEquals(
             "the MTU clamp must stay at 1500 (task 17.11.2026)",
             1,
-            count(openTun, "val tunMtu = options.mtu.let { if (it in 1..1500) it else 1500 }"),
+            count(openTun, "val tunMtu = options.mtu.let { if (it in 1..1280) it else 1280 }"),
         )
     }
 

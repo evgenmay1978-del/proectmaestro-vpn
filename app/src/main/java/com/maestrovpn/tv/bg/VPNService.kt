@@ -72,12 +72,13 @@ class VPNService :
     override fun openTun(options: TunOptions): Int {
         if (prepare(this) != null) error("android: missing vpn permission")
 
-        // TUN MTU clamp. sing-box defaults an UNSET mtu to 9000; 1280 was too small for the
-        // 32-bit TV boxes (Tanix W2, api 30): YouTube went black with the VPN on (task
-        // 2026-11-17). 1500 is the ethernet-frame default those boxes expect and is
-        // universally deliverable on RU uplinks; a config that already carries a smaller
-        // mtu is passed through unchanged.
-        val tunMtu = options.mtu.let { if (it in 1..1500) it else 1500 }
+        // TUN MTU clamp. sing-box defaults an UNSET mtu to 9000. Keep 1280: the panel ships the
+        // tun with "stack": "system", which has no MSS clamping, so a 1500 mtu silently drops
+        // everything above the uplink path MTU — the live run on 2026-11-17 showed the VPN
+        // "connected" with no TLS handshake passing at all (no YouTube, no Telegram, not even
+        // what worked without the VPN). A config that already carries a smaller mtu is passed
+        // through unchanged.
+        val tunMtu = options.mtu.let { if (it in 1..1280) it else 1280 }
 
         val builder =
             Builder()
