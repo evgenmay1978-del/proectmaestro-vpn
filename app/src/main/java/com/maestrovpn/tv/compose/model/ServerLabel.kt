@@ -18,7 +18,7 @@ private val SERVICE_PREFIXES = listOf("БС/Yandex ", "JFL · ", "WL · ")
 
 /** The last « · » part of a tag that names a transport rather than the server. */
 private val TRANSPORT_SUFFIX = Regex(
-    "(?:VLESS|VMess|Trojan|Shadowsocks|Hysteria2?|TUIC|AnyTLS|Naive|NaiveProxy|AmneziaWG|WireGuard|XHTTP|S\\d)" +
+    "(?:VLESS|VMess|Trojan|Shadowsocks|Hysteria2?|TUIC|WireGuard|XHTTP|S\\d)" +
         "(?:\\s+.*)?",
     RegexOption.IGNORE_CASE,
 )
@@ -42,10 +42,7 @@ internal fun serverTransport(type: String?, subXhttp: Boolean = false): String? 
         "hysteria2" -> "Hysteria2"
         "hysteria" -> "Hysteria"
         "tuic" -> "TUIC"
-        "anytls" -> "AnyTLS"
-        "naive" -> "Naive"
         "wireguard" -> "WireGuard"
-        "awg" -> "AmneziaWG"
         // xhttp nodes reach the engine as a loopback SOCKS to the Xray runner.
         else -> if (subXhttp) "VLESS · XHTTP" else null
     }

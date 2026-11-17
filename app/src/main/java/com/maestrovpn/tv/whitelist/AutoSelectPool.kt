@@ -31,8 +31,7 @@ internal object OwnServers {
 
     /** Short tags of the panel's own protocols and of transports that only exist on our nodes. */
     private val SHORT_TAGS = setOf(
-        "vless", "vless-s2", "vless-s3", "vless-s4", "hysteria2", "naive", "naiveproxy", "anytls",
-        "awg", "olcrtc", "olc rtc", "vk-turn", "wdtt",
+        "vless", "vless-s2", "vless-s3", "vless-s4", "hysteria2",
     )
 
     /** Tags the shim puts on third-party nodes; checked before the own-name patterns. */
@@ -44,7 +43,7 @@ internal object OwnServers {
      */
     private val RELABELED = Regex(
         "^(?:\\S+\\s+)?(?:Испания|Нидерланды|Италия|Чехия)\\s*·\\s*" +
-            "(?:VLESS|Hysteria2|Naive|NaiveProxy|AnyTLS|AmneziaWG|S\\d)\\b.*",
+            "(?:VLESS|Hysteria2|S\\d)\\b.*",
         RegexOption.IGNORE_CASE,
     )
 
@@ -65,7 +64,7 @@ internal object OwnServers {
         return RELABELED.matches(text)
     }
 
-    /** Leaf outbound or endpoint (awg/wireguard: the server lives in `peers[].address`). */
+    /** Leaf outbound or endpoint (wireguard: the server lives in `peers[].address`). */
     fun isOwnOutbound(outbound: JsonObject): Boolean {
         if (isOwnTag(outbound.text("tag")) || isOwnHost(outbound.text("server"))) return true
         val peers = outbound["peers"] as? JsonArray ?: return false

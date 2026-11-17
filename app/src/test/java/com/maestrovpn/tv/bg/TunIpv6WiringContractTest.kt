@@ -14,7 +14,7 @@ class TunIpv6WiringContractTest {
     fun theConfigIsMadeIpv6CapableBeforeTheEngineSeesIt() {
         val source = source()
         val ensureAt = source.indexOf("TunIpv6.ensure(effective)")
-        val handOverAt = source.indexOf("commandServer.startOrReloadService(withIpv6")
+        val handOverAt = source.indexOf("commandServer.startOrReloadService(finalConfig")
 
         assertTrue("ensure must run in the apply path", ensureAt > 0)
         assertTrue("the engine must receive the rewritten config, not the raw one", handOverAt > ensureAt)
@@ -23,12 +23,17 @@ class TunIpv6WiringContractTest {
 
     @Test
     fun theChangeIsVisibleInTheLog() {
-        val apply = section(source(), "val base = WhiteListConfig.stripAwgDecoys", "commandServer.startOrReloadService")
+        val apply = section(source(), "val base = WhiteListConfig.stripLegacy", "commandServer.startOrReloadService")
 
         assertTrue("an injected IPv6 address must be logged", apply.contains("tun IPv6: injected"))
         assertTrue(
             "a rewrite the engine refuses must fall back to the original bytes",
             apply.contains("ipv6 rejected by the engine"),
+        )
+        assertTrue("an injected tun sniff must be logged", apply.contains("tun sniff: injected"))
+        assertTrue(
+            "a sniff rewrite the engine refuses must fall back to the plain config",
+            apply.contains("sniff rejected by the engine"),
         )
     }
 
@@ -40,9 +45,9 @@ class TunIpv6WiringContractTest {
         assertTrue("the IPv4 count must reach the log", openTun.contains("\"tun families: inet4=\" + inet4Count"))
         assertTrue("the IPv6 count must reach the log", openTun.contains("\" inet6=\" + inet6Count"))
         assertEquals(
-            "the MTU clamp must stay untouched",
+            "the MTU clamp must stay at 1500 (task 17.11.2026)",
             1,
-            count(openTun, "val tunMtu = options.mtu.let { if (it in 1..1280) it else 1280 }"),
+            count(openTun, "val tunMtu = options.mtu.let { if (it in 1..1500) it else 1500 }"),
         )
     }
 

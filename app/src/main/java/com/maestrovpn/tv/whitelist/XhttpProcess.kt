@@ -15,8 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * runtimes in one address space — the coexistence android-xhttp/README.md always described as an
  * unproven device gate (measured 2026-09-26 on the owner phone, reproduced both with the shipped
  * library and with a -Wl,-Bsymbolic rebuild). The engine now ships as a separate PIE executable
- * in jniLibs (useLegacyPackaging=true extracts it to nativeLibraryDir), the same pattern the app
- * used for olcRTC/WDTT.
+ * in jniLibs (useLegacyPackaging=true extracts it to nativeLibraryDir).
  *
  * Socket bypass: a child process cannot call VpnService.protect(), so the child own sockets to
  * the CDN edge are kept out of the tun by the DIRECT rule that WhiteListConfig.inject emits for

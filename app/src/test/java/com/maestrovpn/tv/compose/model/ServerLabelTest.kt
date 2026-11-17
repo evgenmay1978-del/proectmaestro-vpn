@@ -38,7 +38,7 @@ class ServerLabelTest {
     }
 
     @Test fun serviceKeysAreLeftToEachScreen() {
-        listOf("auto", "vless", "vless-s3", "awg", "olcrtc", "cdn:a1b2", "", null).forEach {
+        listOf("auto", "vless", "vless-s3", "cdn:a1b2", "", null).forEach {
             assertNull(it.toString(), serverLabel(it))
         }
     }

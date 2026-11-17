@@ -37,6 +37,7 @@ import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
+import com.maestrovpn.tv.whitelist.Sniffing
 import com.maestrovpn.tv.vendor.Vendor
 import com.maestrovpn.tv.whitelist.AutoSelectPool
 import com.maestrovpn.tv.whitelist.SubXhttpRuntime
@@ -199,7 +200,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             whiteListSession?.close()
             val cdn = request?.tag?.startsWith("cdn:") == true
             try {
-                val base = WhiteListConfig.stripAwgDecoys(when {
+                val base = WhiteListConfig.stripLegacy(when {
                     cdn -> requireNotNull(whiteListSession?.prepare(content, requireNotNull(request))) { "CDN unavailable" }
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
@@ -237,9 +238,26 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         }
                     }
                 }
+                // Без снаффинга маршрутизация идёт по набранному IP: TLS/QUIC-цели, отвечающие
+                // с другого адреса, уходят мимо туннеля (YouTube чёрный на 32-битных ТВ, задача
+                // 17.11.2026). Sniffing включает парсинг SNI/Host — как у Happ и сторонних клиентов.
+                val finalConfig = Sniffing.ensure(withIpv6).let { candidate ->
+                    when {
+                        candidate === withIpv6 -> withIpv6
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tun sniff: injected")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "sniff rejected by the engine — kept the config without sniff")
+                            withIpv6
+                        }
+                    }
+                }
                 StartupDiag.log(
                     "apply",
-                    "cdn=" + cdn + " bytes=" + withIpv6.length + " ipv6Injected=" + (withIpv6 !== effective),
+                    "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== effective) +
+                        " sniffInjected=" + (finalConfig !== withIpv6),
                 )
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
@@ -247,13 +265,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     // Diagnose-02.10.2026: a valid injected CDN config was never used by the engine
                     // (traffic stayed on the ordinary nodes while the UI showed CDN connected), so the
                     // engine's own verdict on the exact bytes we hand over is logged before the call.
-                    val verdict = runCatching { Libbox.checkConfig(withIpv6) }.exceptionOrNull()
-                    Log.d(TAG, "cdn apply: bytes=" + withIpv6.length + " hasCdnTag=" + withIpv6.contains("cdn:") +
+                    val verdict = runCatching { Libbox.checkConfig(finalConfig) }.exceptionOrNull()
+                    Log.d(TAG, "cdn apply: bytes=" + finalConfig.length + " hasCdnTag=" + finalConfig.contains("cdn:") +
                         " checkConfig=" + (verdict?.message ?: "ok"))
                     if (verdict != null) throw IllegalStateException("CDN: конфигурация отклонена ядром", verdict)
                 }
-                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + withIpv6.length)
-                commandServer.startOrReloadService(withIpv6, buildOverrideOptions(withIpv6, cdn))
+                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + finalConfig.length)
+                commandServer.startOrReloadService(finalConfig, buildOverrideOptions(finalConfig, cdn))
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()
                     closeService()

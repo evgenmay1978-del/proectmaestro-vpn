@@ -9,17 +9,19 @@ import org.junit.Test
 class ProtocolVisibilityTest {
     @Test
     fun deferredTransportAliasesAreHiddenWithoutFilteringOtherServers() {
-        val hidden = listOf("vk-turn", "WDTT", "olcrtc", "olcRTC", "OLC RTC", "WEBRTC", "  Vk-Turn  ")
+        // Only WebRTC stays deferred: the legacy transports (vk-turn/wdtt/olcrtc) are removed from
+        // the engine config by WhiteListConfig.stripLegacy, so the UI no longer hides them here.
+        val hidden = listOf("WEBRTC", "webrtc", "  WebRTC  ")
         hidden.forEach { assertFalse(it, isProtocolVisibleInUi(it)) }
-        val ordinary = listOf("auto", "vless", "vless-s4", "hysteria2", "naive", "anytls", "awg", "server-wdtt-backup")
+        val ordinary = listOf("auto", "vless", "vless-s4", "hysteria2", "vk-turn", "WDTT", "olcrtc", "server-wdtt-backup")
         assertEquals(ordinary, visibleProtocolTags(hidden + ordinary))
     }
 
     @Test
     fun hiddenActiveProtocolNeverFallsBackToAnUntrueAutoLabel() {
-        assertNull(visibleActiveProtocol("vk-turn", "auto"))
-        assertNull(visibleActiveProtocol("olcrtc", "vless"))
+        assertNull(visibleActiveProtocol("WEBRTC", "auto"))
         assertNull(visibleActiveProtocol(null, "WEBRTC"))
+        assertEquals("vk-turn", visibleActiveProtocol("vk-turn", "auto"))
         assertEquals("vless", visibleActiveProtocol(null, "vless"))
         assertEquals("auto", visibleActiveProtocol("", "auto"))
         assertEquals("vless-s3", visibleActiveProtocol("vless-s3", "auto"))
@@ -28,8 +30,7 @@ class ProtocolVisibilityTest {
     @Test
     fun groupProjectionHidesItemsHeadingsAndSelectionWithoutChangingRuntimeGroups() {
         val source = listOf(
-            group("select", "vk-turn", "auto", "vk-turn", "olcrtc", "server-a"),
-            group("olcrtc", "relay-a", "relay-a"),
+            group("select", "webrtc", "auto", "webrtc", "server-a"),
             group("auto", "server-a", "server-a", "vless-s4"),
         )
 
@@ -37,16 +38,16 @@ class ProtocolVisibilityTest {
             listOf(group("select", "", "auto", "server-a"), group("auto", "server-a", "server-a", "vless-s4")),
             visibleProtocolGroups(source),
         )
-        assertEquals("vk-turn", source.first().selected)
-        assertEquals(listOf("auto", "vk-turn", "olcrtc", "server-a"), source.first().items.map { it.tag })
-        assertEquals(emptyList<Group>(), visibleProtocolGroups(listOf(group("select", "olcrtc", "olcrtc"))))
+        assertEquals("webrtc", source.first().selected)
+        assertEquals(listOf("auto", "webrtc", "server-a"), source.first().items.map { it.tag })
+        assertEquals(emptyList<Group>(), visibleProtocolGroups(listOf(group("select", "webrtc", "webrtc"))))
     }
 
     @Test
     fun manualAndPendingSelectionsRejectHiddenGroupOrItem() {
-        assertFalse(isProtocolSelectionAllowed("select", "vk-turn"))
+        assertFalse(isProtocolSelectionAllowed("select", "webrtc"))
         assertFalse(isProtocolSelectionAllowed("select", "WebRTC"))
-        assertFalse(isProtocolSelectionAllowed("olcrtc", "relay-a"))
+        assertFalse(isProtocolSelectionAllowed("webrtc", "relay-a"))
         assertTrue(isProtocolSelectionAllowed("select", "auto"))
         assertTrue(isProtocolSelectionAllowed("vless", "server-a"))
     }
@@ -57,7 +58,7 @@ class ProtocolVisibilityTest {
         val tags = listOf(
             "auto",
             "🇪🇸 MaestroVPN VLESS",
-            "🇮🇹 Италия · AnyTLS",
+            "🇮🇹 Италия · VLESS",
             "cdn:xhttp-a",
             "JFL · 🇩🇪 Германия",
             "JFL · 🇳🇱 Нидерланды",
@@ -73,7 +74,7 @@ class ProtocolVisibilityTest {
         )
         // The JFL tile sits right after «Авто» so the 8-tile grid can never cut it off (15.11.2026).
         assertEquals(
-            listOf("auto", "jfl", "🇪🇸 MaestroVPN VLESS", "🇮🇹 Италия · AnyTLS"),
+            listOf("auto", "jfl", "🇪🇸 MaestroVPN VLESS", "🇮🇹 Италия · VLESS"),
             tvHomeProtocolTags(tags),
         )
     }

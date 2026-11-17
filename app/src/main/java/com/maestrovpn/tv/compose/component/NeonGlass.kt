@@ -216,7 +216,7 @@ fun NeonChip(
             }
             if (subtitle != null) {
                 // two-line chip: protocol name + a small recommendation BADGE, LEFT-aligned.
-                // NO wrap/ellipsis — autoSize shrinks long RU names (Hysteria2 / NaiveProxy) so they
+                // NO wrap/ellipsis — autoSize shrinks long RU names (Hysteria2 / VLESS) so they
                 // FIT one line in the narrow 3-per-row cell.
                 Column(Modifier.weight(1f)) {
                     BasicText(

@@ -68,49 +68,62 @@ class WhiteListConfigTest {
     }
 
     /**
-     * AWG from the ordinary subscription sits in the top-level "endpoints" array (type "awg"),
-     * not in "outbounds". Managed-mode reconciliation must accept such a pick — otherwise it is
-     * silently dropped back to "auto" and the core keeps running a VLESS outbound while the user
-     * believes AWG is selected (owner incident, 16.10.2026).
+     * AWG is removed from the engine (task 17.11.2026): a leftover awg pick in "default" is no
+     * longer a usable outbound type, so ordinaryTag falls back exactly as it does for any other
+     * unknown tag — to «Авто», never to a dead outbound.
      */
-    @Test fun ordinaryTagKeepsAwgEndpointChoice() {
-        val withAwg = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
-        assertEquals("awg", WhiteListConfig.ordinaryTag(withAwg))
-    }
-
-    @Test fun ordinaryTagFallsBackToAutoWhenTheEndpointIsGone() {
-        val withoutEndpoint = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}]}"""
-        assertEquals("auto", WhiteListConfig.ordinaryTag(withoutEndpoint))
-    }
-
-    @Test fun ordinaryTagIgnoresAnEndpointThatWasNotChosen() {
-        val autoChosen = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"auto"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
-        assertEquals("auto", WhiteListConfig.ordinaryTag(autoChosen))
+    @Test fun ordinaryTagFallsBackToAutoForAnUnknownDefault() {
+        val unknown = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","awg"],"default":"awg"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"direct","tag":"ordinary"}]}"""
+        assertEquals("auto", WhiteListConfig.ordinaryTag(unknown))
     }
 
     @Test fun ordinaryTagStillRefusesAnInjectedCdnSession() {
-        val withCdn = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","cdn:x"],"default":"cdn:x"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"socks","tag":"cdn:x"}],"endpoints":[{"type":"awg","tag":"awg"}]}"""
+        val withCdn = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","cdn:x"],"default":"cdn:x"},{"type":"urltest","tag":"auto","outbounds":["ordinary"]},{"type":"socks","tag":"cdn:x"}]}"""
         assertNull(WhiteListConfig.ordinaryTag(withCdn))
     }
 
-    @Test fun stripAwgDecoysRemovesOnlyI1ToI5FromAwgEndpoints() {
-        val config = """{"outbounds":[{"type":"direct","tag":"direct","i1":"keep"}],"endpoints":[{"type":"awg","tag":"awg","jc":4,"s1":10,"i1":"<b 0xc2>","i2":"x","i5":"y"},{"type":"wireguard","tag":"wg","i1":"keep"}]}"""
-        val root = Json.parseToJsonElement(WhiteListConfig.stripAwgDecoys(config)).jsonObject
-        val endpoints = root["endpoints"]!!.jsonArray.map { it.jsonObject }
-        val awg = endpoints.single { it["tag"]!!.jsonPrimitive.content == "awg" }
-        assertNull(awg["i1"]); assertNull(awg["i2"]); assertNull(awg["i5"])
-        assertEquals("4", awg["jc"]!!.jsonPrimitive.content)
-        assertEquals("10", awg["s1"]!!.jsonPrimitive.content)
-        assertEquals("keep", endpoints.single { it["tag"]!!.jsonPrimitive.content == "wg" }["i1"]!!.jsonPrimitive.content)
-        assertEquals("keep", root["outbounds"]!!.jsonArray[0].jsonObject["i1"]!!.jsonPrimitive.content)
+    /**
+     * The engine v1.14.4 has no AWG/AnyTLS/Naive and the app has no wdtt/olcrtc, but the panel
+     * still emits those tags for older installs. stripLegacy removes every outbound/endpoint of a
+     * removed type or tag and repairs every reference before the config reaches the engine.
+     */
+    @Test fun stripLegacyRemovesLegacyOutboundsAndEndpointsAndRepairsReferences() {
+        val config = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["auto","naive-node","awg","olcrtc"],"default":"awg"},
+            {"type":"urltest","tag":"auto","outbounds":["vless-node","naive-node"]},
+            {"type":"vless","tag":"vless-node","server":"185.121.12.47","server_port":443},
+            {"type":"naive","tag":"naive-node"},
+            {"type":"direct","tag":"direct"},
+            {"type":"socks","tag":"olcrtc"}],
+            "endpoints":[{"type":"awg","tag":"awg"},{"type":"wireguard","tag":"vk-turn"}],
+            "route":{"final":"select","rules":[{"outbound":"olcrtc"},{"outbound":"direct"}]}}"""
+        val root = Json.parseToJsonElement(WhiteListConfig.stripLegacy(config)).jsonObject
+        val outbounds = root["outbounds"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(
+            listOf("select", "auto", "vless-node", "direct"),
+            outbounds.map { it["tag"]!!.jsonPrimitive.content },
+        )
+        assertEquals(listOf("auto"), outbounds[0]["outbounds"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("auto", outbounds[0]["default"]!!.jsonPrimitive.content)
+        assertEquals(listOf("vless-node"), outbounds[1]["outbounds"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertTrue(root["endpoints"]!!.jsonArray.isEmpty())
+        val route = root["route"]!!.jsonObject
+        assertEquals(listOf("direct"), route["rules"]!!.jsonArray.map { it.jsonObject["outbound"]!!.jsonPrimitive.content })
     }
 
-    @Test fun stripAwgDecoysLeavesConfigsWithoutDecoysByteForByte() {
-        val noAwg = """{"outbounds":[{"type":"direct","tag":"direct"}]}"""
-        val awgClean = """{"endpoints":[{"type":"awg","tag":"awg","jc":4}]}"""
-        assertEquals(noAwg, WhiteListConfig.stripAwgDecoys(noAwg))
-        assertEquals(awgClean, WhiteListConfig.stripAwgDecoys(awgClean))
-        assertEquals("not json", WhiteListConfig.stripAwgDecoys("not json"))
+    @Test fun stripLegacyKeepsAnEmptiedSelectorStartableWithDirect() {
+        val config = """{"outbounds":[{"type":"selector","tag":"select","outbounds":["olcrtc"],"default":"olcrtc"},
+            {"type":"socks","tag":"olcrtc"},{"type":"direct","tag":"direct"}]}"""
+        val root = Json.parseToJsonElement(WhiteListConfig.stripLegacy(config)).jsonObject
+        val select = root["outbounds"]!!.jsonArray.first().jsonObject
+        assertEquals(listOf("direct"), select["outbounds"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("direct", select["default"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun stripLegacyLeavesConfigsWithoutLegacyByteForByte() {
+        val clean = """{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}"""
+        assertEquals(clean, WhiteListConfig.stripLegacy(clean))
+        assertEquals("not json", WhiteListConfig.stripLegacy("not json"))
+        assertEquals("[]", WhiteListConfig.stripLegacy("[]"))
     }
 
     /**

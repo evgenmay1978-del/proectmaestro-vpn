@@ -24,9 +24,9 @@ internal object SubXhttpPlan {
 
     /**
      * tag -> server_port of every loopback SOCKS outbound that belongs to the shim. Only ports
-     * from the shim's own range are ours: the white-list runner binds an ephemeral port and
-     * olcRTC keeps 8808, neither may ever be mistaken for an xhttp node (that mistake would make
-     * a working node look like an orphan and block its selection).
+     * from the shim's own range are ours: the white-list runner binds an ephemeral port that may
+     * never be mistaken for an xhttp node (that mistake would make a working node look like an
+     * orphan and block its selection).
      */
     fun profileXhttpPorts(
         configJson: String,

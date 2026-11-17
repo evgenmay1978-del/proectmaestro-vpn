@@ -67,9 +67,9 @@ class UpdateProfileWork {
         /**
          * Force an IMMEDIATE /sub re-fetch of the trusted remote profiles, BYPASSING the
          * autoUpdateInterval guard (unlike the periodic worker, which floors at the Android
-         * 15-min minimum). Called on app foreground + on connect so a change — expiry/renewal,
-         * device-cap, or the olcRTC outbound appearing/leaving — is reflected the instant the
-         * user acts, not only on the next 15-min tick. Same SSRF guard + bounded fetch +
+         * 15-min minimum). Called on app foreground + on connect so a change — expiry/renewal
+         * or device-cap — is reflected the instant the user acts, not only on the next 15-min
+         * tick. Same SSRF guard + bounded fetch +
          * checkConfig + hot-reload-if-selected as the worker; a failed fetch keeps the live
          * config untouched (never disturbs the running tunnel).
          *

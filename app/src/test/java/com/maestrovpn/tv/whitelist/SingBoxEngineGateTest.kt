@@ -21,8 +21,8 @@ import java.util.concurrent.TimeUnit
  *
  * These tests push the real post-processing chain of BoxService.applySelectedContent through the
  * official binary of the pinned SINGBOX_REF (version.properties) and require exit code 0:
- *   ordinary: stripAwgDecoys -> TunIpv6.ensure
- *   cdn:      WhiteListConfig.inject -> stripAwgDecoys -> TunIpv6.ensure
+ *   ordinary: stripLegacy -> TunIpv6.ensure -> Sniffing.ensure
+ *   cdn:      WhiteListConfig.inject -> stripLegacy -> TunIpv6.ensure -> Sniffing.ensure
  * A negative control MUST fail with the exact legacy text — a gate that cannot reproduce the defect
  * would prove nothing.
  *
@@ -48,7 +48,7 @@ class SingBoxEngineGateTest {
     @Test
     fun theOrdinaryApplyChainIsAccepted() {
         val engine = requireEngine()
-        val applied = TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(fixture))
+        val applied = Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(fixture)))
         assertAccepted(engine, applied, "ordinary")
     }
 
@@ -57,50 +57,59 @@ class SingBoxEngineGateTest {
         val engine = requireEngine()
         val injected = WhiteListConfig.inject(fixture, cdnRoute, cdnRoute.address, SOCKS_PORT, CDN_USER, CDN_PASS)
         assertTrue("the CDN variant must carry the injected tag", injected.contains(cdnRoute.tag))
-        val applied = TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(injected))
+        val applied = Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(injected)))
         assertAccepted(engine, applied, "cdn")
     }
 
     /**
      * The panel serves a DIFFERENT profile to our own client (User-Agent SFA/…): 8513 B with a naive
-     * outbound and a top-level "endpoints" array holding the AmneziaWG endpoint — our libbox is
-     * built with the with_awg tag and accepts it, the upstream pin does not. This test pins that
-     * split instead of hiding it: if the upstream binary ever starts to accept "awg", the gate must
-     * be re-read, not silently "fixed".
+     * outbound and a top-level "endpoints" array holding the AmneziaWG endpoint. The fleet core
+     * v1.14.4 is built WITHOUT awg (the AWG patch is removed, task 17.11.2026), so the RAW panel
+     * shape must be rejected by the upstream pin — that rejection is exactly what stripLegacy
+     * prevents from ever reaching a client.
      */
     @Test
     fun theRealProfileShapeIsRejectedUpstreamOnlyBecauseOfAwg() {
         val engine = requireEngine()
-        val applied = TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(realProfile))
-        val (code, output) = check(engine, applied, "real-awg")
+        val (code, output) = check(engine, realProfile, "real-raw")
         assertTrue("upstream must stop at the awg endpoint, rc=" + code + " output:\n" + output, code != 0)
         assertTrue("only the awg endpoint may be the complaint, output:\n" + output, output.contains(AWG_REJECTED))
     }
 
-    /** Everything else of the real profile shape must still be valid for the pinned engine. */
+    /** After stripLegacy the same panel shape must be valid for the pinned engine. */
     @Test
-    fun theRealProfileShapeWithoutAwgIsAccepted() {
+    fun theRealProfileShapeAfterStripLegacyIsAccepted() {
         val engine = requireEngine()
-        val applied = TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(withoutAwgEndpoint(realProfile)))
-        assertAccepted(engine, applied, "real-noawg")
+        val applied = Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(realProfile)))
+        assertAccepted(engine, applied, "real-stripped")
     }
 
     /**
-     * The engine cannot check the awg endpoint, and our client must not mangle it either: the
-     * rewrite is allowed to touch the tun "address" list only.
+     * The rewrite must remove every legacy transport/endpoint and may otherwise touch the tun
+     * inbound only: the IPv6 prefix is appended to the "address" list and "sniff" is set to true.
      */
     @Test
-    fun ourRewriteKeepsTheAwgEndpointIntact() {
-        val original = Json.parseToJsonElement(realProfile) as JsonObject
+    fun ourRewriteRemovesLegacyAndKeepsTheTunContract() {
         val applied = Json.parseToJsonElement(
-            TunIpv6.ensure(WhiteListConfig.stripAwgDecoys(realProfile)),
+            Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(realProfile))),
         ) as JsonObject
-        assertEquals("the endpoints array must survive the rewrite unchanged", original["endpoints"], applied["endpoints"])
+        val outbounds = applied["outbounds"] as JsonArray
+        assertTrue(
+            "no naive/anytls outbound may survive",
+            outbounds.none { (it as JsonObject)["type"]!!.jsonPrimitive.content in setOf("naive", "anytls") },
+        )
+        assertTrue("no awg endpoint may survive", (applied["endpoints"] as? JsonArray)?.isEmpty() ?: true)
+        val select = outbounds.first { (it as JsonObject)["tag"]!!.jsonPrimitive.content == "select" } as JsonObject
+        assertTrue(
+            "no stripped tag may stay in the selector list",
+            select["outbounds"]!!.jsonArray.none { it.jsonPrimitive.content in setOf("awg", "cz-naive") },
+        )
         val tun = (applied["inbounds"] as JsonArray)
             .single { ((it as JsonObject)["type"] as? JsonPrimitive)?.content == "tun" } as JsonObject
         val addresses = (tun["address"] as JsonArray).map { it.toString() }
         assertEquals("the IPv6 prefix must be appended to the existing list", 2, addresses.size)
         assertTrue("the panel prefix must stay first, got " + addresses, addresses.first().contains("172.19.0.1/30"))
+        assertEquals("true", (tun["sniff"] as JsonPrimitive).content)
     }
 
     @Test
@@ -271,7 +280,8 @@ class SingBoxEngineGateTest {
     /**
      * Shape of the profile the panel hands to our own app: selector/urltest that also list the awg
      * endpoint, a naive outbound, and the AmneziaWG endpoint in the top-level "endpoints" array.
-     * Keys and tags are synthetic; the point is the shape, which upstream cannot validate.
+     * Keys and tags are synthetic; the point is the shape, which the upstream engine rejects until
+     * stripLegacy removes the legacy parts (task 17.11.2026).
      */
     private val realProfile = """
         {
@@ -304,29 +314,6 @@ class SingBoxEngineGateTest {
           }
         }
     """.trimIndent()
-
-    /** Drops the awg endpoint and every reference to its tag, for the upstream validation stage. */
-    private fun withoutAwgEndpoint(base: String): String {
-        val root = Json.parseToJsonElement(base) as JsonObject
-        val endpoints = (root["endpoints"] as JsonArray).filterNot { element ->
-            (element as? JsonObject)?.let { (it["type"] as? JsonPrimitive)?.content } == "awg"
-        }
-        val outbounds = (root["outbounds"] as JsonArray).map { element ->
-            val outbound = element as JsonObject
-            val choices = outbound["outbounds"] as? JsonArray ?: return@map element
-            if (choices.none { (it as? JsonPrimitive)?.content == "awg" }) return@map element
-            val kept = choices.filterNot { (it as? JsonPrimitive)?.content == "awg" }
-            JsonObject(outbound + ("outbounds" to JsonArray(kept)))
-        }
-        // NB: kotlinx's JsonObject.plus lives in a package this file imports by class, so "obj + pair"
-        // resolves to Map.plus and Map.toString() prints "{log={level=warn}}" — the engine answered
-        // "invalid character 'l' looking for beginning of object key string" to exactly that. Build
-        // the object explicitly.
-        val updated = root.toMutableMap()
-        updated["endpoints"] = JsonArray(endpoints)
-        updated["outbounds"] = JsonArray(outbounds)
-        return JsonObject(updated).toString()
-    }
 
     private val cdnRoute = WhiteListRuntimeRoute(
         routeId = "r1",

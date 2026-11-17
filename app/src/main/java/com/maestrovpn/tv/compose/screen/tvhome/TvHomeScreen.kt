@@ -78,11 +78,8 @@ fun TvHomeScreen(
     daysLeft: Int? = null,
     accountExpires: String? = null,
     hasSubProfile: Boolean = false,
-    hasOlcrtcCreds: Boolean = false,
-    olcrtcProvider: String? = null, // "wbstream" | "telemost" — labels the single olcRTC chip
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
-    onSelectOlcrtc: () -> Unit = {},
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit = {},
@@ -139,11 +136,8 @@ fun TvHomeScreen(
                     daysLeft = daysLeft,
                     accountExpires = accountExpires,
                     hasSubProfile = hasSubProfile,
-                    hasOlcrtcCreds = hasOlcrtcCreds,
-                    olcrtcProvider = olcrtcProvider,
                     onToggleConnect = onToggleConnect,
                     onSelectProtocol = onSelectProtocol,
-                    onSelectOlcrtc = onSelectOlcrtc,
                     onBuy = onBuy,
                     onEnterCode = onEnterCode,
                     onSplitTunnel = onSplitTunnel,
@@ -219,11 +213,6 @@ internal fun protocolLabel(tag: String): String = if (tag.startsWith("cdn:")) {
     "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
-    "naive" -> "NaiveProxy"
-    "anytls" -> "AnyTLS"
-    "olcrtc" -> "olcRTC"
-    "vk-turn" -> "WDTT"
-    "awg" -> "AmneziaWG"
     else -> tag.replaceFirstChar { it.uppercase() }
 }
 
@@ -232,13 +221,8 @@ internal fun protocolBadge(tag: String): String = if (tag.startsWith("cdn:")) "�
     "auto" -> "Рекомендуется"
     "vless", "vless-s3" -> "Оптимальный"
     "hysteria2" -> "Самый быстрый"
-    "naive" -> "⚠ нестабильный"
-    "anytls" -> "Без TLS-отпечатка"
-    "olcrtc" -> "через Яндекс"
-    "vk-turn" -> "через VK"
     "trojan" -> "Макс. защита"
     "shadowsocks" -> "Стабильный"
-    "awg" -> "Маскировка трафика"
     else -> "Стабильный"
 }
 

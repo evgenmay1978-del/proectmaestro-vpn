@@ -126,11 +126,8 @@ internal fun TvEskizHome(
     daysLeft: Int?,
     accountExpires: String?,
     hasSubProfile: Boolean,
-    hasOlcrtcCreds: Boolean,
-    olcrtcProvider: String?,
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
-    onSelectOlcrtc: () -> Unit,
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit,
@@ -305,10 +302,7 @@ internal fun TvEskizHome(
                     types = types,
                     jflCount = jflServerCount(protocols),
                     moreCount = grid.overflow.size,
-                    hasOlcrtcCreds = hasOlcrtcCreds,
-                    olcrtcProvider = olcrtcProvider,
                     onSelectProtocol = { if (it == AIVPN_TV_TAG) onOpenAivpn() else onSelectProtocol(it) },
-                    onSelectOlcrtc = onSelectOlcrtc,
                     onOpenJfl = { picker = JFL_GROUP_TAG },
                     onOpenMore = { picker = TV_MORE_TAG },
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -327,7 +321,6 @@ internal fun TvEskizHome(
             selected = visibleActiveProtocol(activeProtocol, selected),
             delays = delays,
             types = types,
-            provider = olcrtcProvider,
             onSelect = { tag ->
                 picker = null
                 onSelectProtocol(tag)
@@ -554,10 +547,7 @@ private fun TvProtocolGrid(
     types: Map<String, String>,
     jflCount: Int,
     moreCount: Int,
-    hasOlcrtcCreds: Boolean,
-    olcrtcProvider: String?,
     onSelectProtocol: (String) -> Unit,
-    onSelectOlcrtc: () -> Unit,
     onOpenJfl: () -> Unit,
     onOpenMore: () -> Unit,
     modifier: Modifier,
@@ -578,20 +568,16 @@ private fun TvProtocolGrid(
             rows.forEach { row ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                     row.forEach { protocol ->
-                        val locked = protocol == "olcrtc" && !hasOlcrtcCreds
                         val folded = protocol == JFL_GROUP_TAG || protocol == TV_MORE_TAG
                         val ping = if (folded || isJflServerTag(protocol)) null else delays[protocol]
                         TvProtocolCard(
                             protocol = protocol,
-                            selected = protocol == selected && !locked,
-                            locked = locked,
-                            provider = olcrtcProvider,
+                            selected = protocol == selected,
                             ping = ping,
                             jflCount = if (protocol == TV_MORE_TAG) moreCount else jflCount,
                             type = types[protocol],
                             onClick = {
                                 when {
-                                    locked -> onSelectOlcrtc()
                                     protocol == JFL_GROUP_TAG -> onOpenJfl()
                                     protocol == TV_MORE_TAG -> onOpenMore()
                                     else -> onSelectProtocol(protocol)
@@ -627,7 +613,7 @@ internal data class TvGrid(val tiles: List<String>, val overflow: List<String>)
  */
 internal fun tvProtocolGrid(protocols: List<String>, aivpnAvailable: Boolean = false): TvGrid {
     val base = if (protocols.isEmpty()) {
-        listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg")
+        listOf("auto", "vless", "hysteria2", "vless-s3")
     } else {
         tvHomeProtocolTags(protocols)
     }.filterNot { it == AIVPN_TV_TAG || it == TV_MORE_TAG }
@@ -647,15 +633,13 @@ internal fun visibleTvProtocols(protocols: List<String>, aivpnAvailable: Boolean
 private fun TvProtocolCard(
     protocol: String,
     selected: Boolean,
-    locked: Boolean,
-    provider: String?,
     onClick: () -> Unit,
     modifier: Modifier,
     ping: Int? = null,
     jflCount: Int = 0,
     type: String? = null,
 ) {
-    val model = tvProtocolCardModel(protocol, locked, provider, jflCount, type)
+    val model = tvProtocolCardModel(protocol, jflCount, type)
     TvSurfaceCard(modifier = modifier, selected = selected, onClick = onClick, contentPadding = 12.dp) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -669,7 +653,7 @@ private fun TvProtocolCard(
                 Icon(
                     model.icon,
                     null,
-                    tint = if (locked) TvMuted else TvGreen,
+                    tint = TvGreen,
                     modifier = Modifier.size(32.dp),
                 )
             }
@@ -812,10 +796,6 @@ private fun tvProtocolIcon(protocol: String) = when (protocol) {
     "auto" -> Icons.Filled.Speed
     "hysteria2" -> Icons.Filled.Layers
     "vless" -> Icons.Filled.Shield
-    "naive" -> Icons.Filled.Public
-    "anytls" -> Icons.Filled.Lock
-    "olcrtc" -> Icons.Filled.Videocam
-    "awg" -> Icons.Filled.VpnLock
     else -> Icons.Filled.Wifi
 }
 
@@ -824,10 +804,6 @@ private fun tvProtocolLabel(protocol: String) = when (protocol.lowercase()) {
     "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
-    "naive" -> "Naive"
-    "anytls" -> "AnyTLS"
-    "olcrtc" -> "OLC RTC"
-    "awg" -> "AmneziaWG"
     else -> protocol
 }
 
@@ -835,9 +811,6 @@ private fun tvProtocolBadge(protocol: String) = when (protocol.lowercase()) {
     "auto" -> "автовыбор"
     "hysteria2" -> "быстрый"
     "vless" -> "универсальный"
-    "naive" -> "маскировка"
-    "anytls" -> "стабильный"
-    "awg" -> "маскировка"
     else -> "доступен"
 }
 
@@ -857,12 +830,9 @@ private data class TvProtocolCardModel(
  */
 private fun tvProtocolCardModel(
     protocol: String,
-    locked: Boolean,
-    provider: String?,
     jflCount: Int = 0,
     type: String? = null,
 ): TvProtocolCardModel {
-    if (locked) return TvProtocolCardModel("", tvProtocolLabel(protocol), "по запросу", Icons.Filled.Lock)
     if (protocol == JFL_GROUP_TAG || protocol == TV_MORE_TAG) {
         // jflCount carries the size of whichever folded list this tile opens.
         val count = if (jflCount > 0) jflCount.toString() + " " + tvServersWord(jflCount) else "серверы"
@@ -872,14 +842,10 @@ private fun tvProtocolCardModel(
     when (protocol.trim().lowercase()) {
         "auto", "urltest", "select" -> return TvProtocolCardModel("", "Авто", "автовыбор", Icons.Filled.Speed)
         AIVPN_TV_TAG -> return TvProtocolCardModel("", "НейроПротокол", "экспериментальный", Icons.Filled.Psychology)
-        "awg" -> return TvProtocolCardModel("", "AmneziaWG", "маскировка", Icons.Filled.VpnLock)
         "vless" -> return TvProtocolCardModel("🇪🇸", "Испания", "VLESS", Icons.Filled.Shield)
         "hysteria2" -> return TvProtocolCardModel("🇮🇹", "Италия", "Hysteria2", Icons.Filled.Layers)
-        "naive", "naiveproxy" -> return TvProtocolCardModel("🇮🇹", "Италия", "Naive", Icons.Filled.Public)
-        "anytls" -> return TvProtocolCardModel("🇮🇹", "Италия", "AnyTLS", Icons.Filled.Lock)
         "vless-s3" -> return TvProtocolCardModel("🇳🇱", "Нидерланды", "VLESS S3", Icons.Filled.Shield)
         "vless-s4" -> return TvProtocolCardModel("🇮🇹", "Италия", "VLESS", Icons.Filled.Shield)
-        "olcrtc", "olc rtc" -> return TvProtocolCardModel("", "OLC RTC", if (provider == "wbstream") "через WB" else "через Яндекс", Icons.Filled.Videocam)
     }
     // Any server that names itself — our relabeled nodes, WL, the xhttp nodes, raw panel tags — gets
     // the same flag, name and transport as on the phone (ServerLabel). Before, only 🇪🇸/🇳🇱/🇮🇹 were
@@ -899,7 +865,6 @@ private fun TvServerPicker(
     selected: String?,
     delays: Map<String, Int>,
     types: Map<String, String>,
-    provider: String?,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -961,7 +926,6 @@ private fun TvServerPicker(
                     TvServerTile(
                         tag = tag,
                         type = types[tag],
-                        provider = provider,
                         active = tag == selected,
                         ping = delays[tag],
                         onClick = { onSelect(tag) },
@@ -977,7 +941,6 @@ private fun TvServerPicker(
 private fun TvServerTile(
     tag: String,
     type: String?,
-    provider: String?,
     active: Boolean,
     ping: Int?,
     onClick: () -> Unit,
@@ -985,7 +948,7 @@ private fun TvServerTile(
 ) {
     TvSurfaceCard(modifier = modifier.height(68.dp), selected = active, onClick = onClick, contentPadding = 12.dp) {
         // Same model as the grid tiles: one flag, name and transport for a server on every screen.
-        val model = tvProtocolCardModel(tag, locked = false, provider = provider, type = type)
+        val model = tvProtocolCardModel(tag, type = type)
         Row(verticalAlignment = Alignment.CenterVertically) {
             CountryFlagBadge(flag = model.flag, icon = model.icon, size = 28.dp)
             Spacer(Modifier.width(10.dp))
