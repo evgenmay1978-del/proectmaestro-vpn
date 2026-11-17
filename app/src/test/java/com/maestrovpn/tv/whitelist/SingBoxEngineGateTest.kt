@@ -115,7 +115,7 @@ class SingBoxEngineGateTest {
         assertTrue("the panel prefix must stay first, got " + addresses, addresses.first().contains("172.19.0.1/30"))
         assertNull("the dead legacy inbound sniff must not be written", tun["sniff"])
         assertEquals(
-            "the engine must get gVisor: with the panel's "system" stack no app TCP ever reached the box",
+            "the engine must get gVisor: on the panel's system stack no app TCP ever reached the box",
             "gvisor",
             (tun["stack"] as JsonPrimitive).content,
         )

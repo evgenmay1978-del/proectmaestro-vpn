@@ -43,6 +43,7 @@ import com.maestrovpn.tv.whitelist.AutoSelectPool
 import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.SubXhttpSession
 import com.maestrovpn.tv.whitelist.TunIpv6
+import com.maestrovpn.tv.whitelist.TunStack
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.whitelist.WhiteListSession
