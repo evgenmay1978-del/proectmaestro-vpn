@@ -65,10 +65,10 @@ private sealed interface ShareState {
 /**
  * "Поделиться подпиской" — a QR of the customer's subscription, with an Android /
  * iPhone toggle:
- *   • Android → the FULL sub URL (`/sub/<token>`): all 4 protocols
- *     (VLESS+Hy2+Naive+AnyTLS). Scanned into MaestroVPN it imports as a remote
+ *   • Android → the FULL sub URL (`/sub/<token>`): all subscription protocols
+ *     (VLESS+Hysteria2). Scanned into MaestroVPN it imports as a remote
  *     profile; generic sing-box apps (Hiddify/NekoBox) take the same native set.
- *   • iPhone → `<subUrl>?app=karing`: base64 share-links (VLESS+Hysteria2+Naive) for
+ *   • iPhone → `<subUrl>?app=karing`: base64 share-links (VLESS+Hysteria2) for
  *     Karing.
  *
  * Both phone and TV get the Dark-Fantasy modal (carved wood + aged-bronze frame + ivy, an
@@ -277,9 +277,9 @@ private fun ShareBody(
                 }
                 Text(
                     if (androidMode) {
-                        "Android: отсканируй в MaestroVPN — подключатся все 4 протокола."
+                        "Android: отсканируй в MaestroVPN — подключатся все протоколы подписки."
                     } else {
-                        "iPhone: установи Karing из App Store и отсканируй — VLESS + Hysteria2 + Naive."
+                        "iPhone: установи Karing из App Store и отсканируй — VLESS + Hysteria2."
                     },
                     textAlign = TextAlign.Center,
                     color = bodyColor,

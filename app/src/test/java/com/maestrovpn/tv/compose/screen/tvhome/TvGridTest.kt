@@ -13,7 +13,7 @@ import org.junit.Test
 class TvGridTest {
     private val subscription = listOf("auto", "🇪🇸 Испания · VLESS", "🇳🇱 Нидерланды · VLESS", "WL · 🇨🇭 Вьюга - Швейцария") +
         (1..10).map { "🇫🇮 Akonit · Узел $it" } +
-        (1..42).map { "JFL · 🇩🇪 Германия $it" } + listOf("olcrtc", "cdn:a1")
+        (1..42).map { "JFL · 🇩🇪 Германия $it" } + listOf("cdn:a1")
 
     @Test fun jflTileIsShownWhateverTheSubscriptionSize() {
         listOf(false, true).forEach { aivpn ->
@@ -30,7 +30,7 @@ class TvGridTest {
         val reachable = grid.tiles.filterNot { it == TV_MORE_TAG || it == JFL_GROUP_TAG } + grid.overflow
         // Every ordinary server is either a tile or in the «Ещё серверы» picker; JFL folds into its
         // own tile, CDN and the hidden transports stay off the TV grid as before.
-        assertEquals(subscription.filterNot { it.startsWith("JFL · ") || it == "olcrtc" || it.startsWith("cdn:") }, reachable)
+        assertEquals(subscription.filterNot { it.startsWith("JFL · ") || it.startsWith("cdn:") }, reachable)
         assertTrue(grid.overflow.none { it.startsWith("JFL · ") })
     }
 

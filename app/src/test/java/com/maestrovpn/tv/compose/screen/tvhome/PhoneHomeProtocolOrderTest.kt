@@ -9,9 +9,11 @@ import org.junit.Test
  */
 class PhoneHomeProtocolOrderTest {
     @Test
-    fun tvMenuHasNoDeferredTeaserAndKeepsOrdinaryServerEntries() {
-        assertEquals(listOf("auto", "vless-s3", "awg"), visibleTvProtocols(listOf("auto", "vk-turn", "olcrtc", "vless-s3", "awg")))
-        assertEquals(emptyList<String>(), visibleTvProtocols(listOf("vk-turn", "olcrtc")))
-        assertEquals(listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg"), visibleTvProtocols(emptyList()))
+    fun tvMenuKeepsOnlyTheWebRtcAliasHidden() {
+        // vk-turn/olcrtc/awg never reach this list in production: the engine config is stripped by
+        // WhiteListConfig.stripLegacy before it starts, so the UI no longer hides them here.
+        assertEquals(listOf("auto", "vk-turn", "olcrtc", "vless-s3", "awg"), visibleTvProtocols(listOf("auto", "vk-turn", "olcrtc", "vless-s3", "awg")))
+        assertEquals(listOf("auto", "vless-s3"), visibleTvProtocols(listOf("auto", "webrtc", "vless-s3")))
+        assertEquals(listOf("auto", "vless", "hysteria2", "vless-s3"), visibleTvProtocols(emptyList()))
     }
 }

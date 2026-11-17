@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,15 +21,13 @@ class AutoSelectPoolTest {
     private fun vless(tag: String, server: String) =
         """{"type":"vless","tag":"$tag","server":"$server","server_port":443,"uuid":"00000000-0000-4000-8000-000000000001"}"""
 
-    /** The shape the S1 shim serves the app on 15.11.2026: our two nodes, JFL, WL, xhttp, AWG. */
+    /** The shape the S1 shim serves the app on 15.11.2026: our two nodes, JFL, WL, xhttp. */
     private val production = """
         {"log":{"level":"warn"},
-         "endpoints":[{"type":"awg","tag":"awg","address":["10.8.0.2/32"],"private_key":"k",
-                       "peers":[{"address":"46.30.41.191","port":51820,"public_key":"p"}]}],
          "outbounds":[
-          {"type":"selector","tag":"select","outbounds":["auto","🇪🇸 Испания · VLESS","🇳🇱 Нидерланды · VLESS","awg",
+          {"type":"selector","tag":"select","outbounds":["auto","🇪🇸 Испания · VLESS","🇳🇱 Нидерланды · VLESS",
             "JFL · 🇩🇪 Германия","JFL · 🇫🇮 Финляндия","WL · 🇨🇭 ⚡️Вьюга - Швейцария","🇫🇮 Akonit · Финляндия"],"default":"auto"},
-          {"type":"urltest","tag":"auto","outbounds":["🇪🇸 Испания · VLESS","🇳🇱 Нидерланды · VLESS","awg",
+          {"type":"urltest","tag":"auto","outbounds":["🇪🇸 Испания · VLESS","🇳🇱 Нидерланды · VLESS",
             "JFL · 🇩🇪 Германия","JFL · 🇫🇮 Финляндия","WL · 🇨🇭 ⚡️Вьюга - Швейцария"],
            "url":"https://www.gstatic.com/generate_204","interval":"3m","tolerance":40,"interrupt_exist_connections":true},
           ${vless("🇪🇸 Испания · VLESS", "185.121.12.47")},
@@ -55,7 +54,7 @@ class AutoSelectPoolTest {
             members(result.config, "auto"),
         )
         assertEquals(
-            mapOf("auto" to listOf("🇪🇸 Испания · VLESS", "🇳🇱 Нидерланды · VLESS", "awg")),
+            mapOf("auto" to listOf("🇪🇸 Испания · VLESS", "🇳🇱 Нидерланды · VLESS")),
             result.removed,
         )
         assertTrue(result.ownOnly.isEmpty())
@@ -66,7 +65,7 @@ class AutoSelectPoolTest {
         val before = Json.parseToJsonElement(production).jsonObject
         val after = Json.parseToJsonElement(result.config).jsonObject
         assertEquals(group(production, "select"), group(result.config, "select"))
-        assertEquals(before["endpoints"], after["endpoints"])
+        assertNull(after["endpoints"])
         assertEquals(before["route"], after["route"])
         assertEquals(before["log"], after["log"])
         // Probe settings of «Авто» survive; only its member list changed.
@@ -92,11 +91,11 @@ class AutoSelectPoolTest {
     @Test fun panelAndShimNamesOfOurNodesAreOursEvenWithANewAddress() {
         listOf(
             "🇪🇸 MaestroVPN VLESS", "🇳🇱 MaestroVPN VLESS S3", "🇪🇸 Испания · VLESS", "🇳🇱 Нидерланды · VLESS",
-            "🇮🇹 Италия · AnyTLS", "🇪🇸 Испания · S1", "vless", "vless-s3", "awg", "cdn:a1b2", "БС/Yandex Москва",
+            "🇪🇸 Испания · S1", "vless", "vless-s3", "cdn:a1b2", "БС/Yandex Москва",
         ).forEach { assertTrue(it, OwnServers.isOwnTag(it)) }
         listOf(
             "JFL · 🇪🇸 Испания", "WL · 🇳🇱 Нидерланды · VLESS", "xhttp:fi-1", "🇫🇮 Akonit · Финляндия",
-            "🇩🇪 Германия · VLESS", "auto", "", null,
+            "🇩🇪 Германия · VLESS", "🇮🇹 Италия · AnyTLS", "awg", "auto", "", null,
         ).forEach { assertFalse(it.toString(), OwnServers.isOwnTag(it)) }
     }
 

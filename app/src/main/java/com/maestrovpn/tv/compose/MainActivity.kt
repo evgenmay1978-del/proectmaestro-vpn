@@ -1606,7 +1606,7 @@ class MainActivity :
             }
         }
         // Force a fresh /sub pull on foreground (bypasses the 15-min periodic floor) so an
-        // expiry/renewal, device-cap, or olcRTC room/outbound change reflects the moment the user
+        // expiry/renewal or device-cap change reflects the moment the user
         // opens the app — not only on the next timer tick. Light 30s throttle; cheap + safe (keeps
         // the live config on failure, hot-reloads only if the selected profile actually changed).
         if (System.currentTimeMillis() - lastSubRefreshMs > 30 * 1000L) {

@@ -9,7 +9,7 @@ import java.net.URL
  *
  * It used to be one request to google.com/generate_204, duplicated verbatim on the TV home and
  * the phone revolver menu. That endpoint answers "нет соединения" in exactly the situation this
- * product exists for: a restricted cell that only passes VK/OK/Яндекс (the WDTT scenario), where
+ * product exists for: a restricted cell that only passes VK/OK/Яндекс, where
  * the network can be perfectly healthy while Google is unreachable.
  *
  * So probe OUR panel first — reaching it is what the subscription and update paths depend on —

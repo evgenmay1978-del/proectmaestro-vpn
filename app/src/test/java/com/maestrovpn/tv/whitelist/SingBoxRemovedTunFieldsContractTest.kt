@@ -35,7 +35,7 @@ class SingBoxRemovedTunFieldsContractTest {
         val file = File.createTempFile("tun-address-guard", ".json")
         try {
             file.writeText("{\"type\":\"tun\",\"" + inet6AddressKey + "\":\"fd00::1/64\"}")
-            val found = offenders(listOf(file), file.parentFile)
+            val found = offenders(listOf(file), requireNotNull(file.parentFile))
             assertEquals("the guard must report the planted key", 1, found.size)
             assertTrue("the report must name the key", found.single().endsWith(inet6AddressKey))
         } finally {

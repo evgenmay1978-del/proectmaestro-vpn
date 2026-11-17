@@ -37,11 +37,13 @@ import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
+import com.maestrovpn.tv.whitelist.Sniffing
 import com.maestrovpn.tv.vendor.Vendor
 import com.maestrovpn.tv.whitelist.AutoSelectPool
 import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.SubXhttpSession
 import com.maestrovpn.tv.whitelist.TunIpv6
+import com.maestrovpn.tv.whitelist.TunStack
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.whitelist.WhiteListSession
@@ -199,14 +201,20 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             whiteListSession?.close()
             val cdn = request?.tag?.startsWith("cdn:") == true
             try {
-                val base = WhiteListConfig.stripAwgDecoys(when {
+                val base = WhiteListConfig.stripLegacy(when {
                     cdn -> requireNotNull(whiteListSession?.prepare(content, requireNotNull(request))) { "CDN unavailable" }
                     request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
                     else -> content
                 })
+                EngineDiag.stage("base", base)
                 // «Авто» chooses among third-party servers only (owner, 15.11.2026). This is the
                 // single place every start/reload passes, so no path reaches the engine around it.
                 val pool = AutoSelectPool.exclude(base)
+                EngineDiag.log(
+                    "apply",
+                    "auto pool: removed=" + pool.removed.values.sumOf { it.size } +
+                        " groups=" + pool.removed.keys + " ownOnlyKept=" + pool.ownOnly,
+                )
                 if (pool.removed.isNotEmpty() || pool.ownOnly.isNotEmpty()) {
                     StartupDiag.log(
                         "apply",
@@ -218,6 +226,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 // поэтому его TCP до entry-IP должно уходить мимо tun правилом DIRECT.
                 // Правило вставляется до TunIpv6: конфиг для ядра — это уже финальные байты.
                 val effective = SubXhttpRuntime.patchDirectRules(pool.config)
+                EngineDiag.stage("direct-rules", effective)
                 // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
                 // untouched. The engine merges all "address" entries into the device, so the family is
                 // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and
@@ -237,9 +246,59 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         }
                     }
                 }
+                // Без снаффинга маршрутизация идёт по набранному IP: TLS/QUIC-цели, отвечающие
+                // с другого адреса, уходят мимо туннеля (YouTube чёрный на 32-битных ТВ, задача
+                // 17.11.2026). Sniffing включает парсинг SNI/Host — как у Happ и сторонних клиентов.
+                EngineDiag.log("apply", "ipv6 injected=" + (withIpv6 !== effective))
+                // Панель пинит "stack": "system": он транслирует L3->L4 системным сетевым стеком,
+                // а на Android без root TCP-сплайсинг в ядро не выполняется — в tun приходит только
+                // UDP (DNS/QUIC). Замер r689, 18.11 00:15-00:19: inbound UDP=100, TCP=0, роутер
+                // видел лишь {=> sniff} и {udp/443 => reject} — поэтому Telegram и YouTube мертвы,
+                // хотя DNS резолвится. gVisor делает ту же трансляцию внутри netstack libbox.
+                // "mixed" заменой не является: по докам это system TCP + gvisor UDP.
+                val withStack = TunStack.ensure(withIpv6).let { candidate ->
+                    when {
+                        candidate === withIpv6 -> withIpv6
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tun stack: injected gvisor")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "stack rejected by the engine — kept the original config")
+                            withIpv6
+                        }
+                    }
+                }
+                EngineDiag.log(
+                    "apply",
+                    "stack injected=" + (withStack !== withIpv6) + " stack=" + TunStack.effective(withStack),
+                )
+                val finalConfig = Sniffing.ensure(withStack).let { candidate ->
+                    when {
+                        candidate === withStack -> withStack
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tun sniff: injected")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "sniff rejected by the engine — kept the config without sniff")
+                            withStack
+                        }
+                    }
+                }
                 StartupDiag.log(
                     "apply",
-                    "cdn=" + cdn + " bytes=" + withIpv6.length + " ipv6Injected=" + (withIpv6 !== effective),
+                    "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== effective) +
+                        " stack=" + TunStack.effective(finalConfig) + " sniffInjected=" + (finalConfig !== withStack),
+                )
+                EngineDiag.stage("final", finalConfig)
+                EngineDiag.log("apply", "sniff injected=" + (finalConfig !== withStack) + " cdn=" + cdn)
+                EngineDiag.dump("config-final", EngineDiag.redact(finalConfig))
+                // The engine's own verdict on the exact bytes: a config it refuses never connects.
+                val configVerdict = runCatching { Libbox.checkConfig(finalConfig) }.exceptionOrNull()
+                EngineDiag.log(
+                    "chk",
+                    "checkConfig=" + (configVerdict?.let { EngineDiag.redact(it.message ?: it.javaClass.simpleName) } ?: "ok"),
                 )
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
                 check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
@@ -247,13 +306,18 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     // Diagnose-02.10.2026: a valid injected CDN config was never used by the engine
                     // (traffic stayed on the ordinary nodes while the UI showed CDN connected), so the
                     // engine's own verdict on the exact bytes we hand over is logged before the call.
-                    val verdict = runCatching { Libbox.checkConfig(withIpv6) }.exceptionOrNull()
-                    Log.d(TAG, "cdn apply: bytes=" + withIpv6.length + " hasCdnTag=" + withIpv6.contains("cdn:") +
+                    val verdict = runCatching { Libbox.checkConfig(finalConfig) }.exceptionOrNull()
+                    Log.d(TAG, "cdn apply: bytes=" + finalConfig.length + " hasCdnTag=" + finalConfig.contains("cdn:") +
                         " checkConfig=" + (verdict?.message ?: "ok"))
                     if (verdict != null) throw IllegalStateException("CDN: конфигурация отклонена ядром", verdict)
                 }
-                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + withIpv6.length)
-                commandServer.startOrReloadService(withIpv6, buildOverrideOptions(withIpv6, cdn))
+                Log.d(TAG, "startOrReloadService cdn=" + cdn + " bytes=" + finalConfig.length)
+                EngineDiag.log("apply", "startOrReloadService bytes=" + finalConfig.length + " cdn=" + cdn)
+                commandServer.startOrReloadService(finalConfig, buildOverrideOptions(finalConfig, cdn))
+                EngineDiag.networkSnapshot("applied")
+                // Attach while the engine is still coming up: a start that dies before Status.Started
+                // leaves no engine log otherwise.
+                EngineDiag.attach()
                 if (status.value == Status.Stopping || status.value == Status.Stopped) {
                     whiteListSession?.close()
                     closeService()
@@ -290,8 +354,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun startService() {
-        StartupDiag.init(runCatching { service.getExternalFilesDir(null) }.getOrNull() ?: service.filesDir)
+        val diagBase = runCatching { service.getExternalFilesDir(null) }.getOrNull() ?: service.filesDir
+        StartupDiag.init(diagBase)
+        EngineDiag.init(diagBase)
+        EngineDiag.permissionSnapshot(service)
         StartupDiag.log("start", "requested")
+        EngineDiag.log("start", "requested account=" + WhiteListSelection.account())
         try {
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
@@ -353,6 +421,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 status.value = Status.Started
                 notification.show(lastProfileName, R.string.status_started)
                 StartupDiag.log("status", "started")
+                EngineDiag.log("status", "started profile=" + lastProfileName)
+                EngineDiag.networkSnapshot("started")
+                EngineDiag.attach()
                 true
             }
             if (!started) return
@@ -370,6 +441,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun serviceStop() {
+        EngineDiag.log("core", "engine stopped the box by itself")
+        EngineDiag.networkSnapshot("core-stop")
+        EngineDiag.detach("core stop")
+        EngineDiag.publish(service, "core")
         whiteListSession?.close()
         SubXhttpSession.stopAll()
         WhiteListSelection.clear()
@@ -517,6 +592,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
         StartupDiag.log("stop", "requested")
+        EngineDiag.logStackTrace("stop", "requested")
         status.value = Status.Stopping
         whiteListSession?.close()
         WhiteListSelection.clear()
@@ -552,9 +628,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     Log.w(TAG, "stopService: libbox close exceeded ${STOP_CLOSE_TIMEOUT}ms — forcing service down; the tun is released when the VPNService is destroyed")
                 }
             }
+            EngineDiag.detach("stop")
+            EngineDiag.publish(service, "stop")
             withContext(Dispatchers.Main) {
                 status.value = Status.Stopped
                 StartupDiag.log("status", "stopped")
+                EngineDiag.log("status", "stopped")
                 // stopForeground(REMOVE) + stopSelf() ALWAYS run, even if the close above
                 // timed out — destroying the VPNService is what guarantees Android tears down
                 // the tun interface, so the VPN can never get stuck "on".
@@ -576,6 +655,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // The message can carry a config fragment, so only the alert kind is recorded.
         StartupDiag.log("alert", type.name)
         StartupDiag.publish(service)
+        EngineDiag.log("alert", type.name)
+        EngineDiag.publish(service, "alert")
+        EngineDiag.detach("alert")
         whiteListSession?.close()
         WhiteListSelection.clear()
         // Only failures that need the USER to act (no profile, a missing permission) cancel
@@ -734,6 +816,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     override fun writeDebugMessage(message: String?) {
         Log.d("sing-box", message!!)
+        // Release builds strip Log.d, so the engine's own debug channel is mirrored into the diary.
+        EngineDiag.log("dbg", message ?: "null")
     }
 
     override fun connectSSHAgent(): Int = -1

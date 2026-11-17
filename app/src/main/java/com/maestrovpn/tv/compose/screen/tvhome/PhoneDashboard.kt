@@ -435,14 +435,6 @@ private fun PhoneModes(cdn: Boolean, onOrdinary: () -> Unit, onCdn: () -> Unit) 
 
 private data class PhoneServer(val flag: String, val name: String, val detail: String, val icon: ImageVector = Icons.Default.Public)
 
-/**
- * AmneziaWG приходит в подписке endpoint-ом с тегом "awg" — без флага, страны и названия, поэтому
- * без отдельной подписи строка выглядела как сырое «awg / Обычный VPN». Страна сознательно не
- * указывается: подписка её для AWG не передаёт, а сервер может переехать.
- */
-internal const val AWG_SERVER_NAME = "MaestroVPN AmneziaWG"
-internal const val AWG_SERVER_DETAIL = "AmneziaWG · маскировка трафика"
-
 /** Name and subtitle of a server row, for tests. */
 internal fun phoneServerTitle(tag: String?, runtimeLabel: String?): Pair<String, String> =
     phoneServer(tag, runtimeLabel).let { it.name to it.detail }
@@ -465,9 +457,6 @@ private fun android.content.Context.openTelegramChat(username: String): Boolean 
 }
 
 private fun phoneServer(tag: String?, runtimeLabel: String?, type: String? = null): PhoneServer {
-    if (runtimeLabel == null && tag?.trim()?.lowercase() == "awg") {
-        return PhoneServer("", AWG_SERVER_NAME, AWG_SERVER_DETAIL, Icons.Default.VpnLock)
-    }
     // A server that names itself (country flag or provider prefix — JFL, WL, xhttp nodes, our
     // relabeled nodes) gets the same flag/name/transport as on every other screen (ServerLabel).
     if (runtimeLabel == null) {
@@ -479,8 +468,6 @@ private fun phoneServer(tag: String?, runtimeLabel: String?, type: String? = nul
         null, "auto", "urltest", "select" -> "Автовыбор сервера"
         "vless" -> "🇪🇸 Испания · VLESS"
         "hysteria2" -> "🇮🇹 Италия · Hysteria2"
-        "naive", "naiveproxy" -> "🇮🇹 Италия · Naive"
-        "anytls" -> "🇮🇹 Италия · AnyTLS"
         "vless-s3" -> "🇳🇱 Нидерланды · VLESS"
         "vless-s4" -> "🇮🇹 Италия · VLESS"
         else -> tag.orEmpty()

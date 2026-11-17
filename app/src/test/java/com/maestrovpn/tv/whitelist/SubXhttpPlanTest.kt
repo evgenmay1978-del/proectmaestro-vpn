@@ -16,7 +16,7 @@ class SubXhttpPlanTest {
             config(
                 socks("DE node", 20801),
                 socks("EE node", 20802),
-                socks("olcrtc", 8808),
+                socks("stale-node", 8808),
                 socks("wl-1", 41234),
                 """{"type":"socks","tag":"remote","server":"10.0.0.1","server_port":20803}""",
                 """{"type":"vless","tag":"direct-node","server":"1.2.3.4","server_port":443}""",

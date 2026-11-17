@@ -21,7 +21,7 @@ class AutoSelectWiringContractTest {
         val source = boxService()
         val poolAt = source.indexOf("AutoSelectPool.exclude(base)")
         val patchAt = source.indexOf("SubXhttpRuntime.patchDirectRules(pool.config)")
-        val handOverAt = source.indexOf("commandServer.startOrReloadService(withIpv6")
+        val handOverAt = source.indexOf("commandServer.startOrReloadService(finalConfig")
         assertTrue("the pool must be applied in the apply path", poolAt > 0)
         assertTrue("the pooled config must be the one patched and handed over", patchAt > poolAt && handOverAt > patchAt)
         assertTrue("the unpooled config must not reach the patch step", !source.contains("patchDirectRules(base)"))

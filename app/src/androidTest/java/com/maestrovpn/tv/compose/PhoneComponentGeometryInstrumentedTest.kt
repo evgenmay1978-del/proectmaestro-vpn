@@ -149,8 +149,8 @@ class PhoneComponentGeometryInstrumentedTest {
                     statusText = "Отключено", connected = false,
                     protocols = listOf("auto", "vless"), selected = "vless", activeProtocol = null,
                     accountLogin = "fixture-login", daysLeft = 29, accountExpires = "2027-01-01",
-                    hasSubProfile = true, hasOlcrtcCreds = false, olcrtcProvider = null,
-                    onToggleConnect = {}, onSelectProtocol = {}, onSelectOlcrtc = {},
+                    hasSubProfile = true,
+                    onToggleConnect = {}, onSelectProtocol = {},
                     onBuy = {}, onEnterCode = {}, onSplitTunnel = {}, onShareIos = {}, onEnterTrial = {},
                     connectFocus = FocusRequester(),
                 )

@@ -1,8 +1,9 @@
 name: Build libbox.aar
 
 # Produces io.nekohasekai.libbox (libbox.aar) from SagerNet/sing-box, pinned to
-# the ref in version.properties (SINGBOX_REF), to match sing-box-for-android
-# 1.14.0-alpha.31. Build recipe is verbatim from sing-box's own Makefile:
+# the ref in version.properties (SINGBOX_REF) — v1.14.4 for the 2026-11-17 TV
+# core upgrade (naive/anytls stripped, AWG patch removed, see the sed step below).
+# Build recipe is verbatim from sing-box's own Makefile:
 #   make lib_install   -> installs github.com/sagernet/gomobile/{gomobile,gobind}@v0.1.13
 #   make lib_android   -> go run ./cmd/internal/build_libbox -target android
 # which runs `gomobile bind ... -androidapi 23 -javapkg=io.nekohasekai -libname=box
@@ -13,7 +14,6 @@ on:
     paths:
       - version.properties
       - .github/workflows/libbox.yml
-      - libbox-awg/**
   workflow_dispatch:
 
 jobs:
@@ -80,36 +80,41 @@ jobs:
             https://github.com/SagerNet/sing-box.git sing-box
           echo "built ref:"; git -C sing-box rev-parse HEAD
 
-      # AmneziaWG (official amneziawg-go v3.1) is now part of the FLEET libbox so the whole
-      # fleet can run AWG as an unblockable manual-fallback protocol. The awg endpoint stays
-      # DORMANT until a customer is provisioned WG creds AND their app is version-gated in (see
-      # api.go awgMinVC) — so shipping this engine ahead of provisioning is safe and inert.
-      - name: Apply OFFICIAL AmneziaWG patch (amneziawg-go v3.1 onto the 1.14 base)
+      # Legacy-free core (task 17.11.2026): naive and anytls are removed from the build
+      # entirely, and the panel's legacy tags (awg/naive/anytls/olcrtc/vk-turn/wdtt) are
+      # stripped by the app before the config reaches the engine (WhiteListConfig.stripLegacy).
+      # The panel keeps emitting those tags for older installs, so the engine must not even
+      # try to register the removed protocols: unregistering here makes any stray reference
+      # fail at compile time instead of at runtime.
+      - name: Strip naive/anytls from sing-box
         run: |
           set -euo pipefail
-          # 1) overlay the ported OFFICIAL AWG source (full patched copies — no fragile sed).
-          cp -rv libbox-awg/option    sing-box/
-          cp -rv libbox-awg/protocol  sing-box/
-          cp -rv libbox-awg/transport sing-box/
-          cp -rv libbox-awg/include   sing-box/
-          cp -rv libbox-awg/constant  sing-box/
-          grep -q 'registerAwgEndpoint' sing-box/include/registry.go \
-            || { echo "::error::awg endpoint not registered"; exit 1; }
-          # 2) add the with_awg build tag to the libbox shared-tags set
-          sed -i 's/"with_clash_api", "badlinkname"/"with_clash_api", "with_awg", "badlinkname"/' \
+          # 1) sharedTags: drop "with_naive_outbound" — it gates protocol/naive/outbound.go.
+          sed -i 's/"with_utls", "with_naive_outbound"/"with_utls"/' \
             sing-box/cmd/internal/build_libbox/main.go
-          grep -q '"with_awg"' sing-box/cmd/internal/build_libbox/main.go \
-            || { echo "::error::with_awg tag not added to build_libbox"; exit 1; }
-          # 3) pull in the OFFICIAL AmneziaWG engine — 3.1, matching the server
-          # (S4: amneziawg-tools/kernel 3.1.20260812, "awg --version" 3.1.20260812). The old
-          # v0.2.15 line is pre-3.x: its client never got a handshake through to a 3.1 server
-          # from the owner phone, while the official AmneziaVPN build (3.1-capable) does.
-          # The v3 module path carries the /v3 suffix, and it is the only change the overlay
-          # needed: conn.Bind, conn.Endpoint, device.NewDevice/IpcSet/Up/Close and
-          # tun/netstack.CreateNetTUN all keep the same shape in 3.1.
-          cd sing-box
-          go get github.com/amnezia-vpn/amneziawg-go/v3@v3.1.20260828
-          go mod tidy
+          # 2) the legacy-variant line no longer filters anything, and its comment follows.
+          sed -i 's|// Build legacy variant (SDK 21, no naive outbound)|// Legacy variant: same tag set as the main build|' \
+            sing-box/cmd/internal/build_libbox/main.go
+          sed -i 's/legacyTags := filterTags(sharedTags, "with_naive_outbound")/legacyTags := sharedTags/' \
+            sing-box/cmd/internal/build_libbox/main.go
+          # 3) registry.go: unregister naive/anytls inbounds and the anytls outbound.
+          #    registerNaiveOutbound stays: include/naive_outbound_stub.go (tag
+          #    !with_naive_outbound) is now active and fails closed — a stray
+          #    naive-outbound config is rejected, not silently accepted.
+          sed -i '/"github.com\/sagernet\/sing-box\/protocol\/naive"/d' sing-box/include/registry.go
+          sed -i '/"github.com\/sagernet\/sing-box\/protocol\/anytls"/d' sing-box/include/registry.go
+          sed -i '/naive.RegisterInbound(registry)/d' sing-box/include/registry.go
+          sed -i '/anytls.RegisterInbound(registry)/d' sing-box/include/registry.go
+          sed -i '/anytls.RegisterOutbound(registry)/d' sing-box/include/registry.go
+          # 4) quic.go: drop the blank naive/quic import (its transport must not compile in).
+          sed -i '/_ "github.com\/sagernet\/sing-box\/protocol\/naive\/quic"/d' sing-box/include/quic.go
+          # 5) verification: no naive/anytls reference may survive in the compiled set.
+          #    registerNaiveOutbound is capital-N and does not match the grep — it is the stub.
+          if grep -rnE 'naive|anytls' sing-box/include/registry.go \
+              sing-box/cmd/internal/build_libbox/main.go sing-box/include/quic.go; then
+            echo "::error::naive/anytls still referenced in the compiled set"; exit 1
+          fi
+          echo "naive/anytls fully removed from the compiled set"
 
       # Verbatim Makefile targets. lib_install installs gomobile+gobind @v0.1.13
       # into $(go env GOPATH)/bin; build_libbox calls $GOPATH/bin/gomobile directly,
@@ -132,11 +137,13 @@ jobs:
         working-directory: sing-box
         run: ls -lh libbox*.aar
 
-      # We only ship the non-legacy AAR: it is built with -androidapi 23, which
-      # matches our minSdk 23 (we drop SFA's otherLegacy/minSdk-21 flavor).
+      # sing-box v1.14.4 builds the non-legacy AAR with -androidapi 24, which
+      # exceeds our app minSdk 23. Ship the legacy variant instead: with our strip
+      # edits both variants carry the identical tag set (naive removed from
+      # sharedTags, legacyTags := sharedTags), so legacy == full minus the API bump.
       - name: Upload libbox.aar
         uses: actions/upload-artifact@v4
         with:
           name: libbox-aar
-          path: sing-box/libbox.aar
+          path: sing-box/libbox-legacy.aar
           if-no-files-found: error
