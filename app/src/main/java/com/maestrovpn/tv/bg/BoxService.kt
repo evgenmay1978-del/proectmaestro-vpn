@@ -249,26 +249,49 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 // с другого адреса, уходят мимо туннеля (YouTube чёрный на 32-битных ТВ, задача
                 // 17.11.2026). Sniffing включает парсинг SNI/Host — как у Happ и сторонних клиентов.
                 EngineDiag.log("apply", "ipv6 injected=" + (withIpv6 !== effective))
-                val finalConfig = Sniffing.ensure(withIpv6).let { candidate ->
+                // Панель пинит "stack": "system": он транслирует L3->L4 системным сетевым стеком,
+                // а на Android без root TCP-сплайсинг в ядро не выполняется — в tun приходит только
+                // UDP (DNS/QUIC). Замер r689, 18.11 00:15-00:19: inbound UDP=100, TCP=0, роутер
+                // видел лишь {=> sniff} и {udp/443 => reject} — поэтому Telegram и YouTube мертвы,
+                // хотя DNS резолвится. gVisor делает ту же трансляцию внутри netstack libbox.
+                // "mixed" заменой не является: по докам это system TCP + gvisor UDP.
+                val withStack = TunStack.ensure(withIpv6).let { candidate ->
                     when {
                         candidate === withIpv6 -> withIpv6
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tun stack: injected gvisor")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "stack rejected by the engine — kept the original config")
+                            withIpv6
+                        }
+                    }
+                }
+                EngineDiag.log(
+                    "apply",
+                    "stack injected=" + (withStack !== withIpv6) + " stack=" + TunStack.effective(withStack),
+                )
+                val finalConfig = Sniffing.ensure(withStack).let { candidate ->
+                    when {
+                        candidate === withStack -> withStack
                         runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
                             Log.d(TAG, "tun sniff: injected")
                             candidate
                         }
                         else -> {
                             StartupDiag.log("apply", "sniff rejected by the engine — kept the config without sniff")
-                            withIpv6
+                            withStack
                         }
                     }
                 }
                 StartupDiag.log(
                     "apply",
                     "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== effective) +
-                        " sniffInjected=" + (finalConfig !== withIpv6),
+                        " stack=" + TunStack.effective(finalConfig) + " sniffInjected=" + (finalConfig !== withStack),
                 )
                 EngineDiag.stage("final", finalConfig)
-                EngineDiag.log("apply", "sniff injected=" + (finalConfig !== withIpv6) + " cdn=" + cdn)
+                EngineDiag.log("apply", "sniff injected=" + (finalConfig !== withStack) + " cdn=" + cdn)
                 EngineDiag.dump("config-final", EngineDiag.redact(finalConfig))
                 // The engine's own verdict on the exact bytes: a config it refuses never connects.
                 val configVerdict = runCatching { Libbox.checkConfig(finalConfig) }.exceptionOrNull()

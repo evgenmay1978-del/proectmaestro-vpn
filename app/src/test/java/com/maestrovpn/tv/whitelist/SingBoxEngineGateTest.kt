@@ -24,8 +24,8 @@ import java.util.concurrent.TimeUnit
  *
  * These tests push the real post-processing chain of BoxService.applySelectedContent through the
  * official binary of the pinned SINGBOX_REF (version.properties) and require exit code 0:
- *   ordinary: stripLegacy -> TunIpv6.ensure -> Sniffing.ensure
- *   cdn:      WhiteListConfig.inject -> stripLegacy -> TunIpv6.ensure -> Sniffing.ensure
+ *   ordinary: stripLegacy -> TunIpv6.ensure -> TunStack.ensure -> Sniffing.ensure
+ *   cdn:      WhiteListConfig.inject -> stripLegacy -> TunIpv6.ensure -> TunStack.ensure -> Sniffing.ensure
  * A negative control MUST fail with the exact legacy text — a gate that cannot reproduce the defect
  * would prove nothing.
  *
@@ -51,7 +51,7 @@ class SingBoxEngineGateTest {
     @Test
     fun theOrdinaryApplyChainIsAccepted() {
         val engine = requireEngine()
-        val applied = Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(fixture)))
+        val applied = Sniffing.ensure(TunStack.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(fixture))))
         assertAccepted(engine, applied, "ordinary")
     }
 
@@ -60,7 +60,7 @@ class SingBoxEngineGateTest {
         val engine = requireEngine()
         val injected = WhiteListConfig.inject(fixture, cdnRoute, cdnRoute.address, SOCKS_PORT, CDN_USER, CDN_PASS)
         assertTrue("the CDN variant must carry the injected tag", injected.contains(cdnRoute.tag))
-        val applied = Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(injected)))
+        val applied = Sniffing.ensure(TunStack.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(injected))))
         assertAccepted(engine, applied, "cdn")
     }
 
@@ -83,7 +83,7 @@ class SingBoxEngineGateTest {
     @Test
     fun theRealProfileShapeAfterStripLegacyIsAccepted() {
         val engine = requireEngine()
-        val applied = Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(realProfile)))
+        val applied = Sniffing.ensure(TunStack.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(realProfile))))
         assertAccepted(engine, applied, "real-stripped")
     }
 
@@ -95,7 +95,7 @@ class SingBoxEngineGateTest {
     @Test
     fun ourRewriteRemovesLegacyAndKeepsTheTunContract() {
         val applied = Json.parseToJsonElement(
-            Sniffing.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(realProfile))),
+            Sniffing.ensure(TunStack.ensure(TunIpv6.ensure(WhiteListConfig.stripLegacy(realProfile)))),
         ) as JsonObject
         val outbounds = applied["outbounds"] as JsonArray
         assertTrue(
@@ -114,6 +114,11 @@ class SingBoxEngineGateTest {
         assertEquals("the IPv6 prefix must be appended to the existing list", 2, addresses.size)
         assertTrue("the panel prefix must stay first, got " + addresses, addresses.first().contains("172.19.0.1/30"))
         assertNull("the dead legacy inbound sniff must not be written", tun["sniff"])
+        assertEquals(
+            "the engine must get gVisor: with the panel's "system" stack no app TCP ever reached the box",
+            "gvisor",
+            (tun["stack"] as JsonPrimitive).content,
+        )
         val rules = ((applied["route"] as JsonObject)["rules"] as JsonArray).map { it as JsonObject }
         assertEquals(
             "the sniff action must run before every routing rule",

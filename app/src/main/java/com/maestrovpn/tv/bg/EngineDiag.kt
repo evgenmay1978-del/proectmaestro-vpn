@@ -11,6 +11,7 @@ import android.os.PowerManager
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.utils.CommandClient
+import com.maestrovpn.tv.whitelist.TunStack
 import io.nekohasekai.libbox.ConnectionEvents
 import io.nekohasekai.libbox.LogEntry
 import io.nekohasekai.libbox.OutboundGroup
@@ -62,6 +63,9 @@ internal object EngineDiag {
     @Volatile private var dir: File? = null
     @Volatile private var attached = false
     @Volatile private var dropped = 0L
+    @Volatile private var inboundTcp = 0
+    @Volatile private var inboundUdp = 0
+    @Volatile private var inboundDns = 0
     @Volatile private var lastStatusLog = 0L
     @Volatile private var lastStatus = "status none"
     @Volatile private var lastGroups = "groups none"
@@ -119,7 +123,7 @@ internal object EngineDiag {
             "stage=" + name + " bytes=" + config.length + " sha8=" + sha8(config) +
                 " types=" + occurrences(config, "\"type\":") + " ruleSets=" + occurrences(config, "\"rule_set\"") +
                 " sniff=" + config.contains("\"sniff\"", true) + " ipv6=" + config.contains("\"::\"") +
-                " final=" + finalOf(config),
+                " stack=" + TunStack.effective(config) + " final=" + finalOf(config),
         )
     }
 
@@ -260,7 +264,11 @@ internal object EngineDiag {
             delay(15000)
             tick++
             runCatching {
-                log("hb", lastStatus + " | " + lastGroups + " | total down=" + lastDownlinkTotal + " up=" + lastUplinkTotal)
+                log(
+                    "hb",
+                    lastStatus + " | " + lastGroups + " | in tcp=" + inboundTcp + " udp=" + inboundUdp +
+                        " dns=" + inboundDns + " | total down=" + lastDownlinkTotal + " up=" + lastUplinkTotal,
+                )
             }.onFailure { log("hb", "sample failed: " + it.javaClass.simpleName) }
             if (tick % 3 == 0) probes("tick")
         }
@@ -335,7 +343,18 @@ internal object EngineDiag {
         override fun setDefaultLogLevel(level: Int) = EngineDiag.log("cmd", "defaultLogLevel=" + level)
 
         override fun appendLogs(message: List<LogEntry>) {
-            for (entry in message) EngineDiag.log("eng", "lvl=" + entry.level + " " + entry.message)
+            for (entry in message) {
+                val text = entry.message
+                // Счётчики входа tun: по ним в одном месте видно, доходят ли TCP-сокеты приложений
+                // до движка (r689: TCP=0 при UDP=100 — все TCP терялись на стеке "system").
+                if (text.contains("inbound connection")) {
+                    EngineDiag.inboundTcp++
+                } else if (text.contains("inbound packet connection")) {
+                    EngineDiag.inboundUdp++
+                }
+                if (text.contains("inbound DNS packet") || text.contains("inbound packet DNS")) EngineDiag.inboundDns++
+                EngineDiag.log("eng", "lvl=" + entry.level + " " + text)
+            }
         }
 
         override fun updateStatus(status: StatusMessage) = EngineDiag.onStatus(status)
