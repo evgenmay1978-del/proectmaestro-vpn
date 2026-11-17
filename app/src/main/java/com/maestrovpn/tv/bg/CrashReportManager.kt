@@ -379,7 +379,9 @@ object CrashReportManager {
         if (!includeConfig) {
             File(strippedDir, CONFIG_FILE_NAME).delete()
         }
-        Libbox.createZipArchive(strippedDir.path, zipFile.path)
+        // v1.14.4 added the third argument: true makes the engine age-encrypt the archive for the
+        // upstream report endpoint, while our crash reports travel to our own backend as a plain zip.
+        Libbox.createZipArchive(strippedDir.path, zipFile.path, false)
         zipFile
     }
 

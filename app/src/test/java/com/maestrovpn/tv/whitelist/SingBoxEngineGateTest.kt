@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -86,7 +87,8 @@ class SingBoxEngineGateTest {
 
     /**
      * The rewrite must remove every legacy transport/endpoint and may otherwise touch the tun
-     * inbound only: the IPv6 prefix is appended to the "address" list and "sniff" is set to true.
+     * inbound only: the IPv6 prefix is appended to the "address" list and the sniff route action
+     * (http/tls/quic, the Happ set) is prepended to the routing rules.
      */
     @Test
     fun ourRewriteRemovesLegacyAndKeepsTheTunContract() {
@@ -109,7 +111,18 @@ class SingBoxEngineGateTest {
         val addresses = (tun["address"] as JsonArray).map { it.toString() }
         assertEquals("the IPv6 prefix must be appended to the existing list", 2, addresses.size)
         assertTrue("the panel prefix must stay first, got " + addresses, addresses.first().contains("172.19.0.1/30"))
-        assertEquals("true", (tun["sniff"] as JsonPrimitive).content)
+        assertNull("the dead legacy inbound sniff must not be written", tun["sniff"])
+        val rules = ((applied["route"] as JsonObject)["rules"] as JsonArray).map { it as JsonObject }
+        assertEquals(
+            "the sniff action must run before every routing rule",
+            "sniff",
+            (rules.first()["action"] as JsonPrimitive).content,
+        )
+        assertEquals(
+            "Happ sniffs http/tls/quic, the fleet must do the same",
+            listOf("http", "tls", "quic"),
+            (rules.first()["sniffer"] as JsonArray).map { (it as JsonPrimitive).content },
+        )
     }
 
     @Test

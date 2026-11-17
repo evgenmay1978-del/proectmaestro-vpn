@@ -145,7 +145,9 @@ object OOMReportManager {
         if (!includeConfig) {
             File(strippedDir, CONFIG_FILE_NAME).delete()
         }
-        Libbox.createZipArchive(strippedDir.path, zipFile.path)
+        // false = plain zip: our OOM reports go to our own backend, not to the age-encrypted
+        // upstream report endpoint (see CreateZipArchive in sing-box v1.14.4).
+        Libbox.createZipArchive(strippedDir.path, zipFile.path, false)
         zipFile
     }
 

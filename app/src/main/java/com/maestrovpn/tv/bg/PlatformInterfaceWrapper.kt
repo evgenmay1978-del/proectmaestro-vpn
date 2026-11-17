@@ -9,6 +9,8 @@ import android.provider.Settings
 import android.system.OsConstants
 import android.util.Log
 import androidx.annotation.RequiresApi
+import io.nekohasekai.libbox.BridgeOptions
+import io.nekohasekai.libbox.BridgeSession
 import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Libbox
@@ -32,10 +34,7 @@ import java.net.Inet6Address
 import java.net.InetSocketAddress
 import java.net.InterfaceAddress
 import java.net.NetworkInterface
-import java.security.KeyStore
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import io.nekohasekai.libbox.NeighborEntry as LibboxNeighborEntry
 import io.nekohasekai.libbox.NetworkInterface as LibboxNetworkInterface
 
@@ -60,8 +59,6 @@ interface PlatformInterfaceWrapper : PlatformInterface {
     override fun openTun(options: TunOptions): Int {
         error("invalid argument")
     }
-
-    override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
     @RequiresApi(Build.VERSION_CODES.Q)
     override fun findConnectionOwner(
@@ -186,23 +183,6 @@ interface PlatformInterfaceWrapper : PlatformInterface {
 
     override fun localDNSTransport(): LocalDNSTransport? = LocalResolver
 
-    @OptIn(ExperimentalEncodingApi::class)
-    override fun systemCertificates(): StringIterator {
-        val certificates = mutableListOf<String>()
-        val keyStore = KeyStore.getInstance("AndroidCAStore")
-        if (keyStore != null) {
-            keyStore.load(null, null)
-            val aliases = keyStore.aliases()
-            while (aliases.hasMoreElements()) {
-                val cert = keyStore.getCertificate(aliases.nextElement())
-                certificates.add(
-                    "-----BEGIN CERTIFICATE-----\n" + Base64.encode(cert.encoded) + "\n-----END CERTIFICATE-----",
-                )
-            }
-        }
-        return StringArray(certificates.iterator())
-    }
-
     override fun startNeighborMonitor(listener: NeighborUpdateListener?) {
         if (listener == null) return
         val callback = object : INeighborTableCallback.Stub() {
@@ -325,6 +305,19 @@ interface PlatformInterfaceWrapper : PlatformInterface {
 
     override fun registerMyInterface(name: String?) {
     }
+
+    /**
+     * v1.14.4 additions to PlatformInterface. The TV client sends its notifications through
+     * [BoxService], so an engine-side cancel is a no-op here, and the platform bridge (a Windows
+     * VPN-only feature) is not used at all: the default implementations keep ProxyService and
+     * VPNService compilable without a single behavioural change.
+     */
+    override fun cancelNotification(identifier: String?, typeID: Int) {
+    }
+
+    override fun usePlatformBridge(): Boolean = false
+
+    override fun createBridge(options: BridgeOptions?): BridgeSession? = null
 
     override fun closeNeighborMonitor(listener: NeighborUpdateListener?) {
         val callback = neighborCallback ?: return
