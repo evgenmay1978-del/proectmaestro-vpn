@@ -270,7 +270,11 @@ android {
 
 dependencies {
     // libbox
-    "otherImplementation"(files("libs/libbox.aar"))
+    // sing-box v1.14.4 ships two AAR variants: libbox.aar targets androidapi 24 (> app minSdk 23),
+    // libbox-legacy.aar targets androidapi 21, and CI/libbox.yml uploads the legacy one. Accept
+    // either file name here so the build never depends on a CI-side rename step.
+    val libboxAar = file("libs/libbox.aar").takeIf { it.exists() } ?: file("libs/libbox-legacy.aar")
+    "otherImplementation"(files(libboxAar))
 
     // API level specific versions
     val lifecycleVersion23 = "2.10.0"
