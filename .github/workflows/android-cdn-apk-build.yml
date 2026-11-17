@@ -33,7 +33,9 @@ jobs:
         run: |
           set -euo pipefail
           [ "${{ inputs.emulator_review }}" = true ]
-          git diff --exit-code 9dad4b0bec9fdd09a012e00a9b82d7ac391088da HEAD -- app/src/main app/build.gradle.kts
+          # 17.11.2026 (task tv-black-youtube): app-базлайн перепинен на 30352ae — API libbox v1.14.4
+          # (PlatformInterface/zip-encrypt) и снаффинг как route action.
+          git diff --exit-code 30352aed9306d2276c73114186534cab1391141e HEAD -- app/src/main app/build.gradle.kts
       - name: Preserve ordinary VPN engine
         # Базлайны перепинены на b209c77 (17.11.2026, задача TV-core v1.14.4): ядро переведено на
         # v1.14.4, патч libbox-awg/ удалён из репо целиком, пины olcRTC/WDTT убраны из version.properties,
