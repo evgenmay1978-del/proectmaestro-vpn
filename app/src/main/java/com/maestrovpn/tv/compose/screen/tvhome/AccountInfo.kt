@@ -88,13 +88,19 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                     // source. Same boundary as the silent updater.
                     // hasSubProfile stays permissive on purpose: it only gates the Trial CTA, and a
                     // payer must never look keyless because of it.
-                    val profile = ProfileManager.list()
-                        .firstOrNull {
+                    val subProfiles = ProfileManager.list()
+                        .filter {
                             (isTelevision || it.id == phoneAccountKey?.first) &&
                                 it.typed.remoteURL.contains("/sub/") &&
                                 UpdateProfileWork.isTrustedSubUrl(it.typed.remoteURL)
                         }
+                    // Источник /info — ВЫБРАННЫЙ профиль, а не первый доверенный: перерегистрация
+                    // создаёт второй профиль, и старый (первый по userOrder) с мёртвым токеном
+                    // давал 404 → «Без профиля» при живых серверах. На телефоне список и так
+                    // сужен до phoneAccountKey, так что поведение там не меняется.
+                    val profileId = AccountProfilePicker.pickId(subProfiles.map { it.id }, Settings.selectedProfile)
                         ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
+                    val profile = subProfiles.first { it.id == profileId }
                     val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
                     val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(login = lastPhoneLogin.value, hasSubProfile = hasSubProfile)
                     val o = JSONObject(json)
