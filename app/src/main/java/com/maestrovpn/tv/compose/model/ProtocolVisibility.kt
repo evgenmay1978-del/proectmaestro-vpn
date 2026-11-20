@@ -3,7 +3,7 @@ package com.maestrovpn.tv.compose.model
 import java.util.Locale
 
 // Presentation/manual-selection policy only; persisted profiles and transport runtime stay intact.
-private val deferredTransportAliases = setOf("webrtc")
+private val deferredTransportAliases = setOf("webrtc", "olcrtc", "olc rtc", "vk-turn", "wdtt")
 
 internal fun isProtocolVisibleInUi(tag: String): Boolean =
     tag.trim().lowercase(Locale.ROOT) !in deferredTransportAliases

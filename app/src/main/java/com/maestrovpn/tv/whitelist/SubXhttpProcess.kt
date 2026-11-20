@@ -28,6 +28,7 @@ internal object SubXhttpProcess {
     private const val CONNECT_TIMEOUT_MS = 300
     private const val LOG_KEEP = 40
     private const val LOG_MAX_BYTES = 64L * 1024
+    private const val ALL_TAG = "auto:all"
     private val VERIFY_TARGETS = listOf("api.ipify.org" to 80, "cp.cloudflare.com" to 80)
 
     private var child: Process? = null
@@ -108,6 +109,85 @@ internal object SubXhttpProcess {
                 " direct=" + SubXhttpRuntime.ruleApplied(address),
         )
         return true
+    }
+
+    /**
+     * Start ONE runner process that carries every xhttp node at once. The engine's "auto" urltest
+     * then has a live local port for each node; the same runner also serves a manual xhttp pick.
+     * Returns true only when the process is alive and every expected port is listening.
+     */
+    @Synchronized
+    fun startAll(nodes: List<SubXhttpNode>, ports: Map<String, Int>): Boolean {
+        val entries = nodes.mapNotNull { node -> ports[node.tag]?.let { node to it } }
+        if (entries.isEmpty()) {
+            fileLog("startAll skipped: no nodes with profile ports")
+            return false
+        }
+        val expected = entries.map { it.second }
+        if (activeTag == ALL_TAG && child?.let { alive(it) } == true && expected.all { reachable(it) }) {
+            return true
+        }
+        // The new all-node process binds the SAME profile ports as a running single-node child.
+        // Start it only after the old one is gone; otherwise the bind fails and auto loses every
+        // xhttp port for no reason.
+        if (child != null) {
+            if (alive(child!!)) fileLog("all runner replaces tag=" + activeTag)
+            stopLocked()
+        }
+        val addresses = SubXhttpRuntime.resolveAddresses(entries.map { it.first })
+        val candidate = spawnAll(entries, addresses) ?: return false
+        child = candidate.process
+        activeTag = ALL_TAG
+        configFile = candidate.file
+        fileLog("ready " + ALL_TAG + " nodes=" + entries.size + " ports=" + expected)
+        return true
+    }
+
+    private fun spawnAll(
+        entries: List<Pair<SubXhttpNode, Int>>,
+        addresses: Map<String, String>,
+    ): Spawned? {
+        val bin = binary()
+        if (bin == null) {
+            Log.w(TAG, "child binary missing in " + Application.application.applicationInfo.nativeLibraryDir)
+            fileLog("startAll failed: binary missing")
+            return null
+        }
+        val file = File(Application.application.filesDir, "subxhttp-all.json")
+        var started: Process? = null
+        return try {
+            file.writeText(SubXhttpRuntime.xrayConfigAll(entries, addresses))
+            file.setReadable(false, false)
+            file.setReadable(true, true)
+            started = ProcessBuilder(bin.absolutePath, "run", "-c", file.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            drain(started)
+            if (!awaitAllReady(started, entries.map { it.second })) {
+                Log.e(TAG, "all child not ready: " + logTail())
+                fileLog("all not ready nodes=" + entries.size + " tail=" + logTail())
+                runCatching { file.delete() }
+                kill(started)
+                return null
+            }
+            Spawned(started, file)
+        } catch (e: Exception) {
+            Log.e(TAG, "startAll failed: " + e.message)
+            fileLog("startAll failed: " + e.message)
+            runCatching { file.delete() }
+            started?.let { kill(it) }
+            null
+        }
+    }
+
+    private fun awaitAllReady(running: Process, ports: List<Int>): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + READY_TIMEOUT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (ports.all { reachable(it) }) return true
+            if (!alive(running)) return false
+            Thread.sleep(READY_POLL_MS)
+        }
+        return ports.all { reachable(it) }
     }
 
     private class Spawned(val process: Process, val file: File)
