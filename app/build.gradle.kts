@@ -130,7 +130,13 @@ if (cdnApkBuild) {
 }
 
 val effectiveVersionName = if (cdnApkBuild) "1.0.166" else task7TestVersionNameProperty ?: productionVersionName
-val effectiveVersionCode = if (cdnApkBuild) 1016011 else task7TestVersionCode ?: productionVersionCode
+// A test APK is installed over the previous test APK on the same box. The CI test job writes
+// VERSION_CODE=1018800 into version.properties; that is below the 1.0.209-test-r695 build already
+// on the set-top box (1018802), and Android rejects it as a downgrade. Keep test builds above the
+// previous test while staying below the next release (1.0.209 = 1018900).
+val testBuild = effectiveVersionName.contains("-test-")
+val effectiveVersionCode =
+    if (cdnApkBuild) 1016011 else (task7TestVersionCode ?: productionVersionCode) + if (testBuild) 3 else 0
 android {
     namespace = "com.maestrovpn.tv"
     compileSdk = 36

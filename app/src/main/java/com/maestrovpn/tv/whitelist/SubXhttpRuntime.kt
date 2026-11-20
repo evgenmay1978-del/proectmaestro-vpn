@@ -238,6 +238,30 @@ internal object SubXhttpRuntime {
         return ips
     }
 
+    /**
+     * IPv4 of every node in [subset], keyed by tag. Used by the all-node runner: one Xray config
+     * carries every node, so every outbound needs its own resolved address in one budget.
+     */
+    fun resolveAddresses(subset: List<SubXhttpNode>): Map<String, String> {
+        if (subset.isEmpty()) return emptyMap()
+        val deadline = SystemClock.elapsedRealtime() + RESOLVE_BUDGET_MS
+        val futures = subset.mapNotNull { node ->
+            runCatching {
+                node.tag to resolver.submit<String?> {
+                    InetAddress.getAllByName(node.address).firstOrNull { it is Inet4Address }?.hostAddress
+                }
+            }.getOrNull()
+        }
+        val out = LinkedHashMap<String, String>()
+        for ((tag, future) in futures) {
+            val left = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
+            val ip = runCatching { future.get(left, TimeUnit.MILLISECONDS) }.getOrNull()
+            if (!ip.isNullOrEmpty()) out[tag] = ip
+        }
+        futures.forEach { it.second.cancel(true) }
+        return out
+    }
+
     /** All node IPs, refreshed lazily (used by the DIRECT rules that keep the child out of the tun). */
     fun nodeIps(): List<String> {
         val all = nodes()
@@ -287,7 +311,7 @@ internal object SubXhttpRuntime {
         Thread {
             todo.chunked(PROBE_BATCH).forEach { batch ->
                 batch.map { node ->
-                    node to probePool.submit<Long?> { tlsDelay(node) }
+                    node to probePool.submit<Long?> { delayFor(node) }
                 }.forEach { (node, job) ->
                     // Must outlast the probe itself: connect budget + handshake budget.
                     val ms = runCatching { job.get(9, TimeUnit.SECONDS) }.getOrNull()
@@ -305,7 +329,7 @@ internal object SubXhttpRuntime {
      */
     fun refreshDelay(node: SubXhttpNode) {
         Thread {
-            val ms = tlsDelay(node)
+            val ms = delayFor(node)
             publishDelay(node.tag, ms)
             SubXhttpProcess.fileLog("delay " + node.tag + " = " + ms)
         }.apply { isDaemon = true; name = "subxhttp-delay" }.start()
@@ -330,6 +354,20 @@ internal object SubXhttpRuntime {
     fun probeLatency(node: SubXhttpNode): Long? {
         val cached = cachedDelay(node.tag)
         if (cached != null && delayFresh(node.tag)) return cached
+        return delayFor(node)
+    }
+
+    /**
+     * Latency through the node itself when its local runner is alive, otherwise a TLS handshake to
+     * its entry. The all-node runner keeps every profile port open, so the list can show a real
+     * number for every node — including Barev, whose entry TLS probe is a false negative on the
+     * phone path while the tunnel through the local Xray works.
+     */
+    private fun delayFor(node: SubXhttpNode): Long? {
+        val port = liveProfilePorts[node.tag]
+        if (port != null && SubXhttpProcess.runningTag() != null) {
+            measure(port)?.let { return it }
+        }
         return tlsDelay(node)
     }
 
@@ -455,6 +493,61 @@ internal object SubXhttpRuntime {
         return config.toString()
     }
 
+    /**
+     * One Xray configuration for every xhttp node at once: N SOCKS inbounds on the profile ports
+     * and N outbounds. The child is a single process, so the engine's urltest can measure all local
+     * ports — that is what makes "Авто" cover xhttp/Barev instead of only the ordinary nodes.
+     */
+    fun xrayConfigAll(
+        entries: List<Pair<SubXhttpNode, Int>>,
+        addresses: Map<String, String>,
+    ): String {
+        require(entries.isNotEmpty()) { "xhttp entries required" }
+        val config = buildJsonObject {
+            put("log", buildJsonObject { put("loglevel", "warning"); put("access", "none") })
+            put("inbounds", buildJsonArray {
+                entries.forEach { (_, port) ->
+                    add(buildJsonObject {
+                        put("tag", allInboundTag(port))
+                        put("listen", "127.0.0.1")
+                        put("port", port)
+                        put("protocol", "socks")
+                        put("settings", buildJsonObject { put("udp", false) })
+                    })
+                }
+            })
+            put("outbounds", buildJsonArray {
+                entries.forEach { (node, port) ->
+                    add(
+                        JsonObject(
+                            replaceAddress(node.outbound, addresses[node.tag] ?: node.address) +
+                                ("tag" to JsonPrimitive(allOutboundTag(port))),
+                        ),
+                    )
+                }
+            })
+            // Without explicit routing every SOCKS inbound would use the FIRST outbound: all
+            // ports would look alive but carry the wrong node's traffic. Bind each inbound to its
+            // own outbound, one rule per node.
+            put("routing", buildJsonObject {
+                put("rules", buildJsonArray {
+                    entries.forEach { (_, port) ->
+                        add(buildJsonObject {
+                            put("type", "field")
+                            put("inboundTag", JsonArray(listOf(JsonPrimitive(allInboundTag(port)))))
+                            put("outboundTag", JsonPrimitive(allOutboundTag(port)))
+                        })
+                    }
+                })
+            })
+        }
+        return config.toString()
+    }
+
+    private fun allInboundTag(port: Int): String = "socks-" + port
+
+    private fun allOutboundTag(port: Int): String = "node-" + port
+
     private fun replaceAddress(outbound: JsonObject, address: String): JsonObject {
         val settings = outbound["settings"] as? JsonObject ?: return outbound
         val vnext = settings["vnext"] as? JsonArray ?: return outbound
@@ -493,7 +586,8 @@ internal object SubXhttpRuntime {
             SubXhttpProcess.fileLog("direct skipped: resolve returned nothing for " + active.size + " nodes")
             return config
         }
-        val route = root["route"] as? JsonObject ?: return config
+        val withAuto = addXhttpToAuto(root, outbounds, ports)
+        val route = withAuto["route"] as? JsonObject ?: return config
         val rules = route["rules"] as? JsonArray ?: return config
         val directTag = outbounds.firstNotNullOfOrNull { element ->
             val obj = element as? JsonObject ?: return@firstNotNullOfOrNull null
@@ -518,7 +612,41 @@ internal object SubXhttpRuntime {
             "direct nodes=" + known.size + " present=" + active.size + " ips=" + ips.size + " " + ips,
         )
         val patchedRoute = JsonObject(route + ("rules" to JsonArray(list)))
-        return JsonObject(root + ("route" to patchedRoute)).toString()
+        return JsonObject(withAuto + ("route" to patchedRoute)).toString()
+    }
+
+    /**
+     * Add the local xhttp socks stubs to the urltest "auto" group of OUR copy of the engine config.
+     * The shim deliberately keeps them out of auto (old clients have no all-node runner); this app
+     * starts every runner port, so auto can and must test them too. Done locally, so the server
+     * response and every older client stay byte-identical.
+     */
+    private fun addXhttpToAuto(root: JsonObject, outbounds: JsonArray, ports: Map<String, Int>): JsonObject {
+        val index = outbounds.indexOfFirst { element ->
+            val obj = element as? JsonObject ?: return@indexOfFirst false
+            (obj["type"] as? JsonPrimitive)?.content == "urltest" &&
+                (obj["tag"] as? JsonPrimitive)?.content == "auto"
+        }
+        if (index < 0) return root
+        val auto = outbounds[index] as? JsonObject ?: return root
+        val rawMembers = auto["outbounds"] as? JsonArray ?: return root
+        // AutoSelectPool already removes our own servers from a mixed group; a group that held
+        // nothing but our servers was left untouched (an empty urltest is rejected by the engine).
+        // Adding xhttp stubs makes such a group non-empty, so drop the own tags here as well.
+        val members = rawMembers.filterNot { element ->
+            val tag = (element as? JsonPrimitive)?.content
+            tag != null && OwnServers.isOwnTag(tag)
+        }
+        val existing = members.mapNotNull { (it as? JsonPrimitive)?.content }.toSet()
+        val missing = ports.keys.filter { it !in existing }
+        if (missing.isEmpty() && members.size == rawMembers.size) return root
+        val merged = JsonArray(members.toList() + missing.map { JsonPrimitive(it) })
+        val patchedAuto = JsonObject(auto + ("outbounds" to merged))
+        val patched = outbounds.toMutableList().also { it[index] = patchedAuto }
+        SubXhttpProcess.fileLog(
+            "auto +" + missing.size + " xhttp outbounds, own removed=" + (rawMembers.size - members.size),
+        )
+        return JsonObject(root + ("outbounds" to JsonArray(patched)))
     }
 
     /** Test/DI hook: drop the in-memory copy after the manifest file was replaced. */

@@ -35,6 +35,14 @@ internal object SubXhttpSession {
      * all. Doing this first means no outage window — the previous node simply stays selected.
      */
     suspend fun preflight(tag: String?): Boolean = withContext(Dispatchers.IO) {
+        // "Авто" now includes the local xhttp socks ports, so the all-node runner must be up
+        // before libbox starts url-testing that group. A failure is not fatal: auto still has the
+        // ordinary nodes and keeps working without xhttp.
+        if (tag == FALLBACK_TAG) {
+            val started = ensureAll()
+            SubXhttpProcess.fileLog("preflight " + FALLBACK_TAG + " allRunner=" + started)
+            return@withContext true
+        }
         when (val decision = SubXhttpRuntime.decisionFor(tag)) {
             is SubXhttpPlan.Decision.Regular -> true
             is SubXhttpPlan.Decision.Refuse -> {
@@ -44,6 +52,10 @@ internal object SubXhttpSession {
                 false
             }
             is SubXhttpPlan.Decision.Serve -> {
+                // Start every profile port first: the latency then comes through the real local
+                // Xray tunnel instead of a TLS probe to the entry (which is a false negative for
+                // several Barev nodes on the phone's path).
+                ensureAll()
                 val node = tag?.let { SubXhttpRuntime.node(it) }
                 val ok = node != null && SubXhttpRuntime.probeLatency(node) != null
                 if (!ok) SubXhttpProcess.fileLog("preflight " + tag + " = unreachable")
@@ -63,6 +75,12 @@ internal object SubXhttpSession {
      * the selection is rolled back to the automatic group instead of being left dead.
      */
     suspend fun onSelected(groupTag: String?, tag: String?): Boolean = withContext(Dispatchers.IO) {
+        if (tag == FALLBACK_TAG) {
+            val all = ensureAll()
+            SubXhttpProcess.fileLog("onSelected " + FALLBACK_TAG + " allRunner=" + all)
+            prefs().edit().putString(KEY_ACTIVE, FALLBACK_TAG).apply()
+            return@withContext true
+        }
         when (val decision = SubXhttpRuntime.decisionFor(tag)) {
             is SubXhttpPlan.Decision.Regular -> {
                 if (SubXhttpProcess.runningTag() != null) Log.d(TAG, "stop: selection moved away")
@@ -97,8 +115,12 @@ internal object SubXhttpSession {
                 // The runner listens on the PROFILE port (decision.port): that is the port the
                 // engine routes into after the reload, even when the manifest still remembers an
                 // older number (the desync that killed the tunnel after a subscription update).
-                var started = reachable && address.isNotEmpty() &&
-                    SubXhttpProcess.start(node, address, decision.port)
+                // One process serves every xhttp node, so auto and a manual pick share the same
+                // ports. If the all-node config cannot start, fall back to the single-node runner
+                // rather than leaving a working pick unserved.
+                val allRunner = reachable && address.isNotEmpty() && ensureAll()
+                var started = allRunner || (reachable && address.isNotEmpty() &&
+                    SubXhttpProcess.start(node, address, decision.port))
                 // A started process is not a working tunnel: the German Akonit node accepted six TCP
                 // connections while answering none (14.11.2026), and the owner lost the internet
                 // because the engine had already been routed into it. So the node must prove itself
@@ -106,10 +128,16 @@ internal object SubXhttpSession {
                 if (started) {
                     val verified = SubXhttpProcess.verifyTunnel(decision.port)
                     SubXhttpProcess.fileLog(
-                        "onSelected " + tag + " started=true verified=" + verified + " port=" + decision.port,
+                        "onSelected " + tag + " started=true verified=" + verified + " port=" + decision.port +
+                            " allRunner=" + allRunner,
                     )
-                    if (!verified) {
+                    // Do NOT stop the all-node runner when one pick fails: the previous route may be
+                    // auto, whose ports this same runner serves. Stopping it would turn a no-op into
+                    // an outage. A fallback single-node runner is safe to stop.
+                    if (!verified && !allRunner) {
                         SubXhttpProcess.stop()
+                        started = false
+                    } else if (!verified) {
                         started = false
                     }
                 }
@@ -132,8 +160,25 @@ internal object SubXhttpSession {
 
     /** After the engine (re)started: bring up the runner for the remembered pick, if any. */
     fun restore() {
-        val tag = savedTag() ?: return
         if (!SubXhttpProcess.available()) return
+        val tag = savedTag()
+        if (tag == null) {
+            // Fresh install or a regular node picked last time. "Авто" is the default route and
+            // now contains the xhttp ports, so keep the all-node runner warm: without it url-test
+            // would see closed local ports and auto would quietly fall back to ordinary nodes.
+            Thread {
+                val started = ensureAll()
+                SubXhttpProcess.fileLog("restore default auto allRunner=" + started)
+            }.apply { isDaemon = true; name = "subxhttp-restore-default" }.start()
+            return
+        }
+        if (tag == FALLBACK_TAG) {
+            Thread {
+                val started = ensureAll()
+                SubXhttpProcess.fileLog("restore " + FALLBACK_TAG + " allRunner=" + started)
+            }.apply { isDaemon = true; name = "subxhttp-restore-auto" }.start()
+            return
+        }
         when (val decision = SubXhttpRuntime.decisionFor(tag)) {
             is SubXhttpPlan.Decision.Regular -> {
                 // The tag is ours no longer: nothing to run and nothing to park.
@@ -156,14 +201,20 @@ internal object SubXhttpSession {
         val node = SubXhttpRuntime.node(tag) ?: return
         val address = SubXhttpRuntime.resolve(node) ?: node.address
         Thread {
-            val started = SubXhttpProcess.start(node, address, port)
-            Log.d(TAG, "restore " + tag + " started=" + started + " port=" + port)
-            SubXhttpProcess.fileLog("restore " + tag + " started=" + started + " port=" + port)
+            val allRunner = ensureAll()
+            val started = allRunner || SubXhttpProcess.start(node, address, port)
+            Log.d(TAG, "restore " + tag + " started=" + started + " port=" + port + " allRunner=" + allRunner)
+            SubXhttpProcess.fileLog(
+                "restore " + tag + " started=" + started + " port=" + port + " allRunner=" + allRunner,
+            )
             if (!started) return@Thread
             // On restore the engine is already routing into this port, so a node that cannot carry
             // traffic has to be parked back on the automatic group instead of being left dead.
             if (!SubXhttpProcess.verifyTunnel(port)) {
-                SubXhttpProcess.stop()
+                // The all-node runner also serves "auto"; stopping it here would leave auto without
+                // its xhttp ports after the rollback. Only a fallback single-node runner is safe to
+                // stop.
+                if (!allRunner) SubXhttpProcess.stop()
                 SubXhttpProcess.fileLog("restore " + tag + " verify failed -> rollback " + FALLBACK_TAG)
                 runCatching { CommandTarget.standaloneClient().selectOutbound("select", FALLBACK_TAG) }
                 prefs().edit().remove(KEY_ACTIVE).apply()
@@ -171,6 +222,15 @@ internal object SubXhttpSession {
             }
             SubXhttpRuntime.refreshDelay(node)
         }.apply { isDaemon = true; name = "subxhttp-restore" }.start()
+    }
+
+    /** One runner process for every xhttp node that the live engine profile knows. */
+    private fun ensureAll(): Boolean {
+        val ports = SubXhttpRuntime.profilePorts()
+        if (ports.isEmpty()) return false
+        val nodes = SubXhttpRuntime.nodes().filter { ports.containsKey(it.tag) }
+        if (nodes.isEmpty()) return false
+        return SubXhttpProcess.startAll(nodes, ports)
     }
 
     /**
