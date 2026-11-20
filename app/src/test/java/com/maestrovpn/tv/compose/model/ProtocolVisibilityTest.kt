@@ -9,11 +9,21 @@ import org.junit.Test
 class ProtocolVisibilityTest {
     @Test
     fun deferredTransportAliasesAreHiddenWithoutFilteringOtherServers() {
-        // Only WebRTC stays deferred: the legacy transports (vk-turn/wdtt/olcrtc) are removed from
-        // the engine config by WhiteListConfig.stripLegacy, so the UI no longer hides them here.
-        val hidden = listOf("WEBRTC", "webrtc", "  WebRTC  ")
+        // WebRTC and the legacy transports (vk-turn/wdtt/olcrtc/olc rtc) stay hidden in the UI.
+        // WhiteListConfig.stripLegacy removes them from the engine config, but the groups UI is
+        // built from the subscription payload and still contained an "olcrtc" tile on 20.11.2026.
+        val hidden = listOf(
+            "WEBRTC", "webrtc", "  WebRTC  ",
+            "vk-turn", "VK-TURN",
+            "olcrtc", "OLCRTC",
+            " wdtt ", "wdtt",
+            "olc rtc", "OLC RTC",
+        )
         hidden.forEach { assertFalse(it, isProtocolVisibleInUi(it)) }
-        val ordinary = listOf("auto", "vless", "vless-s4", "hysteria2", "vk-turn", "WDTT", "olcrtc", "server-wdtt-backup")
+        val ordinary = listOf(
+            "auto", "vless", "vless-s4", "hysteria2",
+            "server-wdtt-backup", "server-olcrtc-backup",
+        )
         assertEquals(ordinary, visibleProtocolTags(hidden + ordinary))
     }
 
@@ -21,7 +31,8 @@ class ProtocolVisibilityTest {
     fun hiddenActiveProtocolNeverFallsBackToAnUntrueAutoLabel() {
         assertNull(visibleActiveProtocol("WEBRTC", "auto"))
         assertNull(visibleActiveProtocol(null, "WEBRTC"))
-        assertEquals("vk-turn", visibleActiveProtocol("vk-turn", "auto"))
+        assertNull(visibleActiveProtocol("vk-turn", "auto"))
+        assertNull(visibleActiveProtocol("olcrtc", "auto"))
         assertEquals("vless", visibleActiveProtocol(null, "vless"))
         assertEquals("auto", visibleActiveProtocol("", "auto"))
         assertEquals("vless-s3", visibleActiveProtocol("vless-s3", "auto"))
@@ -47,6 +58,7 @@ class ProtocolVisibilityTest {
     fun manualAndPendingSelectionsRejectHiddenGroupOrItem() {
         assertFalse(isProtocolSelectionAllowed("select", "webrtc"))
         assertFalse(isProtocolSelectionAllowed("select", "WebRTC"))
+        assertFalse(isProtocolSelectionAllowed("select", "olcrtc"))
         assertFalse(isProtocolSelectionAllowed("webrtc", "relay-a"))
         assertTrue(isProtocolSelectionAllowed("select", "auto"))
         assertTrue(isProtocolSelectionAllowed("vless", "server-a"))
