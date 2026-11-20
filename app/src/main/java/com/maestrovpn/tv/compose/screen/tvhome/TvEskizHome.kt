@@ -168,6 +168,24 @@ internal fun TvEskizHome(
     val currentTile = visibleActiveProtocol(activeProtocol, selected)
         .let { if (isJflServerTag(it)) JFL_GROUP_TAG else if (it != null && it in grid.overflow) TV_MORE_TAG else it }
 
+    // The engine has no url-test for xhttp nodes: their SOCKS port exists only while the node is
+    // the active pick. Probe them from this screen (as the phone list does) and merge the numbers
+    // into the engine map. The effect must live outside the picker branch: «Ещё серверы» is an
+    // overlay, and its rows must keep getting fresh numbers while it is open.
+    var subDelays by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    LaunchedEffect(protocols) {
+        if (protocols.isEmpty()) return@LaunchedEffect
+        while (true) {
+            SubXhttpRuntime.refreshDelays(protocols)
+            val measured = protocols.mapNotNull { tag ->
+                SubXhttpRuntime.cachedDelay(tag)?.toInt()?.let { tag to it }
+            }.toMap()
+            if (measured != subDelays) subDelays = measured
+            delay(3_000)
+        }
+    }
+    val allDelays = remember(delays, subDelays) { delays + subDelays }
+
     Box(Modifier.fillMaxSize()) {
     // Only one focusable screen at a time: while the picker is open the home grid is not
     // composed at all, so the D-pad can never wander into elements hidden behind the
@@ -298,7 +316,7 @@ internal fun TvEskizHome(
                 TvProtocolGrid(
                     protocols = grid.tiles,
                     selected = if (aivpnActive) AIVPN_TV_TAG else currentTile,
-                    delays = delays,
+                    delays = allDelays,
                     types = types,
                     jflCount = jflServerCount(protocols),
                     moreCount = grid.overflow.size,
@@ -319,7 +337,7 @@ internal fun TvEskizHome(
             title = if (more) TV_MORE_TITLE else "JFL",
             tags = if (more) grid.overflow else jflServerTags(protocols),
             selected = visibleActiveProtocol(activeProtocol, selected),
-            delays = delays,
+            delays = allDelays,
             types = types,
             onSelect = { tag ->
                 picker = null
