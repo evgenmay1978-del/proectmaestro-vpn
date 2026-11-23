@@ -472,7 +472,7 @@ private fun DrawScope.drawSocket(
         val rimTopLeft = Offset(cx - r + rimInset, cy - r + rimInset)
         val rimSize = Size(2f * (r - rimInset), 2f * (r - rimInset))
         drawArc(
-            brush = Brush.sweepGradient(SOCKET_RIM_COLOR_STOPS, center = Offset(cx, cy)),
+            brush = Brush.sweepGradient(*SOCKET_RIM_COLOR_STOPS.toTypedArray(), center = Offset(cx, cy)),
             startAngle = 0f,
             sweepAngle = 360f,
             useCenter = false,
