@@ -131,9 +131,10 @@ if (cdnApkBuild) {
 
 val effectiveVersionName = if (cdnApkBuild) "1.0.166" else task7TestVersionNameProperty ?: productionVersionName
 // A test APK is installed over the previous test APK on the same box. The CI test job writes
-// VERSION_CODE=1018800 into version.properties; that is below the 1.0.209-test-r695 build already
-// on the set-top box (1018802), and Android rejects it as a downgrade. Keep test builds above the
-// previous test while staying below the next release (1.0.209 = 1018900).
+// VERSION_CODE=1018850 into version.properties (effective APK code 1018853: +3 below for "-test-");
+// that is above release 1.0.210 (1018804) and below the next release (1018900). Before 23.11.2026
+// the job wrote 1018800 (effective 1018803) — below the installed 1.0.210, and Android rejected
+// it as a downgrade. Keep test builds above the previous test while staying below the next release.
 val testBuild = effectiveVersionName.contains("-test-")
 val effectiveVersionCode =
     if (cdnApkBuild) 1016011 else (task7TestVersionCode ?: productionVersionCode) + if (testBuild) 3 else 0
