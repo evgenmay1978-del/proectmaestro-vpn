@@ -39,6 +39,32 @@ class WhiteListBalanceTest {
         assertTrue(connection.disconnected)
     }
 
+    /**
+     * Tunnel-fetch: with a dead tunnel (a closed loopback port) the balance fetch must fall
+     * through to the direct endpoint and still return the balance — the proxy attempt must
+     * never abort the chain. The factory is called exactly once, for the direct endpoint:
+     * the proxy branch opens its own connection and never touches the factory.
+     */
+    @Test
+    fun deadTunnelFallsThroughToDirectBalanceEndpoint() {
+        val closedPort = java.net.ServerSocket(0).use { it.localPort }
+        TunnelFetch.proxyPort = closedPort
+        try {
+            var calls = 0
+            val balance = WhiteListBalanceClient.fetch(subscription) {
+                calls++
+                FakeConnection(it, response)
+            }
+            assertEquals(
+                WhiteListBalance(1_250_000_000, 2_500_000_000, 3_750_000_000, 1_800_000_000, "active", "PUBLISHABLE"),
+                balance,
+            )
+            assertEquals(1, calls)
+        } finally {
+            TunnelFetch.clear()
+        }
+    }
+
     @Test
     fun unsafeSubscriptionUrlsNeverOpenAConnection() {
         listOf(

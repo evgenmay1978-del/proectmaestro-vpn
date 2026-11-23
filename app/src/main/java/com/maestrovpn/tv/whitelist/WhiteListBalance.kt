@@ -60,9 +60,16 @@ object WhiteListBalanceClient {
         if (!source.rawPath.orEmpty().startsWith("/sub/")) return null
         val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
         if (token == "." || token == "..") return null
-        val endpoints = listOf(MaestroSub.CdnEndpoint(
-            URI("https", null, source.host, source.port, "/account/whitelist-balance", null, null).toURL().toString(),
-        )) + MaestroSub.cdnEndpoints(subscriptionUrl, "/cabinet/api/balance")
+        // Tunnel-fetch first when the tunnel is up (see TunnelFetch): the direct path to the
+        // panel is blocked from Russian networks. A refused proxy connection falls through to
+        // the direct chain below; a 4xx through the tunnel is a real diagnosis and returns
+        // null, exactly as on the direct path. The proxy branch bypasses the openConnection
+        // factory below — with the tunnel down (proxyPort = 0) this list stays empty and the
+        // existing tests are unaffected.
+        val canonicalBalance = URI("https", null, source.host, source.port, "/account/whitelist-balance", null, null).toURL().toString()
+        val tunnel = if (TunnelFetch.isAvailable) listOf(MaestroSub.CdnEndpoint(canonicalBalance, viaTunnelProxy = true)) else emptyList()
+        val endpoints = tunnel + listOf(MaestroSub.CdnEndpoint(canonicalBalance)) +
+            MaestroSub.cdnEndpoints(subscriptionUrl, "/cabinet/api/balance")
         for (endpoint in endpoints) {
             var connection: HttpsURLConnection? = null
             try {
@@ -75,13 +82,13 @@ object WhiteListBalanceClient {
                     if (response.status != HttpsURLConnection.HTTP_OK) return null
                     return parse(response.body)
                 }
-                val request = openConnection(URL(endpoint.url))
+                val request = if (endpoint.viaTunnelProxy) TunnelFetch.openConnection(endpoint.url) else openConnection(URL(endpoint.url))
                 connection = request
                 request.requestMethod = "GET"
                 request.instanceFollowRedirects = false
                 request.useCaches = false
-                request.connectTimeout = TIMEOUT_MS
-                request.readTimeout = TIMEOUT_MS
+                request.connectTimeout = if (endpoint.viaTunnelProxy) TunnelFetch.PROXY_TIMEOUT_MS else TIMEOUT_MS
+                request.readTimeout = request.connectTimeout
                 request.setRequestProperty("Authorization", "Bearer $token")
                 request.setRequestProperty("Accept", "application/json")
                 request.setRequestProperty("Cache-Control", "no-store")

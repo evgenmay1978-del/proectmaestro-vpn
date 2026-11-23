@@ -47,9 +47,15 @@ object MaestroSub {
     /**
      * A control endpoint for the CDN origin. [pinnedAddress] is non-null when the request must be
      * dialled to that literal edge address while the URL keeps the origin's name (see
-     * CdnPinnedClient).
+     * CdnPinnedClient). [viaTunnelProxy] marks the attempt that rides the LIVE tunnel through the
+     * loopback mixed inbound (see TunnelFetch) instead of the system network — first in the
+     * chain, with a short timeout, falling back to the direct chain when the tunnel is down.
      */
-    internal data class CdnEndpoint(val url: String, val pinnedAddress: String? = null)
+    internal data class CdnEndpoint(
+        val url: String,
+        val pinnedAddress: String? = null,
+        val viaTunnelProxy: Boolean = false,
+    )
 
     /**
      * CDN edge addresses worth dialling by literal address, in try order. `188.72.103.0/24` is the

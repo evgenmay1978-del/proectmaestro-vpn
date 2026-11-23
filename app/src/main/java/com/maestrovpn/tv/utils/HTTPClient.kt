@@ -3,6 +3,7 @@ package com.maestrovpn.tv.utils
 import io.nekohasekai.libbox.Libbox
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.ktx.unwrap
+import com.maestrovpn.tv.whitelist.TunnelFetch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +73,13 @@ class HTTPClient : Closeable {
 
     fun getString(url: String, timeoutMs: Long = 15_000): String {
         val cdn = MaestroSub.cdnEndpoints(url)
-        if (cdn.isNotEmpty()) return getSubscriptionString(listOf(MaestroSub.CdnEndpoint(url)) + cdn, timeoutMs)
+        if (cdn.isNotEmpty()) {
+            // Tunnel-fetch first when the tunnel is up: the direct path to the panel is
+            // blocked from Russian networks, and the tunnel's exit nodes reach it. A dead
+            // tunnel costs one instant refused connection, then the chain falls through.
+            val tunnel = if (TunnelFetch.isAvailable) listOf(MaestroSub.CdnEndpoint(url, viaTunnelProxy = true)) else emptyList()
+            return getSubscriptionString(tunnel + listOf(MaestroSub.CdnEndpoint(url)) + cdn, timeoutMs)
+        }
         val request = client.newRequest()
         request.setUserAgent(userAgent)
         request.setURL(url)
@@ -96,6 +103,27 @@ class HTTPClient : Closeable {
                     status = response.status
                     requireSubscriptionHttpStatus(status)
                     return response.body
+                }
+                if (endpoint.viaTunnelProxy) {
+                    // Through the live tunnel: the mixed inbound dials wapmixx.ru out of the
+                    // exit node, where the direct path is not blocked. Short timeouts — a
+                    // dead tunnel must fail fast, not stall the refresh. A 4xx here is a real
+                    // diagnosis and throws immediately, exactly as on the direct path.
+                    val connection = TunnelFetch.openConnection(endpoint.url)
+                    request = connection
+                    subscriptionConnection.set(connection)
+                    if (closed.get()) throw IOException("subscription request closed")
+                    connection.requestMethod = "GET"
+                    connection.instanceFollowRedirects = false
+                    connection.useCaches = false
+                    connection.connectTimeout = TunnelFetch.PROXY_TIMEOUT_MS
+                    connection.readTimeout = TunnelFetch.PROXY_TIMEOUT_MS
+                    connection.setRequestProperty("User-Agent", userAgent)
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.setRequestProperty("Cache-Control", "no-store")
+                    status = connection.responseCode
+                    requireSubscriptionHttpStatus(status)
+                    return connection.inputStream.bufferedReader().use { it.readText() }
                 }
                 val connection = URL(endpoint.url).openConnection() as HttpsURLConnection
                 request = connection
@@ -155,11 +183,26 @@ suspend fun httpFetchSubscription(url: String, timeoutMs: Long = 15_000): Subscr
         result.complete(value)
     }
     return try {
-        val waitMs = if (MaestroSub.cdnFallbackUrl(url) != null) timeoutMs * 2 else timeoutMs
+        val waitMs = subscriptionWaitMs(url, timeoutMs)
         withTimeoutOrNull(waitMs) { result.await() } ?: SubscriptionFetch.Network
     } finally {
         runCatching { client.close() }
     }
+}
+
+/**
+ * How long httpFetchSubscription waits for the detached fetch. The old formula
+ * (timeoutMs * 2 with a CDN fallback) only ever covered ~2 attempts of a 7-endpoint chain —
+ * and now the chain starts with a proxy attempt that can itself take up to 2 x
+ * PROXY_TIMEOUT_MS (3 s connect + 3 s read). The budget is sized for the worst case the
+ * chain can still need: proxy (6 s) + the direct and CDN attempts the old budget already
+ * covered. The proxy must not eat that budget. Without a proxy attempt the old formula is
+ * unchanged — including foreign URLs, where the proxy is never attempted.
+ */
+internal fun subscriptionWaitMs(url: String, timeoutMs: Long): Long {
+    val hasFallback = MaestroSub.cdnFallbackUrl(url) != null
+    val waitMs = if (hasFallback) timeoutMs * 2 else timeoutMs
+    return if (hasFallback && TunnelFetch.isAvailable) waitMs + 2L * TunnelFetch.PROXY_TIMEOUT_MS else waitMs
 }
 
 /**
