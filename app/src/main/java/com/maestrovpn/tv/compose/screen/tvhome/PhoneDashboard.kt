@@ -34,11 +34,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.compose.model.countryNameForFlag
-import com.maestrovpn.tv.compose.model.flagCountryCode
 import com.maestrovpn.tv.compose.model.isJflServerTag
 import com.maestrovpn.tv.compose.model.jflServerTags
 import com.maestrovpn.tv.compose.model.serverLabel
@@ -985,11 +985,11 @@ internal fun PhoneDashboard(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Spacer(Modifier.width(10.dp))
-                                        DarkButton("Копировать") {
+                                        DarkButton("Копировать", onClick = {
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             clipboard.setPrimaryClip(ClipData.newPlainText("MaestroVPN", url))
                                             Toast.makeText(context, "Ссылка подписки скопирована", Toast.LENGTH_SHORT).show()
-                                        }
+                                        })
                                     }
                                     val apps = listOf("MaestroVPN", "Happ", "Incy", "Karing")
                                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1246,11 +1246,12 @@ private fun PhoneServerRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        val shown = shownPing
         Text(
             pingText,
             color = when {
-                autoLabel || unavailable || shownPing == null -> DarkFaint
-                else -> phonePingColor(shownPing)
+                autoLabel || unavailable || shown == null -> DarkFaint
+                else -> phonePingColor(shown)
             },
             fontSize = 13.sp,
             lineHeight = 16.sp,

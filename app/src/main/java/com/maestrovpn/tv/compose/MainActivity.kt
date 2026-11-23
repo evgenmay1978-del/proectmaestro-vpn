@@ -122,9 +122,7 @@ import com.maestrovpn.tv.compose.navigation.SFANavHost
 import com.maestrovpn.tv.compose.navigation.Screen
 import com.maestrovpn.tv.compose.navigation.bottomNavigationScreens
 import com.maestrovpn.tv.compose.premium.ApprovedMobileBackground
-import com.maestrovpn.tv.compose.premium.ApprovedMobileBrand
 import com.maestrovpn.tv.compose.premium.PremiumGold
-import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import com.maestrovpn.tv.compose.screen.tvhome.PhoneBottomNavigation
@@ -1042,7 +1040,6 @@ class MainActivity :
                     (currentRoute?.startsWith("settings/") == true && !currentRoute.orEmpty().endsWith("/manage")))
             if (legacyPhoneHeader) {
                 Column(Modifier.statusBarsPadding()) {
-                    ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = PremiumPhoneContentInset).height(62.dp))
                     topBarOverride?.invoke()
                 }
             } else topBarOverride?.invoke()

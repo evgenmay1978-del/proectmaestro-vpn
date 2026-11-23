@@ -13,6 +13,7 @@ internal val PremiumEmerald = Color(0xFF29C965)
 internal val PremiumRuby = Color(0xFFE0705F)
 internal val PremiumText = Color(0xFFF1E8D0)
 internal val PremiumTextMuted = Color(0xFFBDB5A7)
+internal val PremiumTouchTarget = 48.dp
 // Утверждённый тёмный мобильный дизайн (23.11.2026, прототип
 // «MaestroVPN Mobile — моё видение»): чистый тёмный экран без деревянной рамки.
 // Значения — точные из прототипа; старые Premium*-токены остаются для глубоких

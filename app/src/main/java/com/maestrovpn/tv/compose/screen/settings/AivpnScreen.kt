@@ -314,9 +314,9 @@ fun AivpnScreen(navController: NavController) {
                             Text(heroTitle, color = DarkText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             Text(statusText, color = DarkMuted, fontSize = 13.sp)
                         }
-                        DarkSwitch(active) { checked ->
+                        DarkSwitch(active, onCheckedChange = { checked ->
                             if (checked) connect() else AivpnTunnel.stop(context)
-                        }
+                        })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         DarkStatCell(value = "UDP", label = "Протокол", modifier = Modifier.weight(1f))

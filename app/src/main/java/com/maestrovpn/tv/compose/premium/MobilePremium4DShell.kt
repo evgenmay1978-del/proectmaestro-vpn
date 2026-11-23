@@ -77,9 +77,6 @@ fun MobilePremium4DShell(
                 .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            ApprovedMobileBrand(Modifier.widthIn(max = maximumContentWidth).fillMaxWidth()
-                .padding(horizontal = horizontalPadding).height(62.dp))
-            Spacer(Modifier.height(8.dp))
             MobilePremiumTopBar(
                 title = title,
                 onBack = onBack,

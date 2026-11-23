@@ -8,7 +8,6 @@ name: Build app APK (test / compile-check)
 # (maestrovpn-tv-test-apk). HIGH versionCode so it won't self-update mid-test.
 # Exception: the explicit mobile-release-only task publishes the pinned, reviewed
 # stable APK artifact through GITHUB_TOKEN, without rebuilding or running tests.
-# (ci trigger: fantasy crisp-fill-eye v12 2026-07-07)
 # (ci trigger: target-1to1 — mockup medallions + status colors 2026-07-07)
 # (ci trigger: target-1to1 v2 — full medallion ring + live under-glow 2026-07-07)
 # (ci trigger: target-1to1 v3 — CTA gold + tile icons per mockup 2026-07-07)
@@ -535,7 +534,7 @@ jobs:
           retention-days: 14
 
   build:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' || inputs.task == 'mobile-eye-compile' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' }}
     runs-on: ubuntu-latest
     # The repo default token permission is "read", which does NOT include actions:read — so
     # `gh run list --workflow=libbox.yml` (the libbox.aar fetch below) failed with
@@ -558,7 +557,6 @@ jobs:
           fi
 
       - name: Set test version (above the published release, below the next one)
-        if: ${{ inputs.task != 'mobile-eye-compile' }}
         id: ver
         run: |
           set -euo pipefail
@@ -671,7 +669,6 @@ jobs:
           file app/src/main/jniLibs/*/libmaestro_xhttp.so
 
       - name: Materialize the stable signing keystore from secret
-        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
         run: |
@@ -681,7 +678,6 @@ jobs:
           fi
 
       - name: Build :app:assembleOtherDebug
-        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
@@ -694,7 +690,6 @@ jobs:
       # артефактов выбрана, её падение уводило ИДУЩИЕ ПОСЛЕ unit-тесты в skipped, и гейт переставал
       # проверять то, ради чего существует. Сборка и тесты остаются блокирующими.
       - name: Upload test APK (artifact only — NO Release, NO OTA)
-        if: ${{ inputs.task != 'mobile-eye-compile' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -709,18 +704,7 @@ jobs:
       #
       # Gating: run 30167294888 (2026-07-25) was the first time these ever executed anywhere and
       # all of them passed, so a failure from here on is a real regression, not unknown ground.
-      # Compile the existing app/test Kotlin and exercise only the eye contract.
-      # No deferred-transport binaries, keystore, APK, Release or OTA in this mode.
-      - name: Compile eye component (no tests or APK)
-        if: ${{ inputs.task == 'mobile-eye-compile' }}
-        env:
-          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
-        run: |
-          chmod +x ./gradlew
-          ./gradlew :app:compileOtherDebugKotlin --stacktrace --no-daemon
-
       - name: Unit tests
-        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: ./gradlew :app:testOtherDebugUnitTest --stacktrace --no-daemon
@@ -738,7 +722,3 @@ jobs:
 # (ci trigger: brand+tv v2 — ТВ Dark-Fantasy без анимаций: wood-kit, StaticTvMedallion(VM), Particles/breath/gait/wave заморожены 2026-07-08)
 # (ci trigger: brand v3 — релизный скоуп owner: телефон=иконки+без засвета, ТВ=старый вид статично, баннер полный 3 плотности 2026-07-08)
 # (ci trigger: brand v4 — баннер = ТОЛЬКО иконка владельца (коллаж убран) 2026-07-08)
-
-# (ci trigger: mobile-eye-revolver-preview 2026-07-23)
-
-# (ci trigger: natural-living-eye 3b21f408 2026-07-23)

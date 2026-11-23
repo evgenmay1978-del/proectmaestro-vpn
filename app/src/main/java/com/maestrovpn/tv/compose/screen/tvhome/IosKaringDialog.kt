@@ -2,20 +2,14 @@ package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,23 +22,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
 import com.maestrovpn.tv.compose.fantasy.FantasySegmented
-import com.maestrovpn.tv.compose.premium.MobilePremiumButton
-import com.maestrovpn.tv.compose.premium.MobilePremiumDialogSurface
-import com.maestrovpn.tv.compose.premium.MobilePremiumSegmented
-import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
@@ -116,145 +98,41 @@ internal fun maskSubUrl(url: String): String {
  *
  * Both phone and TV get the Dark-Fantasy modal (carved wood + aged-bronze frame + ivy, an
  * engraved segmented Android/iPhone toggle and a bronze-framed QR).
+ * TV-only since 23.11.2026: the phone share path moved to the device page
+ * (PhoneDashboard "device"); this dialog is no longer reachable on phone.
  * Robustness: all Room reads run off-main in a runCatching (a throw in produceState would
  * crash the app); the QR encode is guarded too and stays BLACK-on-WHITE so any camera scans it.
  */
 @Composable
 fun IosKaringDialog(onDismiss: () -> Unit) {
     val state = rememberShareState()
-    // On TV the home action is explicitly labelled "Подключить iPhone", so open on the
-    // iPhone/Karing QR; on phone keep the historical Android-first default (the "Поделиться"
-    // tile makes no such iPhone promise). The segmented control still switches either way.
-    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
-    var androidMode by remember { mutableStateOf(!isTv) }
+    // TV-only: the home action is explicitly labelled "Подключить iPhone", so open on the
+    // iPhone/Karing QR. The segmented control still switches either way.
+    var androidMode by remember { mutableStateOf(false) }
 
-    if (isTv) {
-        // TV keeps its established D-pad dialog, iPhone-first default and compact QR geometry.
-        FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
-            ShareBody(state, androidMode, { androidMode = it }, isTv = true)
-            Spacer(Modifier.height(18.dp))
-            GlossyButton(
-                label = "Закрыть",
-                onClick = onDismiss,
-                accent = NeonGreen,
-                wood = true,
-                modifier = Modifier.fillMaxWidth(0.42f),
-            )
-        }
-    } else {
-        PhoneShareDialog(
-            state = state,
-            androidMode = androidMode,
-            onMode = { androidMode = it },
-            onDismiss = onDismiss,
+    // TV keeps its established D-pad dialog, iPhone-first default and compact QR geometry.
+    FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
+        ShareBody(state, androidMode, { androidMode = it })
+        Spacer(Modifier.height(18.dp))
+        GlossyButton(
+            label = "Закрыть",
+            onClick = onDismiss,
+            accent = NeonGreen,
+            wood = true,
+            modifier = Modifier.fillMaxWidth(0.42f),
         )
     }
 }
 
-@Composable
-private fun PhoneShareDialog(
-    state: ShareState,
-    androidMode: Boolean,
-    onMode: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val configuration = LocalConfiguration.current
-    val bodyMaxHeight = (configuration.screenHeightDp * 0.62f).dp
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(onDismiss) {
-                    detectTapGestures { onDismiss() }
-                }
-                .padding(horizontal = 18.dp, vertical = 24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            MobilePremiumDialogSurface(
-                title = "Подключить устройство",
-                modifier = Modifier.pointerInput(Unit) {
-                        detectTapGestures { /* Consume taps inside the panel. */ }
-                    },
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = bodyMaxHeight)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    PhoneShareBody(state)
-                }
-                MobilePremiumButton(
-                    label = "Закрыть",
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PhoneShareBody(state: ShareState) {
-    val context = LocalContext.current
-    var selectedApp by remember { mutableStateOf(0) }
-    when (state) {
-        ShareState.Loading -> Text("Загрузка…", color = PremiumText)
-        ShareState.NeedActivate -> Text("Сначала войдите в аккаунт MaestroVPN.", color = PremiumText)
-        is ShareState.Failed -> Text("Не удалось получить подписку. Закройте окно и повторите.", color = PremiumText)
-        is ShareState.Ready -> {
-            val apps = listOf("MaestroVPN", "Happ", "Incy", "Karing")
-            Text("Выберите приложение на другом устройстве", color = PremiumText, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(12.dp))
-            apps.chunked(2).forEachIndexed { row, labels ->
-                MobilePremiumSegmented(labels, selectedIndex = selectedApp - row * 2,
-                    onSelect = { selectedApp = row * 2 + it }, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-            }
-            val url = remember(state.baseUrl, selectedApp) { shareUrlForApp(state.baseUrl, selectedApp) }
-            val qr = remember(url) {
-                runCatching { QRCodeGenerator.generate(url, 640, android.graphics.Color.BLACK, android.graphics.Color.WHITE) }.getOrNull()
-            }
-            Spacer(Modifier.height(10.dp))
-            if (qr != null) {
-                Box(Modifier.fillMaxWidth(0.84f).aspectRatio(1f).background(Color.White).padding(10.dp)) {
-                    Image(qr.asImageBitmap(), "QR-код для ${apps[selectedApp]}", Modifier.fillMaxSize())
-                }
-            } else Text("Не удалось создать QR-код. Используйте копирование ссылки.", color = PremiumText)
-            Spacer(Modifier.height(12.dp))
-            Text("Отсканируйте QR-код или добавьте ссылку в ${apps[selectedApp]}.", color = PremiumText, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(12.dp))
-            MobilePremiumButton("Скопировать ссылку", {
-                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MaestroVPN", url))
-                android.widget.Toast.makeText(context, "Ссылка скопирована", android.widget.Toast.LENGTH_SHORT).show()
-            }, Modifier.fillMaxWidth())
-            Spacer(Modifier.height(6.dp))
-            MobilePremiumButton("Поделиться", {
-                runCatching {
-                    context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
-                        .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, url), "Подписка MaestroVPN"))
-                }.onFailure { android.widget.Toast.makeText(context, "Не удалось открыть отправку", android.widget.Toast.LENGTH_SHORT).show() }
-            }, Modifier.fillMaxWidth())
-        }
-    }
-}
-
 /** Shared share-dialog body — the toggle + explainer + QR — rendered in the Dark-Fantasy style
- *  (phone + TV). All logic (shareUrl, black-on-white QR) is identical. */
+ *  (TV-only since 23.11.2026). All logic (shareUrl, black-on-white QR) is identical. */
 @Composable
 private fun ShareBody(
     state: ShareState,
     androidMode: Boolean,
     onMode: (Boolean) -> Unit,
-    isTv: Boolean,
 ) {
-    val bodyColor = if (isTv) MaestroSilver else PremiumText
+    val bodyColor = MaestroSilver
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -273,21 +151,12 @@ private fun ShareBody(
             )
             is ShareState.Ready -> {
                 // Android / iPhone toggle.
-                if (isTv) {
-                    FantasySegmented(
-                        options = listOf("Android", "iPhone"),
-                        selected = if (androidMode) 0 else 1,
-                        onSelect = { onMode(it == 0) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    MobilePremiumSegmented(
-                        options = listOf("Android", "iPhone"),
-                        selectedIndex = if (androidMode) 0 else 1,
-                        onSelect = { onMode(it == 0) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                FantasySegmented(
+                    options = listOf("Android", "iPhone"),
+                    selected = if (androidMode) 0 else 1,
+                    onSelect = { onMode(it == 0) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(12.dp))
 
                 val shareUrl = if (androidMode) {
@@ -322,51 +191,23 @@ private fun ShareBody(
                     // карточка рисуется ПЕРВОЙ (снизу), безель с ПРОЗРАЧНЫМ проёмом — ПОВЕРХ,
                     // карточка чуть больше проёма и заправлена под бронзу → рамка цельная,
                     // никакого «белый квадрат поверх рамки» (фото owner 2026-07-12).
-                    // ТВ → tvm_qr_bezel v4 (рама frame_qr ТЕЛЕФОНА, проём 0.8105 стороны,
-                    // золото с 0.834 — карточка 0.82 заправлена под золото);
-                    // телефон → прежний frame_qr-композит НЕ тронут (owner телефон одобрил).
+                    // ТВ: белая карточка 210 dp с QR внутри.
                     Box(
-                        modifier = if (isTv) {
-                            Modifier.size(210.dp)
-                        } else {
-                            Modifier.fillMaxWidth(0.84f).aspectRatio(1f)
-                        },
+                        modifier = Modifier.size(210.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (isTv) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Image(
-                                    bitmap = qr.asImageBitmap(),
-                                    contentDescription = "QR",
-                                    modifier = Modifier.fillMaxSize(0.88f),
-                                )
-                            }
-                        } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Image(
-                                painter = painterResource(R.drawable.frame_qr),
-                                contentDescription = null,
-                                modifier = Modifier.matchParentSize(),
-                                contentScale = ContentScale.FillBounds,
+                                bitmap = qr.asImageBitmap(),
+                                contentDescription = "QR",
+                                modifier = Modifier.fillMaxSize(0.88f),
                             )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize(0.80f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Image(
-                                    bitmap = qr.asImageBitmap(),
-                                    contentDescription = "QR",
-                                    modifier = Modifier.fillMaxSize(0.86f),
-                                )
-                            }
                         }
                     }
                     Spacer(Modifier.height(8.dp))

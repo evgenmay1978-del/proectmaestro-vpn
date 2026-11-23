@@ -128,12 +128,8 @@ worktree без явной причины.
 2. `CLAUDE.md`.
 3. Этот файл — `CLAUDE_MOBILE_REBUILD.md`.
 4. `CONTEXT_HANDOFF.md`.
-5. `design/mobile-4d-references/CLAUDE_INSTRUCTIONS.md`.
-6. `design/mobile-4d-references/README.md`.
-7. `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` —
-   единственный визуальный эталон Home.
-8. `design/mobile-asset-redraw/SPEC.md` и
-   `design/mobile-asset-redraw/README.md`.
+5. (удалено 23.11.2026: `design/mobile-4d-references/` и `design/mobile-asset-redraw/` —
+   4D-дизайн заменён тёмным; см. CONTEXT_HANDOFF.md, запись 23.11.2026).
 9. `docs/mobile-screen-coverage.md` — точный scope: 6 экранов + 1 dialog.
 10. `docs/superpowers/plans/2026-07-31-mobile-home-owner-reference-rebuild.md`.
 
