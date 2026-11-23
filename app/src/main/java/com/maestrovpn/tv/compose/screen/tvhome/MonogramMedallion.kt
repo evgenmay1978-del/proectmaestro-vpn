@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.asImageBitmap
@@ -41,6 +42,7 @@ import com.maestrovpn.tv.compose.premium.DarkGreen
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.math.sin
@@ -70,7 +72,8 @@ import kotlin.math.sin
  * перезапусков анимации. Выкл — медленный поворот ±56° с паузами в анфас
  * (фазы цикла прототипа coinIdleTurn, 10 с, но линейно — по требованию
  * владельца; у прототипа был ease-in-out). Вкл — ровный оборот 3,6 с/круг.
- * Переход между состояниями — короткая линейная доводка в анфас.
+ * Отключение — плавная остановка (spin-down): трение, доводка в анфас
+ * smoothstep-кривой и покачивание ±3° (см. SPIN_DOWN в кадровом цикле).
  */
 @Composable
 internal fun MonogramMedallion(
@@ -105,6 +108,9 @@ internal fun MonogramMedallion(
         var settleTo = 0f
         var settleTimeMs = 0L
         var settleDurationMs = 1L
+        var spinDownPhase = 0 // 0 — трение, 1 — доводка, 2 — покачивание
+        var spinDownOmega = 0f // текущая скорость трения, град/мс
+        var spinDownWobbleMs = 0L
         while (true) {
             withFrameNanos { now ->
                 var dtMs = (now - prevNanos) / 1_000_000L
@@ -116,29 +122,64 @@ internal fun MonogramMedallion(
                     // Подключение: продолжаем вращение с текущего угла, без рывка.
                     mode = CoinMode.SPIN
                 } else if (!wantConnected && mode == CoinMode.SPIN) {
-                    // Отключение: линейно довести монету в анфас (ближайшее кратное 360°).
-                    val target = (angle / 360f).roundToInt() * 360f
-                    settleFrom = angle
-                    settleTo = target
-                    val dist = abs(target - angle)
-                    settleDurationMs = maxOf(1L, (dist / COIN_SETTLE_SPEED).roundToLong())
-                    settleTimeMs = 0L
-                    mode = CoinMode.SETTLE
+                    // Отключение: плавная остановка (spin-down) — трение
+                    // от скорости вращения, потом доводка в анфас.
+                    spinDownPhase = 0
+                    spinDownOmega = COIN_SPIN_SPEED
+                    spinDownWobbleMs = 0L
+                    mode = CoinMode.SPIN_DOWN
                 }
                 when (mode) {
                     CoinMode.SPIN -> {
                         angle += COIN_SPIN_SPEED * dtMs
                         angle %= 360f
                     }
-                    CoinMode.SETTLE -> {
-                        settleTimeMs += dtMs
-                        val f = (settleTimeMs.toFloat() / settleDurationMs).coerceIn(0f, 1f)
-                        angle = settleFrom + (settleTo - settleFrom) * f
-                        if (f >= 1f) {
-                            angle = 0f
-                            mode = CoinMode.IDLE
-                            phaseIndex = 0
-                            phaseTimeMs = 0L
+                    CoinMode.SPIN_DOWN -> {
+                        when (spinDownPhase) {
+                            0 -> {
+                                // Фаза A — трение: скорость падает
+                                // экспоненциально ω(t) = ω₀·exp(−t/τ),
+                                // монета продолжает крутиться вперёд без рывка.
+                                angle += spinDownOmega * dtMs
+                                spinDownOmega *= exp(-dtMs / SPIN_DOWN_TAU_MS)
+                                if (spinDownOmega < SPIN_DOWN_MIN_OMEGA) {
+                                    // Фаза B — доводка: цель — ближайшее
+                                    // кратное 360° от текущего угла.
+                                    settleFrom = angle
+                                    settleTo = (angle / 360f).roundToInt() * 360f
+                                    val dist = abs(settleTo - angle)
+                                    val glideSec = (dist / 100f).coerceIn(0.5f, 1.5f)
+                                    settleDurationMs = maxOf(1L, (glideSec * 1000f).roundToLong())
+                                    settleTimeMs = 0L
+                                    spinDownPhase = 1
+                                }
+                            }
+                            1 -> {
+                                // Фаза B — доводка smoothstep (нулевая
+                                // скорость на обоих концах).
+                                settleTimeMs += dtMs
+                                val f = (settleTimeMs.toFloat() / settleDurationMs).coerceIn(0f, 1f)
+                                val s = f * f * (3f - 2f * f)
+                                angle = settleFrom + (settleTo - settleFrom) * s
+                                if (f >= 1f) {
+                                    spinDownWobbleMs = 0L
+                                    spinDownPhase = 2
+                                }
+                            }
+                            else -> {
+                                // Фаза C — одно покачивание ±3° за 0.25 с
+                                // (затухающий синус, один период).
+                                spinDownWobbleMs += dtMs
+                                val t = (spinDownWobbleMs.toFloat() / SPIN_DOWN_WOBBLE_MS).coerceIn(0f, 1f)
+                                angle = settleTo + SPIN_DOWN_WOBBLE_DEG *
+                                    sin(2f * PI.toFloat() * t) * (1f - t)
+                                if (t >= 1f) {
+                                    angle = 0f
+                                    mode = CoinMode.IDLE
+                                    phaseIndex = 0
+                                    phaseTimeMs = 0L
+                                }
+                            }
                         }
                     }
                     CoinMode.IDLE -> {
@@ -173,7 +214,7 @@ internal fun MonogramMedallion(
 }
 
 /** Режимы единственного источника угла. */
-private enum class CoinMode { IDLE, SETTLE, SPIN }
+private enum class CoinMode { IDLE, SPIN_DOWN, SPIN }
 
 /** Один линейный участок цикла покоя: длительность и угол от/до. */
 private data class IdlePhase(val durationMs: Long, val from: Float, val to: Float)
@@ -199,8 +240,17 @@ private const val COIN_SPIN_PERIOD_MS = 3_600
 /** Скорость вращения при подключении, град/мс (360° за 3,6 с). */
 private const val COIN_SPIN_SPEED = 360f / COIN_SPIN_PERIOD_MS
 
-/** Скорость доводки в анфас при отключении, град/мс (макс. ~400 мс на 180°). */
-private const val COIN_SETTLE_SPEED = 0.45f
+/** Постоянная времени трения при spin-down, мс: ω(t) = ω₀·exp(−t/τ). */
+private const val SPIN_DOWN_TAU_MS = 400f
+
+/** Скорость, ниже которой трение сменяется доводкой, град/мс (8°/с). */
+private const val SPIN_DOWN_MIN_OMEGA = 0.008f
+
+/** Длительность покачивания в конце spin-down, мс. */
+private const val SPIN_DOWN_WOBBLE_MS = 250L
+
+/** Амплитуда покачивания в конце spin-down, градусы. */
+private const val SPIN_DOWN_WOBBLE_DEG = 3f
 
 /** Толщина ребра монеты, доля диаметра (прототип: стопка дисков 20px на 234px). */
 private const val COIN_EDGE_FRACTION = 0.09f
@@ -331,6 +381,36 @@ private val SOCKET_WALL_COLORS = listOf(
 )
 
 /**
+ * Ободок гнезда: плавный переход светлый↔тёмный на стыках 150°/330°.
+ *
+ * Дефект (скриншот владельца 24.11.2026, мокап ~/workspace/coin-proof/
+ * spindown/REPORT.md §3.2): две дуги по 140° с квадратными концами
+ * оставляли зазоры 40° и жёсткий стык на 330° — глаз читал его как
+ * ступеньку/заусенец на ободке. Одних дуг по 180° мало: стык остаётся
+ * резким, а квадратный обрез тёмной дуги — чёрным обрывком.
+ *
+ * Поэтому ободок — одна дуга 360° со sweep-градиентом: цвет каждого угла
+ * считается по его положению, переход — smoothstep ±12° вокруг стыков
+ * (промежуточные остановки 0.259/0.741 — значения smoothstep 3t²−2t³ при
+ * t=1/3 и 2/3). Зазоров и квадратных концов нет вовсе; круглые концы
+ * штриха не нужны — у замкнутой дуги концов нет.
+ */
+private val SOCKET_RIM_LIGHT = Color(0xDCFAE196)
+private val SOCKET_RIM_DARK = Color.Black.copy(alpha = 0.55f)
+private val SOCKET_RIM_COLOR_STOPS = listOf(
+    0.000f to SOCKET_RIM_DARK,
+    138f / 360f to SOCKET_RIM_DARK,
+    146f / 360f to lerp(SOCKET_RIM_DARK, SOCKET_RIM_LIGHT, 0.259f),
+    154f / 360f to lerp(SOCKET_RIM_DARK, SOCKET_RIM_LIGHT, 0.741f),
+    162f / 360f to SOCKET_RIM_LIGHT,
+    318f / 360f to SOCKET_RIM_LIGHT,
+    326f / 360f to lerp(SOCKET_RIM_DARK, SOCKET_RIM_LIGHT, 0.741f),
+    334f / 360f to lerp(SOCKET_RIM_DARK, SOCKET_RIM_LIGHT, 0.259f),
+    342f / 360f to SOCKET_RIM_DARK,
+    1.000f to SOCKET_RIM_DARK,
+)
+
+/**
  * Объёмное гнездо: круглое отверстие, в котором сидит монета.
  * Видимая стенка = круг отверстия (радиус = радиус монеты) минус силуэт
  * монеты (объединение скрытого и лицевого эллипсов). При 0° отверстия нет —
@@ -384,23 +464,17 @@ private fun DrawScope.drawSocket(
             radius = r,
             center = Offset(cx, cy),
         )
-        // Блик по кромке отверстия сверху-слева + тёмная кромка снизу-справа.
+        // Ободок по кромке отверстия: светлый слева (блик сверху-слева),
+        // тёмный справа. Одна дуга 360° со sweep-градиентом
+        // (SOCKET_RIM_COLOR_STOPS) — плавный переход на стыках 150°/330°,
+        // без зазоров и без квадратных концов (см. комментарий к стопам).
         val rimInset = 2f * pxScale
         val rimTopLeft = Offset(cx - r + rimInset, cy - r + rimInset)
         val rimSize = Size(2f * (r - rimInset), 2f * (r - rimInset))
         drawArc(
-            color = Color(0xDCFAE196),
-            startAngle = 150f,
-            sweepAngle = 140f,
-            useCenter = false,
-            topLeft = rimTopLeft,
-            size = rimSize,
-            style = Stroke(width = 3f * pxScale),
-        )
-        drawArc(
-            color = Color.Black.copy(alpha = 0.55f),
-            startAngle = 330f,
-            sweepAngle = 140f,
+            brush = Brush.sweepGradient(SOCKET_RIM_COLOR_STOPS, center = Offset(cx, cy)),
+            startAngle = 0f,
+            sweepAngle = 360f,
             useCenter = false,
             topLeft = rimTopLeft,
             size = rimSize,
