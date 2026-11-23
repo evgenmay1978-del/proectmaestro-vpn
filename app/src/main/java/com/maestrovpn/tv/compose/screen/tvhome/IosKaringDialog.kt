@@ -55,11 +55,54 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** UI state of the share-subscription dialog, produced off the main thread. */
-private sealed interface ShareState {
+internal sealed interface ShareState {
     data object Loading : ShareState
     data object NeedActivate : ShareState
     data class Ready(val baseUrl: String) : ShareState
     data class Failed(val reason: String) : ShareState
+}
+
+/** Loads the subscription URL off the main thread; shared by the dialog and the phone device page. */
+@Composable
+internal fun rememberShareState(): ShareState {
+    val state by produceState<ShareState>(ShareState.Loading) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val pid = Settings.selectedProfile
+                if (pid == -1L) return@runCatching ShareState.NeedActivate
+                val remote = ProfileManager.get(pid)?.typed?.remoteURL?.takeIf { it.isNotBlank() }
+                    ?: return@runCatching ShareState.NeedActivate
+                ShareState.Ready(remote.trimEnd('/'))
+            }.getOrElse { e ->
+                ShareState.Failed(e.javaClass.simpleName + (e.message?.let { ": $it" } ?: ""))
+            }
+        }
+    }
+    return state
+}
+
+/**
+ * Subscription URL for one of the apps on the device page / share dialog
+ * (MaestroVPN 0, Happ 1, Incy 2, Karing 3): the base URL without device metadata,
+ * with the format the app needs (xray links for Happ/Incy, plain links for Karing).
+ */
+internal fun shareUrlForApp(baseUrl: String, appIndex: Int): String {
+    val source = android.net.Uri.parse(MaestroSub.stripDeviceMetadata(baseUrl))
+    val builder = source.buildUpon().clearQuery()
+    source.queryParameterNames.filterNot { it == "format" || it == "app" }.forEach { name ->
+        source.getQueryParameters(name).forEach { builder.appendQueryParameter(name, it) }
+    }
+    when (appIndex) {
+        1, 2 -> builder.appendQueryParameter("format", "xray")
+        3 -> builder.appendQueryParameter("format", "links")
+    }
+    return builder.build().toString()
+}
+
+/** Display form of a subscription URL: scheme + host + first path segment, token masked. */
+internal fun maskSubUrl(url: String): String {
+    val segments = url.split("/")
+    return if (segments.size > 4) segments.take(4).joinToString("/") + "/••••••••" else url
 }
 
 /**
@@ -78,19 +121,7 @@ private sealed interface ShareState {
  */
 @Composable
 fun IosKaringDialog(onDismiss: () -> Unit) {
-    val state by produceState<ShareState>(ShareState.Loading) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val pid = Settings.selectedProfile
-                if (pid == -1L) return@runCatching ShareState.NeedActivate
-                val remote = ProfileManager.get(pid)?.typed?.remoteURL?.takeIf { it.isNotBlank() }
-                    ?: return@runCatching ShareState.NeedActivate
-                ShareState.Ready(remote.trimEnd('/'))
-            }.getOrElse { e ->
-                ShareState.Failed(e.javaClass.simpleName + (e.message?.let { ": $it" } ?: ""))
-            }
-        }
-    }
+    val state = rememberShareState()
     // On TV the home action is explicitly labelled "Подключить iPhone", so open on the
     // iPhone/Karing QR; on phone keep the historical Android-first default (the "Поделиться"
     // tile makes no such iPhone promise). The segmented control still switches either way.
@@ -185,18 +216,7 @@ private fun PhoneShareBody(state: ShareState) {
                     onSelect = { selectedApp = row * 2 + it }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
             }
-            val url = remember(state.baseUrl, selectedApp) {
-                val source = android.net.Uri.parse(MaestroSub.stripDeviceMetadata(state.baseUrl))
-                val builder = source.buildUpon().clearQuery()
-                source.queryParameterNames.filterNot { it == "format" || it == "app" }.forEach { name ->
-                    source.getQueryParameters(name).forEach { builder.appendQueryParameter(name, it) }
-                }
-                when (selectedApp) {
-                    1, 2 -> builder.appendQueryParameter("format", "xray")
-                    3 -> builder.appendQueryParameter("format", "links")
-                }
-                builder.build().toString()
-            }
+            val url = remember(state.baseUrl, selectedApp) { shareUrlForApp(state.baseUrl, selectedApp) }
             val qr = remember(url) {
                 runCatching { QRCodeGenerator.generate(url, 640, android.graphics.Color.BLACK, android.graphics.Color.WHITE) }.getOrNull()
             }

@@ -8,7 +8,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -22,21 +21,22 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compose.premium.PremiumGold
-import com.maestrovpn.tv.compose.premium.PremiumGoldMuted
+import com.maestrovpn.tv.compose.premium.DarkGreen
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
@@ -44,22 +44,41 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Медальон-монетка (23.11.2026, утверждённый мобильный дизайн): вращается сама МОНЕТА
- * (диск + буква одним слоем), буква статична на ней с обеих сторон. В покое монетка живёт
- * медленным поворотом (как первый прототип: пауза в анфас, поворот до 56°, пауза, обратно);
- * при подключении — ровный оборот 3,6 с на круг. Золотое ребро монеты — полоса, чья ширина
- * следует |sin угла|: в анфас её нет, на ребре видна полностью.
+ * Медальон-монетка (утверждённый тёмный дизайн 23.11.2026, прототип
+ * «MaestroVPN Mobile — моё видение»): вращается сама МОНЕТА (диск + буква одним
+ * слоем), буква статична на ней с обеих сторон. В покое монетка живёт медленным
+ * поворотом (пауза в анфас, поворот до 56°, пауза, обратно); при подключении —
+ * ровный оборот 3,6 с на круг, кольцо зеленеет. Диск рисуется кодом по прототипу
+ * (тёмный радиальный диск + тонкие золотые кольца) — плоские PNG-диски со старой
+ * кожаной текстурой и камнями больше не используются: владелец назвал монетку
+ * в r706 мелкой и плоской.
  *
- * Буква — статичный объёмный кадр владельца (mobile_medallion_m_idle), та же геометрия
- * посадки, что у прежнего MonogramSpin. Отдельные кадры вращения буквы (72 шт.) больше не
- * нужны: вращалась бы буква, а не монета. На обороте та же M: буква симметрична слева
- * направо, диск симметричен (4 камня по осям), поэтому зеркальный тыл читается как та же
- * сторона. Новых отрендеренных кадров «диск+M» не потребовалось.
+ * Буква — статичный объёмный кадр владельца (mobile_medallion_m_idle), посажена
+ * КРУПНО, как в прототипе (кадр 73,02% ширины сцены, клип 44,5%). Отдельные кадры
+ * вращения буквы (72 шт.) не нужны: вращалась бы буква, а не монета. На обороте
+ * та же M: буква симметрична слева направо, диск симметричен, поэтому зеркальный
+ * тыл читается как та же сторона. Новых отрендеренных кадров «диск+M» не требуется.
  */
 @Composable
-internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier) {
+internal fun MonogramMedallion(
+    connected: Boolean,
+    connecting: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
     val angle = remember { Animatable(0f) }
     val density = LocalDensity.current
+    // Пульс яркости при подключении (прототип coinPulse, 1 с): белая вуаль над монетой.
+    val pulse = remember { Animatable(0f) }
+    LaunchedEffect(connecting) {
+        if (connecting) {
+            while (true) {
+                pulse.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
+                pulse.animateTo(0f, tween(500, easing = FastOutSlowInEasing))
+            }
+        } else {
+            pulse.snapTo(0f)
+        }
+    }
     LaunchedEffect(connected) {
         if (connected) {
             // Ровный непрерывный оборот монеты, 3,6 с на круг; буква статична на ней.
@@ -82,16 +101,38 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
         }
     }
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        // Золотое ребро монеты: полоса по центру, ширина — доля толщины ребра от |sin угла|.
+        // Золотое ребро монеты с насечкой + зелёное свечение при подключении (под лицом).
         Canvas(Modifier.fillMaxSize()) {
+            if (connected) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to DarkGreen.copy(alpha = 0.26f),
+                        1f to Color.Transparent,
+                        center = center,
+                        radius = size.minDimension * 0.62f,
+                    ),
+                    radius = size.minDimension * 0.62f,
+                    center = center,
+                )
+            }
             val edge = abs(sin(angle.value * PI.toFloat() / 180f))
             val thickness = size.minDimension * COIN_EDGE_FRACTION * edge
             if (thickness >= 1f) {
+                val left = (size.width - thickness) / 2f
+                // Насечка на торце: чередование золотых оттенков поперёк полосы.
                 drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        listOf(PremiumGold, PremiumGoldMuted, PremiumGold),
+                    brush = Brush.horizontalGradient(
+                        0.00f to Color(0xFFF0CD72),
+                        0.20f to Color(0xFFCAA02F),
+                        0.35f to Color(0xFF8A5F14),
+                        0.50f to Color(0xFFDBB153),
+                        0.65f to Color(0xFFA87F22),
+                        0.80f to Color(0xFF75520F),
+                        1.00f to Color(0xFFF0CD72),
+                        startX = left,
+                        endX = left + thickness,
                     ),
-                    topLeft = Offset((size.width - thickness) / 2f, 0f),
+                    topLeft = Offset(left, 0f),
                     size = Size(thickness, size.height),
                     cornerRadius = CornerRadius(thickness / 2f, thickness / 2f),
                 )
@@ -105,16 +146,69 @@ internal fun MonogramMedallion(connected: Boolean, modifier: Modifier = Modifier
             },
             contentAlignment = Alignment.Center,
         ) {
-            Image(
-                painter = painterResource(
-                    if (connected) R.drawable.mobile_medallion_disc_on else R.drawable.mobile_medallion_disc_off,
-                ),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-            )
+            Canvas(Modifier.fillMaxSize()) { drawDiscFace(connected) }
             MonogramLetter(Modifier.fillMaxSize())
         }
+        // Пульс яркости при подключении: белая вуаль поверх монеты.
+        if (connecting && pulse.value > 0f) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(
+                    Color.White.copy(alpha = 0.14f * pulse.value),
+                    radius = size.minDimension / 2f,
+                    center = center,
+                )
+            }
+        }
     }
+}
+
+/** Лицо диска по прототипу: тёмный радиальный диск, блик сверху, тонкие золотые кольца. */
+private fun DrawScope.drawDiscFace(connected: Boolean) {
+    val r = size.minDimension / 2f
+    val center = Offset(size.width / 2f, size.height / 2f)
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to Color(0xFF251C10),
+            0.58f to Color(0xFF171208),
+            1f to Color(0xFF0C0905),
+            center = center,
+            radius = r,
+        ),
+        radius = r,
+        center = center,
+    )
+    // Верхний блик.
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to Color(0x2BF6DA8A), // rgba(246,218,138,.17)
+            1f to Color.Transparent,
+            center = Offset(center.x, center.y - r * 0.55f),
+            radius = r * 0.9f,
+        ),
+        radius = r,
+        center = center,
+    )
+    // Внутренняя тень сверху/снизу.
+    val oval = Path().apply { addOval(Rect(center - Offset(r, r), Size(2f * r, 2f * r))) }
+    clipPath(oval) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                0f to Color(0x80000000),
+                0.25f to Color.Transparent,
+                0.75f to Color.Transparent,
+                1f to Color(0xA6000000),
+            ),
+        )
+    }
+    // Кольца ободка (в прототипе — inset box-shadow): внешнее золотое (зелёное при
+    // подключении), тёмный зазор, тонкая золотая волосяная линия, кромка по самому краю.
+    val ring = if (connected) DarkGreen else Color(0xFFC9992E)
+    val ringHair = if (connected) DarkGreen.copy(alpha = 0.42f) else Color(0x73D9A441)
+    val ringRim = if (connected) DarkGreen.copy(alpha = 0.30f) else Color(0x42D9A441)
+    drawCircle(color = ring, radius = r - 0.75.dp.toPx(), center = center, style = Stroke(width = 1.5.dp.toPx()))
+    drawCircle(color = Color(0xEB120C03), radius = r - 2.dp.toPx(), center = center, style = Stroke(width = 1.dp.toPx()))
+    drawCircle(color = ringHair, radius = r - 2.5.dp.toPx(), center = center, style = Stroke(width = 0.75.dp.toPx()))
+    drawCircle(color = ringRim, radius = r - 0.25.dp.toPx(), center = center, style = Stroke(width = 0.5.dp.toPx()))
 }
 
 /** Оборот монеты при подключении, мс на круг (как в утверждённом прототипе). */
@@ -137,18 +231,15 @@ private const val COIN_EDGE_FRACTION = 0.09f
 /** Дистанция камеры для поворота монеты: слабая перспектива, без искажения диска. */
 private const val COIN_CAMERA_DISTANCE = 2000f
 
-// Окно кадра буквы в долях бокса медальона: 128/1024, 280/1024, 768/1024, 544/1024
-// (та же геометрия, что у прежнего MonogramSpin: буква встаёт на прежнее место без подгонки).
-private const val FRAME_LEFT = 0.125f
-private const val FRAME_TOP = 0.2734375f
-private const val FRAME_WIDTH = 0.75f
-private const val FRAME_HEIGHT = 0.53125f
-
-// В кадрах буква шире диска: её нижние засечки расходятся до r=402 при радиусе диска 372
-// (система ассета 1024), поэтому уменьшаем монограмму так, чтобы она целиком встала в кольцо
-// (402*0.86 = 346), а клип по 360/1024 оставляем страховкой.
-private const val FRAME_SCALE = 0.86f
-private const val FRAME_CLIP_RADIUS = 360f / 1024f
+// Посадка буквы по прототипу: кадр 73,02% ширины сцены, верх 22,29%, левый край 12,78%,
+// высота кадра 51,73% (768×544). Центр чернил буквы при этом — точно в центре монеты.
+// Масштаб 1,0: уменьшать букву больше не нужно — клип 44,5% оставляет зазор ~14 px до кольца.
+private const val FRAME_LEFT = 0.1278f
+private const val FRAME_TOP = 0.2229f
+private const val FRAME_WIDTH = 0.7302f
+private const val FRAME_HEIGHT = 0.5173f
+private const val FRAME_SCALE = 1f
+private const val FRAME_CLIP_RADIUS = 0.445f
 private const val IDLE_SAMPLE = 1
 
 private fun decodeFrame(resources: Resources, id: Int, sample: Int): ImageBitmap? = runCatching {
@@ -169,7 +260,6 @@ private fun MonogramLetter(modifier: Modifier = Modifier) {
     val idle = remember(resources) { decodeFrame(resources, R.drawable.mobile_medallion_m_idle, IDLE_SAMPLE) }
     Canvas(modifier) {
         val bitmap = idle ?: return@Canvas
-        // Масштабируем кадр вокруг центра диска: буква остаётся по центру, но влезает в кольцо.
         val centerX = size.width / 2f
         val centerY = size.height / 2f
         val left = centerX + (size.width * FRAME_LEFT - centerX) * FRAME_SCALE
@@ -187,6 +277,16 @@ private fun MonogramLetter(modifier: Modifier = Modifier) {
             )
         }
         clipPath(disc) {
+            // Тень буквы на диске (прототип: drop-shadow под лицевой гранью).
+            drawImage(
+                image = bitmap,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(bitmap.width, bitmap.height),
+                dstOffset = IntOffset((left + 2.dp.toPx()).roundToInt(), (top + 8.dp.toPx()).roundToInt()),
+                dstSize = IntSize(width.roundToInt().coerceAtLeast(1), height.roundToInt().coerceAtLeast(1)),
+                filterQuality = FilterQuality.High,
+                colorFilter = ColorFilter.tint(Color.Black.copy(alpha = 0.45f), androidx.compose.ui.graphics.BlendMode.SrcIn),
+            )
             drawImage(
                 image = bitmap,
                 srcOffset = IntOffset.Zero,
@@ -199,30 +299,10 @@ private fun MonogramLetter(modifier: Modifier = Modifier) {
     }
 }
 
-// Кромка кольца считается по ассету диска (1024): кожа видна до r=328, внутренняя золотая
-// волосяная линия 328–339, золотая полоса 345–369, край диска 372. Бокс медальона — 570,
-// поэтому 1 единица ассета = 285/512 радиуса бокса. Изумрудная кромка ложится ровно на золотую
-// полосу (345–369 → 192–205 бокса) и не выходит ни на кожу, ни на дерево.
-private const val MEDALLION_RING_INNER = 192f / 285f
-private const val MEDALLION_RING_WIDTH = 13f / 285f
-
-// Кольцо рвётся на четырёх камнях рамы (N/E/S/W) — требование владельца 27.09.2026: камни не
-// перекрываются. Замер по кадру «Отключено»: камень ≈34 px шириной на радиусе 213–237 px, это
-// ≈±5° дуги; половинa разрыва 10° даёт по ~2° (≈8 px) запаса с каждой стороны камня.
-private const val MEDALLION_RING_GAP_DEG = 10f
-
-/** Изумруд кромки — средний цвет зелёной полосы из ассета владельца: rgb(23, 209, 65). */
-private val MedallionEmerald = Color(0xFF17D141)
-
 /**
- * Живая кромка медальона. Рисуется кодом (drawArc + Stroke) вместо PNG: у прежнего ассета вокруг
- * полосы был белый bloom, который и засвечивал кожу, — удаление слоя ореола этого не лечило.
- * Слой идёт ПОВЕРХ рамы: под ней орнамент перекрывает всё, что нарисовано за краем диска.
- *
- * 16.11.2026: кромка горит ровно — мерцание (ключевые кадры 0,85…1 по 1,2 с) убрано: световая
- * пульсация запрещена владельцем (10.09.2026) и не нравилась ему на экране. Вместо мерцания —
- * разовое движение при подключении: каждая из четырёх дуг прорисовывается от камней к середине
- * ([RING_DRAW_MS]), дальше кольцо неподвижно.
+ * Зелёное кольцо при подключении (прототип: кольцо диска зеленеет + свечение).
+ * Диск без камней, поэтому кольцо — полный круг; прорисовывается за 700 мс от
+ * верхней точки, дальше неподвижно. Мерцания нет (запрещено владельцем).
  */
 @Composable
 internal fun MonogramGlow(connected: Boolean, modifier: Modifier = Modifier) {
@@ -231,27 +311,17 @@ internal fun MonogramGlow(connected: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { drawn.animateTo(1f, tween(RING_DRAW_MS, easing = FastOutSlowInEasing)) }
     Canvas(modifier) {
         val boxRadius = size.minDimension / 2f
-        val stroke = boxRadius * MEDALLION_RING_WIDTH
-        val radius = boxRadius * MEDALLION_RING_INNER + stroke / 2f
-        val arcTopLeft = Offset(center.x - radius, center.y - radius)
-        val arcSize = Size(radius * 2f, radius * 2f)
-        val sweep = 90f - 2f * MEDALLION_RING_GAP_DEG
-        val grow = sweep / 2f * drawn.value
-        for (quadrant in 0 until 4) {
-            val from = 90f * quadrant + MEDALLION_RING_GAP_DEG
-            // Два встречных отрезка: от камня в начале дуги и от камня в её конце.
-            for (startAngle in floatArrayOf(from, from + sweep - grow)) {
-                drawArc(
-                    color = MedallionEmerald,
-                    startAngle = startAngle,
-                    sweepAngle = grow,
-                    useCenter = false,
-                    topLeft = arcTopLeft,
-                    size = arcSize,
-                    style = Stroke(width = stroke),
-                )
-            }
-        }
+        val stroke = 2.dp.toPx()
+        val radius = boxRadius - stroke
+        drawArc(
+            color = DarkGreen,
+            startAngle = -90f,
+            sweepAngle = 360f * drawn.value,
+            useCenter = false,
+            topLeft = Offset(center.x - radius, center.y - radius),
+            size = Size(radius * 2f, radius * 2f),
+            style = Stroke(width = stroke),
+        )
     }
 }
 

@@ -1,15 +1,20 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,50 +24,44 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.maestrovpn.tv.R
+import com.maestrovpn.tv.BuildConfig
+import com.maestrovpn.tv.compose.model.countryNameForFlag
+import com.maestrovpn.tv.compose.model.flagCountryCode
 import com.maestrovpn.tv.compose.model.isJflServerTag
 import com.maestrovpn.tv.compose.model.jflServerTags
-import com.maestrovpn.tv.compose.model.pingLabel
 import com.maestrovpn.tv.compose.model.serverLabel
 import com.maestrovpn.tv.compose.premium.*
-import com.maestrovpn.tv.compose.theme.PlayfairFamily
+import com.maestrovpn.tv.compose.util.QRCodeGenerator
+import com.maestrovpn.tv.update.UpdatePromptProvenance
+import com.maestrovpn.tv.update.UpdateState
+import com.maestrovpn.tv.vendor.Vendor
 import com.maestrovpn.tv.whitelist.OwnServers
 import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.WhiteListSelection
-import com.maestrovpn.tv.BuildConfig
-import com.maestrovpn.tv.update.UpdateState
-import com.maestrovpn.tv.update.UpdatePromptProvenance
-import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
-/** Phone presentation uses the approved artwork; connection and payment authorities stay existing. */
+/** Phone presentation uses the approved dark design (23.11.2026, prototype
+ *  «MaestroVPN Mobile — моё видение»): clean dark screens, no wooden frame.
+ *  Connection and payment authorities stay existing. */
 @Composable
 internal fun PhoneDashboard(
     connected: Boolean,
@@ -81,12 +80,17 @@ internal fun PhoneDashboard(
     onSelectProtocol: (String) -> Unit,
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
-    onOpenServers: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAivpn: () -> Unit = {},
     aivpnAvailable: Boolean = false,
+    /** The NeuroProtocol tunnel is actually carrying traffic right now. */
+    aivpnActive: Boolean = false,
+    /** Service start (epoch ms) for the session timer, when the sing-box service runs. */
+    sessionStartMs: Long? = null,
+    /** Live sing-box speeds (bytes/s), null when the service is not the transport. */
+    uplinkBytesPerSec: Float? = null,
+    downlinkBytesPerSec: Float? = null,
     onSplitTunnel: () -> Unit,
-    onShareIos: () -> Unit,
     onScanQr: () -> Unit,
     onEnterTrial: () -> Unit,
     entrySection: String = "home",
@@ -105,6 +109,8 @@ internal fun PhoneDashboard(
     var showCdnServers by rememberSaveable { mutableStateOf(selected?.startsWith("cdn:") == true) }
     // The "JFL" row folds the owner's external subscription into one picker with live latency.
     var jflPicker by rememberSaveable { mutableStateOf(false) }
+    // Selected app on the "Подключить устройство" page (MaestroVPN/Happ/Incy/Karing).
+    var deviceApp by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(entrySection) { page = entrySection }
     fun navigate(target: String) { page = target; onSectionChange(target) }
     BackHandler(page != "home") { navigate("home") }
@@ -130,94 +136,282 @@ internal fun PhoneDashboard(
     }
     fun refreshAccount() { refresh++; onRefreshServers() }
     val server = phoneServer(actual, actual?.let { cdnView.labels[it] }, actual?.let { types[it] })
-    val activeTab = when (page) { "cdn", "account" -> "account"; "servers" -> "servers"; "settings", "update" -> "settings"; else -> "home" }
+    val activeTab = when (page) {
+        "cdn", "account", "device" -> "account"
+        "servers" -> "servers"
+        "settings", "update" -> "settings"
+        else -> "home"
+    }
+
+    // Session timer: the service start when known, otherwise the moment this screen
+    // first saw the connection come up (covers the AIVPN tunnel, which has no service).
+    var connectStartedAt by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(connected) {
+        if (connected && connectStartedAt == null) connectStartedAt = System.currentTimeMillis()
+        if (!connected) connectStartedAt = null
+    }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+    val sessionStart = sessionStartMs ?: connectStartedAt
+    val sessionSeconds = if (connected && sessionStart != null) {
+        ((nowMs - sessionStart) / 1_000).toInt().coerceAtLeast(0)
+    } else {
+        0
+    }
+
+    // Connect/disconnect toasts (prototype behaviour); silent on first composition.
+    var wasConnected by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(connected) {
+        val prev = wasConnected
+        wasConnected = connected
+        if (prev == false && connected) {
+            val ping = actual?.let { delays[it] }
+            val toast = if (ping != null) "Подключено: ${server.name}, $ping мс" else "Подключено: ${server.name}"
+            Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
+        } else if (prev == true && !connected) {
+            Toast.makeText(context, "VPN отключён", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Mode switch (prototype: segmented control; switching never disconnects).
+    fun selectOrdinary() {
+        // «Обычный VPN» = «Авто». A profile without it gets a third-party server,
+        // our own one only when nothing else is there (owner, 15.11.2026).
+        val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" }
+            ?: ordinary.firstOrNull { !OwnServers.isOwnTag(it) } ?: ordinary.firstOrNull()
+        if (choice == null) onEnterCode() else onSelectProtocol(choice)
+        Toast.makeText(context, "Режим: обычный VPN", Toast.LENGTH_SHORT).show()
+    }
+    fun selectCdn() {
+        navigate("cdn")
+        Toast.makeText(context, "Режим: CDN", Toast.LENGTH_SHORT).show()
+    }
 
     Box(modifier.fillMaxSize()) {
         ApprovedMobileBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
-            val side = (maxWidth * 0.085f).coerceIn(24.dp, 42.dp)
-            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 460.dp).coerceIn(220.dp, 360.dp) / CARVED_MEDALLION_ASPECT)
-            val heroHeight = heroWidth * CARVED_MEDALLION_ASPECT
+            val side = 18.dp
+            // The coin is the hero of the approved design: ~66% of the screen width
+            // (prototype stage 252 px on a 380 px phone), a plain square stage, no frame.
+            val coinSize = (maxWidth * 0.66f).coerceIn(220.dp, 300.dp)
+            // One scroll state per page (a shared state leaked the scroll offset
+            // from one tab into the next; per-page states are remembered
+            // unconditionally — never inside a when()).
+            val homeScroll = rememberScrollState()
+            val serversScroll = rememberScrollState()
+            val accountScroll = rememberScrollState()
+            val cdnScroll = rememberScrollState()
+            val deviceScroll = rememberScrollState()
+            val updateScroll = rememberScrollState()
+            val settingsScroll = rememberScrollState()
+            val scrollState = when (page) {
+                "servers" -> serversScroll
+                "account" -> accountScroll
+                "cdn" -> cdnScroll
+                "device" -> deviceScroll
+                "update" -> updateScroll
+                "settings" -> settingsScroll
+                else -> homeScroll
+            }
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)
-                    .verticalScroll(rememberScrollState()).padding(bottom = 10.dp),
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)
+                        .verticalScroll(scrollState)
+                        .padding(bottom = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    ApprovedMobileBrand(Modifier.fillMaxWidth().height(62.dp))
-                    if (page != "home") PhonePageTitle(when (page) {
-                        "servers" -> "Серверы"; "account" -> "Моя подписка"; "cdn" -> "CDN"; "update" -> "Обновление"; else -> "Настройки"
-                    }) { navigate("home") }
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     when (page) {
                         "home" -> {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneAction(if (hasSubProfile) accountLogin?.takeIf { it.isNotBlank() } ?: "Аккаунт" else "Ввести логин",
-                                    Icons.Default.Person, onEnterCode, Modifier.weight(2.85f),
-                                    trailingIcon = if (hasSubProfile) Icons.Default.Edit else null)
-                                PhoneAction("Бот", Icons.Default.Send, { openBot() }, Modifier.weight(1.15f))
+                            // Header: avatar + login/plan + «Бот».
+                            val username = if (hasSubProfile) {
+                                accountLogin?.takeIf { it.isNotBlank() } ?: "Аккаунт"
+                            } else {
+                                "Ввести логин"
                             }
-                            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneWallet("VPN", if (hasSubProfile) daysText else "—", MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
-                                PhoneWallet("CDN", if (hasSubProfile) balanceText else "—", Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
+                            val planLine = when {
+                                !hasSubProfile -> "Войдите в аккаунт"
+                                daysLeft != null && daysLeft >= 3650 -> "Тариф «Безлимит»"
+                                else -> "Тариф: $daysText"
                             }
-                            // No spotlight behind the medallion (owner, 05.11.2026): the radial glow made
-                            // the wood around the button a different tone than the rest of the page.
-                            Box(Modifier.size(heroWidth, heroHeight).clickable(role = Role.Button, onClick = onToggleConnect)
-                                .semantics { contentDescription = if (connected && !connecting) "Отключить VPN" else "Подключить VPN" },
-                                contentAlignment = Alignment.Center) {
-                                // Decorative rays/guides/spikes (owner, 07.11.2026): a vector layer UNDER the
-                                // medallion, clipped above the status caption; brightness follows the real status.
-                                val density = LocalDensity.current
-                                var statusBlockPx by remember { mutableIntStateOf(0) }
-                                with(density) {
-                                    MedallionOrnament(active = connected && !connecting,
-                                        medallionLeftPx = (heroWidth * CARVED_MEDALLION_LEFT).toPx(),
-                                        medallionTopPx = (heroHeight * CARVED_MEDALLION_TOP).toPx(),
-                                        medallionSizePx = (heroWidth * CARVED_MEDALLION_DIAMETER).toPx(),
-                                        bottomLimitPx = heroHeight.toPx() - 4.dp.toPx() -
-                                            (if (statusBlockPx > 0) statusBlockPx.toFloat() else 72.dp.toPx()),
-                                        modifier = Modifier.fillMaxSize())
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                DarkAvatar(if (hasSubProfile) username.take(1) else "M")
+                                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                    Text(
+                                        username,
+                                        color = DarkText,
+                                        fontSize = 16.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        planLine,
+                                        color = DarkMuted,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
-                                MonogramMedallion(connected = connected && !connecting,
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                        .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
-                                        .size(heroWidth * CARVED_MEDALLION_DIAMETER))
-                                // Ornament around the medallion is gone (owner, 04.11.2026): the
-                                // ring with the emeralds is the asset itself, the live glow sits on it.
-                                MonogramGlow(connected = connected && !connecting,
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                        .offset(x = heroWidth * CARVED_MEDALLION_LEFT, y = heroHeight * CARVED_MEDALLION_TOP)
-                                        .size(heroWidth * CARVED_MEDALLION_DIAMETER))
-                            Column(modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { statusBlockPx = it.height }
-                                .padding(horizontal = 5.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
-                                    color = if (connecting) PremiumGold else if (connected) PremiumEmerald else PremiumRuby,
-                                    fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
-                                Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите на медальон, чтобы отключить" else "Нажмите на медальон для подключения",
-                                    color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
+                                Box(
+                                    Modifier
+                                        .background(DarkPanel, RoundedCornerShape(999.dp))
+                                        .border(1.dp, DarkLine, RoundedCornerShape(999.dp))
+                                        .clickable(role = Role.Button, onClick = { openBot() })
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Send, null, tint = DarkGoldLight, modifier = Modifier.size(17.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Бот", color = DarkGoldLight, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
+                            // Chips: VPN / CDN остаток.
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                DarkChip(
+                                    label = "VPN",
+                                    value = if (hasSubProfile) daysText else "—",
+                                    onClick = { navigate("account") },
+                                )
+                                DarkChip(
+                                    label = "CDN · Остаток",
+                                    value = if (hasSubProfile) balanceText else "—",
+                                    goldSuffix = " ГБ",
+                                    onClick = { navigate("cdn") },
+                                )
                             }
-                            PhoneModes(cdnSelected, onOrdinary = {
-                                // «Обычный VPN» = «Авто». A profile without it gets a third-party server,
-                                // our own one only when nothing else is there (owner, 15.11.2026).
-                                val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" }
-                                    ?: ordinary.firstOrNull { !OwnServers.isOwnTag(it) } ?: ordinary.firstOrNull()
-                                if (choice == null) onEnterCode() else onSelectProtocol(choice)
-                            }, onCdn = { navigate("cdn") })
-                            PhoneServerRow(server, false, ping = actual?.let { delays[it] }, tag = actual) { showCdnServers = cdnSelected; navigate("servers") }
-                            // Экспериментальный протокол — на главной, рядом с выбором сервера
-                            // (owner 31.10.2026). Это отдельный VpnService, а не outbound sing-box.
-                            // Только аккаунтам, которым панель выдаёт ключ (/info features.aivpn):
-                            // остальным строка вела бы в «Подписка отклонила запрос».
-                            if (aivpnAvailable) PhoneNeuroProtocolRow(onOpenAivpn)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.weight(1f))
-                                PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.weight(1f))
+                            // The coin: the whole stage is the tap target.
+                            Box(
+                                Modifier.size(coinSize)
+                                    .clickable(role = Role.Button, onClick = onToggleConnect)
+                                    .semantics {
+                                        contentDescription =
+                                            if (connected && !connecting) "Отключить VPN" else "Подключить VPN"
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                MonogramMedallion(
+                                    connected = connected && !connecting,
+                                    connecting = connecting,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                MonogramGlow(
+                                    connected = connected && !connecting,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                Text(
+                                    if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
+                                    color = if (connecting) DarkGoldLight else if (connected) DarkGreen else DarkText,
+                                    fontSize = 24.sp,
+                                    lineHeight = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Text(
+                                    when {
+                                        connecting -> "Выбираем маршрут и проверяем задержку"
+                                        connected && cdnSelected -> "Режим CDN · Нажмите на монетку, чтобы отключить"
+                                        connected -> "Нажмите на монетку, чтобы отключить"
+                                        else -> "Нажмите на монетку, чтобы подключить"
+                                    },
+                                    color = DarkMuted,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 18.sp,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                            // Session stats (connected only).
+                            if (connected && !connecting) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    DarkStatCell(
+                                        value = "%02d:%02d".format(Locale.US, sessionSeconds / 60, sessionSeconds % 60),
+                                        label = "Сессия",
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    DarkStatCell(
+                                        value = formatSpeed(downlinkBytesPerSec),
+                                        label = "Входящий",
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    DarkStatCell(
+                                        value = formatSpeed(uplinkBytesPerSec),
+                                        label = "Исходящий",
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            // Segmented VPN/CDN switch.
+                            DarkSegmented(
+                                options = listOf("Обычный VPN", "CDN"),
+                                selectedIndex = if (cdnSelected) 1 else 0,
+                                onSelect = { index -> if (index == 0) selectOrdinary() else selectCdn() },
+                            )
+                            // Server card.
+                            val isAuto = actual == null || actual == "auto" || actual == "urltest" || actual == "select"
+                            val homeRowServer = when {
+                                !connected && isAuto -> PhoneServer(
+                                    flag = "",
+                                    name = "Автовыбор сервера",
+                                    detail = "Подберёт самый быстрый автоматически",
+                                )
+                                else -> {
+                                    val code = flagCountryCode(server.flag)
+                                    val sub = if (code.isNotEmpty()) {
+                                        "$code · ${server.detail} · ${if (cdnSelected) "режим CDN" else "WiFi"}"
+                                    } else {
+                                        "${server.detail} · ${if (cdnSelected) "режим CDN" else "WiFi"}"
+                                    }
+                                    server.copy(detail = sub)
+                                }
+                            }
+                            PhoneServerRow(
+                                server = homeRowServer,
+                                active = false,
+                                ping = actual?.let { delays[it] },
+                                tag = actual,
+                                autoLabel = !connected && isAuto,
+                                showBadge = connected || !isAuto,
+                            ) { showCdnServers = cdnSelected; navigate("servers") }
+                            // NeuroProtocol card: always composed (prototype) — mounting it only
+                            // when the tunnel becomes available shifted the list mid-connect and
+                            // read as an overlap (owner video, r706).
+                            PhoneNeuroProtocolRow(aivpnActive, onOpenAivpn)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                DarkButton(
+                                    if (hasSubProfile) "Продлить VPN" else "Купить VPN",
+                                    onBuy,
+                                    Modifier.weight(1f),
+                                    primary = true,
+                                    icon = MaestroCrown,
+                                )
+                                DarkButton("Купить ГБ", { openBot() }, Modifier.weight(1f))
                             }
                         }
                         "servers" -> {
-                            PhoneModes(showCdnServers, { showCdnServers = false }, { showCdnServers = true })
-                            if (showCdnServers) PhoneText("CDN: $balanceText")
+                            DarkScreenTitle("Серверы")
+                            DarkScreenSubtitle("Отсортированы по задержке. Цвет — быстрый способ понять, куда подключаться.")
+                            DarkSegmented(
+                                options = listOf("Обычный VPN", "CDN"),
+                                selectedIndex = if (showCdnServers) 1 else 0,
+                                onSelect = { index -> showCdnServers = index == 1 },
+                            )
                             val tags = if (showCdnServers) cdnTags else ordinary
                             LaunchedEffect(tags) {
                                 // Keep filling the latency column while the list is open: the first
@@ -228,9 +422,66 @@ internal fun PhoneDashboard(
                                 }
                             }
                             if (tags.isEmpty()) {
-                                PhoneNotice(if (!hasSubProfile) "Войдите в аккаунт, чтобы загрузить серверы"
-                                    else if (showCdnServers && !cdnView.cellular) "Для CDN включите мобильную сеть"
-                                    else "Список серверов пока недоступен")
+                                Box(
+                                    Modifier.fillMaxWidth().darkCard().padding(horizontal = 16.dp, vertical = 14.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        if (!hasSubProfile) "Войдите в аккаунт, чтобы загрузить серверы"
+                                        else if (showCdnServers && !cdnView.cellular) "Для CDN включите мобильную сеть"
+                                        else "Список серверов пока недоступен",
+                                        color = DarkMuted,
+                                        fontSize = 13.5.sp,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                }
+                            }
+                            val autoSelected = selected == null || selected == "auto" || selected == "urltest" || selected == "select"
+                            if (!showCdnServers) {
+                                // «Автовыбор» — как в прототипе, с лучшим сервером по текущей задержке.
+                                val bestTag = ordinary.minByOrNull { delays[it] ?: Int.MAX_VALUE }
+                                val bestServer = bestTag?.let { phoneServer(it, cdnView.labels[it], types[it]) }
+                                val bestPing = bestTag?.let { delays[it] }
+                                Row(
+                                    Modifier.fillMaxWidth().approvedMobilePanel(selected = autoSelected)
+                                        .heightIn(min = 58.dp)
+                                        .clickable(role = Role.RadioButton) {
+                                            val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" }
+                                                ?: ordinary.firstOrNull { !OwnServers.isOwnTag(it) }
+                                                ?: ordinary.firstOrNull()
+                                            if (choice != null) onSelectProtocol(choice)
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    DarkIconTile(Icons.Default.Public)
+                                    Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
+                                        Text(
+                                            "Автовыбор сервера",
+                                            color = DarkText,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                        )
+                                        Text(
+                                            if (bestServer != null && bestPing != null) {
+                                                "Сейчас лучший: ${bestServer.name} · $bestPing мс"
+                                            } else {
+                                                "Подберёт самый быстрый автоматически"
+                                            },
+                                            color = DarkMuted,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Icon(
+                                        if (autoSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                                        null,
+                                        tint = if (autoSelected) DarkGreen else DarkGoldLight,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                }
                             }
                             if (!showCdnServers && jflTags.isNotEmpty()) {
                                 PhoneServerRow(
@@ -252,7 +503,7 @@ internal fun PhoneDashboard(
                                 if (row.flag.isNotEmpty()) row.name else "Другие"
                             }
                             grouped.entries.sortedWith(compareBy({ it.key == "Другие" }, { it.key })).forEach { (group, groupTags) ->
-                                PhoneText(group, true)
+                                DarkGroupLabel(group)
                                 groupTags.sortedBy { delays[it] ?: Int.MAX_VALUE }.forEach { tag ->
                                     PhoneServerRow(
                                         server = phoneServer(tag, cdnView.labels[tag], types[tag]),
@@ -263,113 +514,528 @@ internal fun PhoneDashboard(
                                     ) { onSelectProtocol(tag) }
                                 }
                             }
-                            if (showCdnServers) PhoneNotice("CDN работает в мобильной сети. Для Wi-Fi выберите обычный VPN.")
-                            PhoneAction("Обновить список", Icons.Default.Refresh, { refreshAccount() }, Modifier.fillMaxWidth())
+                            if (showCdnServers) {
+                                Text(
+                                    "CDN работает в мобильной сети. Для Wi-Fi выберите обычный VPN.",
+                                    color = DarkFaint,
+                                    fontSize = 12.5.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                )
+                            }
+                            DarkButton(
+                                "Обновить список",
+                                { refreshAccount() },
+                                Modifier.fillMaxWidth(),
+                                icon = Icons.Default.Refresh,
+                            )
                         }
                         "account" -> {
-                            PhoneText(accountLogin?.let { "Логин: $it" } ?: "Войдите в свой аккаунт")
-                            MobilePremiumPanel {
-                                PhoneText("Обычный VPN", true)
-                                PhoneText(daysText)
-                                // A lifetime subscription shows no expiry date (owner, 23.11.2026):
-                                // «28.02.2109» on the screen reads as a bug.
-                                if (daysLeft != null && daysLeft >= 3650) PhoneText("Подписка бессрочна")
-                                else accountExpires?.let { PhoneText("Действует до $it") }
-                                PhoneText("Трафик без ограничений")
-                                Spacer(Modifier.height(12.dp))
-                                PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
+                            DarkScreenTitle("Моя подписка")
+                            DarkScreenSubtitle("Всё об аккаунте — на одном экране, ровными строками.")
+                            val lifetime = daysLeft != null && daysLeft >= 3650
+                            // Карточка тарифа.
+                            Column(
+                                Modifier.fillMaxWidth().darkCard().padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        if (lifetime) "Безлимит" else "VPN",
+                                        color = DarkGoldLight,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (hasSubProfile) {
+                                        DarkBadge(
+                                            if (daysLeft != null && daysLeft <= 0) "Истекла" else "Активна",
+                                            green = daysLeft == null || daysLeft > 0,
+                                        )
+                                    }
+                                }
+                                Text(
+                                    if (lifetime) {
+                                        "VPN без ограничений по трафику и сроку действия. Никаких дат из следующего века — безлимит так и подписан: бессрочно."
+                                    } else {
+                                        "VPN без ограничений по трафику."
+                                    },
+                                    color = DarkMuted,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                )
                             }
-                            MobilePremiumPanel {
-                                PhoneText("CDN", true)
-                                PhoneText(balanceText)
-                                if (wallet.unavailable && balance != null) PhoneText("Последний полученный остаток")
-                                Spacer(Modifier.height(12.dp))
-                                PhoneAction("Открыть CDN", Icons.Default.Storage, { navigate("cdn") }, Modifier.fillMaxWidth(), true)
-                                Spacer(Modifier.height(7.dp))
-                                PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.fillMaxWidth())
+                            // Карточка «ключ — значение»: срок действия — «Бессрочно», а не 28.02.2109.
+                            val kvRows = listOf(
+                                "Тариф" to if (lifetime) "Безлимит" else "VPN",
+                                "Срок действия" to when {
+                                    !hasSubProfile -> "—"
+                                    lifetime -> "Бессрочно"
+                                    accountExpires != null -> accountExpires
+                                    daysLeft != null -> "Осталось $daysText"
+                                    else -> "—"
+                                },
+                                "Трафик" to "Без ограничений",
+                                "Логин" to (accountLogin?.takeIf { it.isNotBlank() } ?: "—"),
+                            )
+                            Column(
+                                Modifier.fillMaxWidth().darkCard().padding(horizontal = 20.dp, vertical = 6.dp),
+                            ) {
+                                kvRows.forEachIndexed { index, (key, value) ->
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(key, color = DarkMuted, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                        Text(
+                                            value,
+                                            color = DarkText,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.End,
+                                        )
+                                    }
+                                    if (index < kvRows.lastIndex) DarkMenuDivider()
+                                }
                             }
-                            PhoneAction(if (hasSubProfile) "Сменить логин" else "Ввести логин", Icons.Default.Person, onEnterCode, Modifier.fillMaxWidth())
-                            PhoneAction("Подключить устройство", Icons.Default.Devices, onShareIos, Modifier.fillMaxWidth())
-                            PhoneAction("Telegram-бот", Icons.Default.Send, { openBot() }, Modifier.fillMaxWidth())
-                            if (!hasSubProfile) PhoneAction("Попробовать бесплатно", Icons.Default.CardGiftcard, onEnterTrial, Modifier.fillMaxWidth())
+                            // Карточка CDN.
+                            Column(
+                                Modifier.fillMaxWidth().darkCard().padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "CDN",
+                                        color = DarkText,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text("Остаток на балансе", color = DarkMuted, fontSize = 12.sp)
+                                }
+                                Text(
+                                    text = androidx.compose.ui.text.AnnotatedString.Builder().apply {
+                                        val main = if (balanceText.endsWith(" ГБ")) {
+                                            balanceText.removeSuffix(" ГБ")
+                                        } else {
+                                            balanceText
+                                        }
+                                        append(main)
+                                        if (balanceText.endsWith(" ГБ")) {
+                                            withStyle(
+                                                androidx.compose.ui.text.SpanStyle(color = DarkGoldLight),
+                                            ) { append(" ГБ") }
+                                        }
+                                    }.toAnnotatedString(),
+                                    color = DarkText,
+                                    fontSize = 21.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                DarkButton(
+                                    if (hasSubProfile) "Продлить VPN" else "Купить VPN",
+                                    onBuy,
+                                    Modifier.weight(1f),
+                                    primary = true,
+                                    icon = MaestroCrown,
+                                )
+                                DarkButton("Купить ГБ", { openBot() }, Modifier.weight(1f))
+                            }
+                            DarkGroupLabel("Аккаунт")
+                            DarkMenuList {
+                                DarkMenuRow(
+                                    title = "Сменить логин",
+                                    icon = Icons.Default.Edit,
+                                    onClick = onEnterCode,
+                                    showChevron = true,
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Подключить устройство",
+                                    icon = Icons.Default.Devices,
+                                    onClick = { navigate("device") },
+                                    showChevron = true,
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Telegram-бот",
+                                    icon = Icons.Default.Send,
+                                    onClick = { openBot() },
+                                    showChevron = true,
+                                )
+                            }
+                            if (!hasSubProfile) {
+                                DarkButton(
+                                    "Попробовать бесплатно",
+                                    onEnterTrial,
+                                    Modifier.fillMaxWidth(),
+                                    icon = Icons.Default.CardGiftcard,
+                                )
+                            }
                         }
                         "cdn" -> {
+                            PhonePageTitle("CDN") { navigate("home") }
                             val positive = balance?.primaryAccessState == "active" && balance.availableBytes > 0 &&
                                 balance.publicationVerdict !in listOf("DISABLED", "PROJECTION_PENDING", "PROJECTION_STALE")
                             val expired = balance?.primaryAccessState == "expired"
-                            MobilePremiumPanel {
-                                PhoneText(when {
-                                    !hasSubProfile -> "Войдите в аккаунт"
-                                    expired -> "Продлите обычный VPN"
-                                    positive -> "Пакет активен"
-                                    wallet.loading -> "Загружаем остаток"
-                                    wallet.unavailable -> "Не удалось загрузить остаток"
-                                    balance?.publicationVerdict == "NO_BALANCE" && balance.availableBytes == 0L -> "Гигабайты закончились"
-                                    else -> "Обновляем данные CDN"
-                                }, true)
-                                if (hasSubProfile) PhoneText(balanceText)
-                                if (wallet.unavailable && balance != null) PhoneText("Последний полученный остаток")
-                                PhoneText(if (cdnView.cellular) "Мобильная сеть" else "Для CDN включите мобильную сеть")
+                            Column(
+                                Modifier.fillMaxWidth().darkCard().padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    when {
+                                        !hasSubProfile -> "Войдите в аккаунт"
+                                        expired -> "Продлите обычный VPN"
+                                        positive -> "Пакет активен"
+                                        wallet.loading -> "Загружаем остаток"
+                                        wallet.unavailable -> "Не удалось загрузить остаток"
+                                        balance?.publicationVerdict == "NO_BALANCE" && balance.availableBytes == 0L -> "Гигабайты закончились"
+                                        else -> "Обновляем данные CDN"
+                                    },
+                                    color = DarkText,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                if (hasSubProfile) Text(balanceText, color = DarkMuted, fontSize = 14.sp)
+                                if (wallet.unavailable && balance != null) {
+                                    Text("Последний полученный остаток", color = DarkMuted, fontSize = 13.sp)
+                                }
+                                Text(
+                                    if (cdnView.cellular) "Мобильная сеть" else "Для CDN включите мобильную сеть",
+                                    color = DarkMuted,
+                                    fontSize = 13.sp,
+                                )
                             }
                             when {
-                                !hasSubProfile -> PhoneAction("Ввести логин", Icons.Default.Person, onEnterCode, Modifier.fillMaxWidth(), true)
+                                !hasSubProfile -> DarkButton(
+                                    "Ввести логин",
+                                    onEnterCode,
+                                    Modifier.fillMaxWidth(),
+                                    primary = true,
+                                    icon = Icons.Default.Person,
+                                )
                                 expired -> {
-                                    PhoneNotice("Купленные гигабайты сохранены. Для подключения нужно продлить обычную подписку.")
-                                    PhoneAction("Продлить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
+                                    DarkNotice("Купленные гигабайты сохранены. Для подключения нужно продлить обычную подписку.")
+                                    DarkButton(
+                                        "Продлить VPN",
+                                        onBuy,
+                                        Modifier.fillMaxWidth(),
+                                        primary = true,
+                                        icon = MaestroCrown,
+                                    )
                                 }
-                                !cdnView.cellular -> PhoneNotice("CDN отключён вне мобильной сети. Доступные гигабайты сохраняются.")
+                                !cdnView.cellular -> DarkNotice("CDN отключён вне мобильной сети. Доступные гигабайты сохраняются.")
                                 cdnTags.isNotEmpty() -> {
                                     val target = selected?.takeIf { it in cdnTags } ?: cdnTags.first()
-                                    PhoneServerRow(phoneServer(target, cdnView.labels[target]), true, tag = target) { showCdnServers = true; navigate("servers") }
-                                    PhoneAction(if (cdnView.active != null && connected && !connecting) "Отключить CDN" else if (connecting) "Подключение…" else "Подключить CDN",
-                                        Icons.Default.PlayArrow, {
-                                            if (cdnView.active != null && connected && !connecting) onToggleConnect() else if (!connecting) onSelectProtocol(target)
-                                        }, Modifier.fillMaxWidth(), true)
+                                    PhoneServerRow(
+                                        phoneServer(target, cdnView.labels[target]),
+                                        true,
+                                        tag = target,
+                                    ) { showCdnServers = true; navigate("servers") }
+                                    DarkButton(
+                                        if (cdnView.active != null && connected && !connecting) "Отключить CDN"
+                                        else if (connecting) "Подключение…" else "Подключить CDN",
+                                        {
+                                            if (cdnView.active != null && connected && !connecting) onToggleConnect()
+                                            else if (!connecting) onSelectProtocol(target)
+                                        },
+                                        Modifier.fillMaxWidth(),
+                                        primary = true,
+                                        icon = Icons.Default.PlayArrow,
+                                    )
                                 }
-                                positive -> PhoneNotice("Не удалось загрузить CDN-серверы. Купленный пакет сохранён.")
-                                else -> PhoneNotice("Серверы появятся после получения данных аккаунта и допуска к подключению.")
+                                positive -> DarkNotice("Не удалось загрузить CDN-серверы. Купленный пакет сохранён.")
+                                else -> DarkNotice("Серверы появятся после получения данных аккаунта и допуска к подключению.")
                             }
-                            PhoneAction("Обновить", Icons.Default.Refresh, { refreshAccount() }, Modifier.fillMaxWidth())
-                            if (hasSubProfile) PhoneAction(if (positive) "Купить ещё ГБ" else "Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.fillMaxWidth())
-                            PhoneNotice("При Wi-Fi CDN отключается. После возврата на мобильную сеть включите CDN вручную.")
+                            DarkButton(
+                                "Обновить",
+                                { refreshAccount() },
+                                Modifier.fillMaxWidth(),
+                                icon = Icons.Default.Refresh,
+                            )
+                            if (hasSubProfile) {
+                                DarkButton(
+                                    if (positive) "Купить ещё ГБ" else "Купить ГБ",
+                                    { openBot() },
+                                    Modifier.fillMaxWidth(),
+                                    icon = Icons.Default.ShoppingCart,
+                                )
+                            }
+                            Text(
+                                "При Wi-Fi CDN отключается. После возврата на мобильную сеть включите CDN вручную.",
+                                color = DarkFaint,
+                                fontSize = 12.5.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            )
                         }
                         "update" -> {
-                            MobilePremiumPanel {
-                                PhoneText("MaestroVPN", true)
-                                PhoneText("Версия ${BuildConfig.VERSION_NAME}")
-                                PhoneText(updateMessage ?: "Обновления устанавливаются штатным установщиком Android.")
+                            PhonePageTitle("Обновление") { navigate("home") }
+                            Column(
+                                Modifier.fillMaxWidth().darkCard().padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text("MaestroVPN", color = DarkText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Версия ${BuildConfig.VERSION_NAME}", color = DarkMuted, fontSize = 14.sp)
+                                Text(
+                                    updateMessage ?: "Обновления устанавливаются штатным установщиком Android.",
+                                    color = DarkMuted,
+                                    fontSize = 14.sp,
+                                )
                             }
-                            PhoneAction(if (updateChecking) "Проверяем…" else "Проверить обновления", Icons.Default.SystemUpdate, {
-                                if (!updateChecking) scope.launch {
-                                    UpdateState.isChecking.value = true
-                                    try {
-                                        val info = withContext(Dispatchers.IO) { Vendor.checkUpdateAsync() }
-                                        if (info == null) {
-                                            UpdateState.applyUpdateCheckResult(Result.success(null))
-                                            updateMessage = "Установлена актуальная версия"
-                                        } else {
-                                            updateMessage = "Доступна версия ${info.versionName}"
-                                            UpdateState.requestUpdatePrompt(info, UpdatePromptProvenance.SettingsManual)
-                                        }
-                                    } catch (cancelled: CancellationException) { throw cancelled }
-                                    catch (_: Exception) { updateMessage = "Не удалось проверить обновление. Повторите позже." }
-                                    finally { UpdateState.isChecking.value = false }
-                                }
-                            }, Modifier.fillMaxWidth(), true)
+                            DarkButton(
+                                if (updateChecking) "Проверяем…" else "Проверить обновления",
+                                {
+                                    if (!updateChecking) scope.launch {
+                                        UpdateState.isChecking.value = true
+                                        try {
+                                            val info = withContext(Dispatchers.IO) { Vendor.checkUpdateAsync() }
+                                            if (info == null) {
+                                                UpdateState.applyUpdateCheckResult(Result.success(null))
+                                                updateMessage = "Установлена актуальная версия"
+                                            } else {
+                                                updateMessage = "Доступна версия ${info.versionName}"
+                                                UpdateState.requestUpdatePrompt(info, UpdatePromptProvenance.SettingsManual)
+                                            }
+                                        } catch (cancelled: CancellationException) { throw cancelled }
+                                        catch (_: Exception) { updateMessage = "Не удалось проверить обновление. Повторите позже." }
+                                        finally { UpdateState.isChecking.value = false }
+                                    }
+                                },
+                                Modifier.fillMaxWidth(),
+                                primary = true,
+                                icon = Icons.Default.SystemUpdate,
+                            )
                         }
                         "settings" -> {
-                            PhoneSettingsRow("Приложения и VPN", "Выбор приложений", Icons.Default.Apps, onSplitTunnel)
-                            PhoneSettingsRow("Подключить устройство", "Ссылка и QR-код", Icons.Default.Devices, onShareIos)
-                            PhoneSettingsRow("Сканировать QR-код", null, Icons.Default.QrCodeScanner, onScanQr)
-                            PhoneSettingsRow("Дополнительные настройки", null, Icons.Default.Settings, onOpenSettings)
-                            Text("Поддержка", color = PremiumGold, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
-                            PhoneSettingsRow("Telegram-бот", null, Icons.Default.Send, { openBot() })
-                            PhoneSettingsRow("Поддержка", null, Icons.Default.SupportAgent, {
-                                if (!context.openTelegramChat("wapmixx")) {
-                                    Toast.makeText(context, "Не удалось открыть поддержку", Toast.LENGTH_SHORT).show()
+                            DarkScreenTitle("Настройки")
+                            Column(
+                                Modifier.fillMaxWidth().darkCard()
+                                    .clickable(role = Role.Button) { navigate("account") }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    DarkAvatar((accountLogin?.takeIf { it.isNotBlank() } ?: "M").take(1))
+                                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                        Text(
+                                            if (hasSubProfile) accountLogin ?: "Аккаунт" else "Ввести логин",
+                                            color = DarkText,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            when {
+                                                !hasSubProfile -> "Войдите в аккаунт"
+                                                daysLeft != null && daysLeft >= 3650 -> "Безлимит · бессрочно"
+                                                else -> daysText
+                                            },
+                                            color = DarkMuted,
+                                            fontSize = 12.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Icon(Icons.Default.ChevronRight, null, tint = DarkFaint, modifier = Modifier.size(19.dp))
                                 }
-                            })
-                            PhoneSettingsRow("Обновление приложения", "Проверить обновление", Icons.Default.SystemUpdate, { navigate("update") })
+                            }
+                            DarkGroupLabel("Подключение")
+                            DarkMenuList {
+                                DarkMenuRow(
+                                    title = "Приложения и VPN",
+                                    sub = "Выбор приложений",
+                                    icon = Icons.Default.Apps,
+                                    onClick = onSplitTunnel,
+                                    showChevron = true,
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Подключить устройство",
+                                    sub = "Ссылка и QR-код",
+                                    icon = Icons.Default.Devices,
+                                    onClick = { navigate("device") },
+                                    showChevron = true,
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Сканировать QR-код",
+                                    icon = Icons.Default.QrCodeScanner,
+                                    onClick = onScanQr,
+                                    showChevron = true,
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Протокол по умолчанию",
+                                    value = "Авто",
+                                    icon = Icons.Default.Public,
+                                    onClick = {
+                                        Toast.makeText(context, "Выбор протокола: сейчас «Авто»", Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Дополнительные настройки",
+                                    icon = Icons.Default.Settings,
+                                    onClick = onOpenSettings,
+                                    showChevron = true,
+                                )
+                            }
+                            DarkGroupLabel("Приложение")
+                            DarkMenuList {
+                                DarkMenuRow(
+                                    title = "Язык",
+                                    value = "Русский",
+                                    icon = Icons.Default.Language,
+                                    onClick = {
+                                        Toast.makeText(context, "Язык интерфейса: русский", Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Оформление",
+                                    value = "Тёмное",
+                                    icon = Icons.Default.DarkMode,
+                                    onClick = {
+                                        Toast.makeText(context, "Оформление: тёмное, как всегда", Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            }
+                            DarkGroupLabel("О приложении")
+                            DarkMenuList {
+                                DarkMenuRow(
+                                    title = "Проверить обновления",
+                                    sub = "Проверить обновление",
+                                    icon = Icons.Default.SystemUpdate,
+                                    onClick = { navigate("update") },
+                                    showChevron = true,
+                                )
+                                DarkMenuDivider()
+                                DarkMenuRow(
+                                    title = "Поддержка",
+                                    icon = Icons.Default.SupportAgent,
+                                    onClick = {
+                                        if (!context.openTelegramChat("wapmixx")) {
+                                            Toast.makeText(context, "Не удалось открыть поддержку", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    showChevron = true,
+                                )
+                            }
+                            DarkVersionLine("MaestroVPN · версия ${BuildConfig.VERSION_NAME}")
+                        }
+                        "device" -> {
+                            DarkScreenTitle("Подключить устройство")
+                            DarkScreenSubtitle("Отсканируйте код камерой второго устройства или откройте ссылку в одном из приложений.")
+                            when (val state = rememberShareState()) {
+                                is ShareState.Loading -> DarkNotice("Загрузка…")
+                                is ShareState.NeedActivate -> DarkNotice("Сначала войдите в аккаунт MaestroVPN.")
+                                is ShareState.Failed -> DarkNotice("Не удалось получить подписку. Закройте страницу и повторите.")
+                                is ShareState.Ready -> {
+                                    val url = shareUrlForApp(state.baseUrl, deviceApp)
+                                    val qr = remember(url) {
+                                        runCatching {
+                                            QRCodeGenerator.generate(
+                                                url,
+                                                640,
+                                                android.graphics.Color.BLACK,
+                                                android.graphics.Color.WHITE,
+                                            )
+                                        }.getOrNull()
+                                    }
+                                    Column(
+                                        Modifier.fillMaxWidth().darkCard().padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Box(
+                                            Modifier.background(Color.White, RoundedCornerShape(16.dp)).padding(10.dp),
+                                        ) {
+                                            if (qr != null) {
+                                                Image(qr.asImageBitmap(), null, modifier = Modifier.size(188.dp))
+                                            } else {
+                                                Text(
+                                                    "Не удалось построить QR-код",
+                                                    color = DarkFaint,
+                                                    fontSize = 13.sp,
+                                                    modifier = Modifier.size(188.dp),
+                                                    textAlign = TextAlign.Center,
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            "Код содержит вашу ссылку подписки.\nНе делитесь им с посторонними.",
+                                            color = DarkMuted,
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                    }
+                                    Row(
+                                        Modifier.fillMaxWidth().darkCard().padding(horizontal = 16.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            maskSubUrl(url),
+                                            color = DarkText,
+                                            fontSize = 13.5.sp,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        DarkButton("Копировать") {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("MaestroVPN", url))
+                                            Toast.makeText(context, "Ссылка подписки скопирована", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    val apps = listOf("MaestroVPN", "Happ", "Incy", "Karing")
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        apps.chunked(2).forEachIndexed { rowIndex, rowApps ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                rowApps.forEachIndexed { colIndex, app ->
+                                                    val index = rowIndex * 2 + colIndex
+                                                    val appSelected = deviceApp == index
+                                                    Box(
+                                                        Modifier.weight(1f).heightIn(min = 54.dp)
+                                                            .background(DarkPanel, RoundedCornerShape(DarkPanelCorner))
+                                                            .border(
+                                                                1.dp,
+                                                                if (appSelected) DarkGold else DarkLineSoft,
+                                                                RoundedCornerShape(DarkPanelCorner),
+                                                            )
+                                                            .clickable(role = Role.Button) {
+                                                                deviceApp = index
+                                                                Toast.makeText(context, "Открываю $app…", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Box(
+                                                                Modifier.size(9.dp)
+                                                                    .background(
+                                                                        if (appSelected) DarkGold else DarkFaint,
+                                                                        CircleShape,
+                                                                    ),
+                                                            )
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Text(
+                                                                app,
+                                                                color = if (appSelected) DarkGoldLight else DarkText,
+                                                                fontSize = 15.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -394,65 +1060,12 @@ internal fun PhoneDashboard(
     }
 }
 
-@Composable
-private fun PhonePageTitle(title: String, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 50.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад", tint = PremiumGold) }
-        Text(title, color = PremiumText, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun PhoneText(text: String, heading: Boolean = false) {
-    Text(text, color = if (heading) PremiumGold else PremiumText, fontSize = if (heading) 20.sp else 15.sp,
-        lineHeight = if (heading) 25.sp else 20.sp,
-        fontWeight = if (heading) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(vertical = 3.dp))
-}
-
-@Composable
-private fun PhoneNotice(text: String) { MobilePremiumPanel { PhoneText(text) } }
-
-@Composable
-private fun PhoneAction(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier, active: Boolean = false, trailingIcon: ImageVector? = null) {
-    Row(modifier.approvedMobilePanel(selected = active).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(21.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(label, modifier = Modifier.weight(1f, fill = false), color = PremiumText, fontSize = 14.sp, lineHeight = 18.sp,
-            fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (trailingIcon != null) {
-            Spacer(Modifier.width(7.dp))
-            Icon(trailingIcon, "Сменить логин", tint = PremiumGold, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
-private fun PhoneWallet(label: String, value: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
-    Row(modifier.approvedMobilePanel().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
-        Spacer(Modifier.width(7.dp))
-        Text("$label: $value", modifier = Modifier.weight(1f), color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp,
-            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun PhoneModes(cdn: Boolean, onOrdinary: () -> Unit, onCdn: () -> Unit) {
-    Row(Modifier.fillMaxWidth().approvedMobilePanel().padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        PhoneAction("Обычный VPN", Icons.Default.Shield, onOrdinary, Modifier.weight(1.3f), !cdn)
-        PhoneAction("CDN", Icons.Default.Storage, onCdn, Modifier.weight(1f), cdn)
-    }
-}
-
 private data class PhoneServer(val flag: String, val name: String, val detail: String, val icon: ImageVector = Icons.Default.Public)
 
 /** Name and subtitle of a server row, for tests. */
 internal fun phoneServerTitle(tag: String?, runtimeLabel: String?): Pair<String, String> =
     phoneServer(tag, runtimeLabel).let { it.name to it.detail }
 
-/** Service roles match backend/internal/api/legacy_subscription_labels.go; unknown tags stay literal. */
 /**
  * Opens a Telegram chat. `https://t.me/<name>` alone often lands in the browser instead of the
  * app (Android 12+ opens an https link in an app only when the app's link is verified), and t.me
@@ -492,14 +1105,29 @@ private fun phoneServer(tag: String?, runtimeLabel: String?, type: String? = nul
     // the name without the panel's pictographs.
     val flag = flagEmojiOf(text)
     val clean = stripServerDecorations(text)
+    val segments = clean.split(" · ", " – ", " - ").map { it.trim() }.filter { it.isNotEmpty() }
+    val country = if (flag.isNotEmpty()) countryNameForFlag(flag) else null
+    // The flag is the country: a provider brand before it ("Яук – Германия",
+    // "Вьюга - Швейцария", "Akonit · Финляндия") is dropped, not printed as the
+    // server name (owner video, r706). The same rule lives in serverLabel() for the
+    // no-label path; both paths must agree.
     val name = when {
         clean.isEmpty() -> text
+        country != null && segments.contains(country) -> country
         flag.isNotEmpty() -> clean.substringBefore(" · ").trim()
         else -> clean
     }
     val detail = when {
         tag?.startsWith("cdn:") == true -> "CDN · XHTTP"
-        flag.isNotEmpty() -> stripServerDecorations(text.substringAfter(" · ", "")).ifEmpty { "Обычный VPN" }
+        flag.isNotEmpty() -> {
+            if (country != null) {
+                // The part after the country names the transport/tag ("VLESS", "Torrent");
+                // a bare "Brand – Country" label has none.
+                segments.drop(segments.indexOf(country) + 1).joinToString(" · ").ifEmpty { "Обычный VPN" }
+            } else {
+                stripServerDecorations(text.substringAfter(" · ", "")).ifEmpty { "Обычный VPN" }
+            }
+        }
         else -> "Обычный VPN"
     }
     return PhoneServer(flag, name.ifEmpty { text }, detail)
@@ -533,6 +1161,28 @@ private fun subXhttpPing(tag: String?): SubXhttpPing {
     return SubXhttpPing(value, attempted)
 }
 
+/** Back title of the hidden phone pages (CDN, update). Tab pages use DarkScreenTitle instead. */
+@Composable
+private fun PhonePageTitle(title: String, onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Default.ArrowBack, "Назад", tint = DarkGoldLight)
+        }
+        Text(title, color = DarkText, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Muted notice card (replaces the old PhoneNotice panel). */
+@Composable
+private fun DarkNotice(text: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier.fillMaxWidth().darkCard().padding(horizontal = 16.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = DarkMuted, fontSize = 13.5.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+    }
+}
+
 @Composable
 private fun PhoneServerRow(
     server: PhoneServer,
@@ -540,6 +1190,10 @@ private fun PhoneServerRow(
     selectable: Boolean = false,
     ping: Int? = null,
     tag: String? = null,
+    /** Home card, disconnected auto mode: the latency slot reads "Авто" (prototype). */
+    autoLabel: Boolean = false,
+    /** The home auto card hides the flag slot until a server is chosen (prototype). */
+    showBadge: Boolean = true,
     onClick: () -> Unit,
 ) {
     // A row without a number must still say something (owner 14.11.2026). A subscription node
@@ -548,80 +1202,116 @@ private fun PhoneServerRow(
     val subXhttpRow = SubXhttpRuntime.isSubXhttpTag(tag)
     val probed = if (subXhttpRow) subXhttpPing(tag) else SubXhttpPing(null, false)
     val effectivePing = ping ?: probed.ms
-    // An unavailable node is dimmed as well as red-captioned (owner, 23.11.2026).
+    // The engine re-probes every few seconds, so the raw number jumps (177/165/185 мс in the
+    // owner's r706 video). The row shows an EMA of the probes and repaints only when it moved
+    // by at least 5 мс — the number stays readable instead of flickering.
+    var shownPing by remember(tag) { mutableStateOf(effectivePing) }
+    LaunchedEffect(effectivePing) {
+        val raw = effectivePing ?: return@LaunchedEffect
+        val current = shownPing
+        val next = if (current == null) raw else ((current * 0.7f + raw * 0.3f).roundToInt())
+        if (current == null || abs(next - current) >= 5) shownPing = next
+    }
+    // An unavailable node is dimmed as well as captioned (owner, 23.11.2026).
     val unavailable = subXhttpRow && probed.attempted && effectivePing == null
-    Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
-        .alpha(if (unavailable) 0.5f else 1f)
-        .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        PhoneServerBadge(server.flag, server.icon)
+    val pingText = when {
+        autoLabel -> "Авто"
+        unavailable -> "недоступен"
+        shownPing != null -> "$shownPing мс"
+        else -> "—"
+    }
+    Row(
+        Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
+            .alpha(if (unavailable) 0.48f else 1f)
+            .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showBadge) PhoneServerBadge(server.flag, server.icon)
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
-            Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
-            Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
-        }
-        val pingText = pingLabel(effectivePing)
-            ?: when {
-                !subXhttpRow -> "—"
-                probed.attempted -> "недоступен"
-                else -> "—"
-            }
-        if (pingText != null) {
             Text(
-                pingText,
-                color = when {
-                    effectivePing != null -> phonePingColor(effectivePing)
-                    subXhttpRow && probed.attempted -> PremiumRuby
-                    else -> PremiumGold.copy(alpha = 0.55f)
-                },
+                server.name,
+                color = DarkText,
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                server.detail,
+                color = DarkMuted,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(end = 8.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(if (selectable) { if (active) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked }
-            else Icons.Default.ChevronRight, null, tint = if (active) PremiumEmerald else PremiumGold)
+        Text(
+            pingText,
+            color = when {
+                autoLabel || unavailable || shownPing == null -> DarkFaint
+                else -> phonePingColor(shownPing)
+            },
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        Icon(
+            if (selectable) {
+                if (active) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked
+            } else Icons.Default.ChevronRight,
+            null,
+            tint = if (active) DarkGreen else DarkGoldLight,
+        )
     }
 }
 
 /**
  * Country/role badge of a server row: the flag is cropped by the golden ring instead of floating
  * inside it. An emoji flag is a wide rectangle, so at the size it used to be drawn it left a visible
- * gap all around the circle (owner's screen, 04.11.2026).
+ * gap all around the circle (owner's screen, 04.11.2026). 38 dp matches the prototype flag slot.
  */
 @Composable
 private fun PhoneServerBadge(flag: String, icon: ImageVector) {
-    CountryFlagBadge(flag = flag, icon = icon)
+    CountryFlagBadge(flag = flag, icon = icon, size = 38.dp)
 }
 
-/** Metallic gold of the NeuroProtocol sign from the reference picture (owner, 04.11.2026). */
-private val NeuroGold = Brush.verticalGradient(
-    listOf(Color(0xFFF9EDC6), Color(0xFFE8C87F), Color(0xFFA8874A), Color(0xFFF3DE9F)),
-)
-
 /**
- * NeuroProtocol entry: only the brain sign and the golden lettering from the owner's picture, on the
- * same plain wood plate as every other row — no carved banner, no ornament around it.
+ * NeuroProtocol entry of the home screen (prototype): gold brain tile, title + «Экспериментально»
+ * badge, one-line summary, and a live Вкл/Выкл badge. Always composed — mounting it only when
+ * the tunnel becomes available shifted the list mid-connect and read as an overlap (owner video, r706).
  */
 @Composable
-private fun PhoneNeuroProtocolRow(onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 58.dp)
-        .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Psychology, null, tint = Color(0xFF6B4A17),
-                modifier = Modifier.matchParentSize().offset(y = 1.dp))
-            Icon(Icons.Filled.Psychology, null, tint = PremiumGold, modifier = Modifier.matchParentSize())
-        }
+private fun PhoneNeuroProtocolRow(active: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 58.dp)
+            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DarkIconTile(Icons.Filled.Psychology)
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "НейроПротокол",
+                    color = DarkText,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(8.dp))
+                DarkBadge("Экспериментально")
+            }
             Text(
-                stringResource(R.string.aivpn_settings),
-                style = TextStyle(brush = NeuroGold, fontFamily = PlayfairFamily,
-                    fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 25.sp),
+                "Свой UDP-протокол: нейросеть подстраивает соединение под вашу сеть",
+                color = DarkMuted,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
             )
-            Text(stringResource(R.string.aivpn_settings_summary), color = PremiumTextMuted,
-                fontSize = 11.sp, lineHeight = 14.sp)
         }
-        Icon(Icons.Default.ChevronRight, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
+        DarkBadge(if (active) "Вкл" else "Выкл", green = active)
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Default.ChevronRight, null, tint = DarkFaint, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -636,18 +1326,18 @@ private fun PhoneJflPicker(
     onDismiss: () -> Unit,
 ) {
     BackHandler(enabled = true) { onDismiss() }
-    Box(Modifier.fillMaxSize().background(PremiumWalnut)) {
+    Box(Modifier.fillMaxSize().background(DarkBg)) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("JFL", color = PremiumText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("JFL", color = DarkText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(
                         tags.size.toString() + " " + jflServerWord(tags.size),
-                        color = PremiumGold,
+                        color = DarkGoldLight,
                         fontSize = 12.sp,
                     )
                 }
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Закрыть", tint = PremiumGold) }
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Закрыть", tint = DarkGoldLight) }
             }
             Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
                 tags.forEach { tag ->
@@ -672,41 +1362,46 @@ private fun jflServerWord(count: Int): String = when {
     else -> "серверов"
 }
 
-/** Same thresholds as the TV tiles and ProxyLatencyBadge. */
+/** Latency colours of the approved prototype: ≤300 мс green, 301–600 amber, >600 red. */
 private fun phonePingColor(delay: Int): Color = when {
-    delay in 1..99 -> PremiumEmerald
-    delay in 100..299 -> PremiumGold
-    else -> PremiumRuby
-}
-
-@Composable
-private fun PhoneSettingsRow(title: String, detail: String?, icon: ImageVector, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 52.dp)
-        .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(25.dp))
-        Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
-            Text(title, color = PremiumText, fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold)
-            if (detail != null) Text(detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
-        }
-        Icon(Icons.Default.ChevronRight, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
-    }
+    delay <= 300 -> DarkGreen
+    delay <= 600 -> DarkAmber
+    else -> DarkRed
 }
 
 @Composable
 internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: () -> Unit, account: () -> Unit, settings: () -> Unit, modifier: Modifier = Modifier) {
-    // 20dp по бокам и 12dp снизу: угловые волюты и нижняя гирлянда пластины теперь фиксированного
-    // размера (9-patch), и подпись/подчёркивание активной вкладки не должны на них наезжать.
     Row(modifier.approvedMobilePanel(navigation = true).padding(horizontal = 20.dp, vertical = 12.dp)) {
-        listOf(Triple("Главная", Icons.Default.Home, "home"), Triple("Серверы", Icons.Default.Public, "servers"),
-            Triple("Подписка", MaestroCrown, "account"), Triple("Настройки", Icons.Default.Settings, "settings"))
-            .zip(listOf(home, servers, account, settings)).forEach { (item, action) ->
-                Column(Modifier.weight(1f).heightIn(min = 44.dp).clickable(role = Role.Tab, onClick = action),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    val color = if (active == item.third) PremiumEmerald else PremiumGold
-                    Icon(item.second, null, tint = color, modifier = Modifier.size(23.dp))
-                    Text(item.first, color = color, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    Box(Modifier.width(27.dp).height(2.dp).background(if (active == item.third) PremiumEmerald else Color.Transparent))
-                }
+        listOf(
+            Triple("Главная", Icons.Default.Home, "home"),
+            Triple("Серверы", Icons.Default.Public, "servers"),
+            Triple("Подписка", Icons.Default.CreditCard, "account"),
+            Triple("Настройки", Icons.Default.Tune, "settings"),
+        ).zip(listOf(home, servers, account, settings)).forEach { (item, action) ->
+            Column(
+                Modifier.weight(1f).heightIn(min = 44.dp).clickable(role = Role.Tab, onClick = action),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                val isActive = active == item.third
+                Icon(item.second, null, tint = if (isActive) DarkGold else DarkFaint, modifier = Modifier.size(22.dp))
+                Text(
+                    item.first,
+                    color = if (isActive) DarkGoldLight else DarkFaint,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
             }
+        }
     }
+}
+
+/** Live speed as the prototype shows it: "12,4 Мб/с", "850 КБ/с", "—" when unknown. */
+private fun formatSpeed(bytesPerSec: Float?): String {
+    if (bytesPerSec == null) return "—"
+    val mb = bytesPerSec / (1024f * 1024f)
+    return if (mb >= 1f) "%.1f Мб/с".format(Locale.US, mb).replace('.', ',')
+    else "${(bytesPerSec / 1024f).roundToInt()} КБ/с"
 }

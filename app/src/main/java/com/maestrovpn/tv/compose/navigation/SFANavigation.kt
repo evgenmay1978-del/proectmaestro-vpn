@@ -115,6 +115,12 @@ fun SFANavHost(
             }
             val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting || aivpnConnected
             val connecting = serviceStatus == Status.Starting || aivpnConnecting
+            // Session stats for the phone home screen (prototype: session time + live speeds).
+            // The service reports them only while sing-box runs; an AIVPN-only session has none.
+            val dashboardUiState = dashboardViewModel?.uiState?.collectAsState()?.value
+            val sessionStartMs = dashboardUiState?.serviceStartTime
+            val uplinkBytesPerSec = if (serviceStatus == Status.Started) dashboardUiState?.uplinkHistory?.lastOrNull() else null
+            val downlinkBytesPerSec = if (serviceStatus == Status.Started) dashboardUiState?.downlinkHistory?.lastOrNull() else null
             val context = LocalContext.current
             val toggleConnect: () -> Unit = {
                 // AIVPN owns the system VPN while it runs: a sing-box start would be refused (one
@@ -236,11 +242,13 @@ fun SFANavHost(
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
-                    onOpenServers = { navController.navigate(Screen.Groups.route) },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenAivpn = { navController.navigate("settings/aivpn") },
                     aivpnAvailable = accountInfo.aivpn || aivpnConnected || aivpnConnecting,
                     aivpnActive = aivpnConnected || aivpnConnecting,
+                    sessionStartMs = sessionStartMs,
+                    uplinkBytesPerSec = uplinkBytesPerSec,
+                    downlinkBytesPerSec = downlinkBytesPerSec,
                     phoneSection = phoneSection,
                     onPhoneSectionChange = { homeState["phone_section"] = it },
                     onRefreshServers = {
@@ -266,11 +274,13 @@ fun SFANavHost(
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
-                    onOpenServers = { navController.navigate(Screen.Groups.route) },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenAivpn = { navController.navigate("settings/aivpn") },
                     aivpnAvailable = accountInfo.aivpn || aivpnConnected || aivpnConnecting,
                     aivpnActive = aivpnConnected || aivpnConnecting,
+                    sessionStartMs = sessionStartMs,
+                    uplinkBytesPerSec = uplinkBytesPerSec,
+                    downlinkBytesPerSec = downlinkBytesPerSec,
                     phoneSection = phoneSection,
                     onPhoneSectionChange = { homeState["phone_section"] = it },
                 )

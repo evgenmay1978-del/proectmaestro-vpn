@@ -15,8 +15,8 @@ class ServerLabelTest {
     }
 
     @Test fun whitelistServerDropsThePanelPictographs() {
-        assertEquals(ServerLabel("🇪🇪", "Раю - Эстония", "VLESS"), serverLabel("WL · 🇪🇪 🌀 Раю - Эстония ⚡", "vless"))
-        assertEquals(ServerLabel("🇩🇪", "Яук – Германия", "Hysteria2"), serverLabel("WL · 🇩🇪 Яук – Германия", "hysteria2"))
+        assertEquals(ServerLabel("🇪🇪", "Эстония", "VLESS"), serverLabel("WL · 🇪🇪 🌀 Раю - Эстония ⚡", "vless"))
+        assertEquals(ServerLabel("🇩🇪", "Германия", "Hysteria2"), serverLabel("WL · 🇩🇪 Яук – Германия", "hysteria2"))
     }
 
     @Test fun xhttpNodeDropsTheProviderBrand() {
@@ -25,7 +25,7 @@ class ServerLabelTest {
             serverLabel("🇫🇮 Akonit · Финляндия", "socks", subXhttp = true),
         )
         assertEquals(
-            ServerLabel("🇫🇮", "Вьюга - Финляндия", "VLESS · XHTTP"),
+            ServerLabel("🇫🇮", "Финляндия", "VLESS · XHTTP"),
             serverLabel("🇫🇮 ⚡️Вьюга - Финляндия", null, subXhttp = true),
         )
     }

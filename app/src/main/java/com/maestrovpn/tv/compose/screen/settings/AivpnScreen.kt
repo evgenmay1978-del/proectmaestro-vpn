@@ -1,18 +1,23 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.compose.premium.PhoneScreenHeader
 import com.maestrovpn.tv.compose.premium.PremiumPhoneContentInset
 import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -279,7 +285,157 @@ fun AivpnScreen(navController: NavController) {
         AivpnStatus.Stopped -> stringResource(R.string.aivpn_status_stopped)
     }
 
-    FantasyScreenBackground {
+    if (phoneArtwork) {
+        // Approved dark design (23.11.2026, prototype «MaestroVPN Mobile — моё видение»):
+        // hero card with status + switch + stat grid, «Когда включать» card, then the same
+        // functional key controls below in the dark style. TV keeps its branch below untouched.
+        Box(Modifier.fillMaxSize().background(DarkBg)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                DarkScreenTitle(stringResource(R.string.aivpn_settings))
+                DarkScreenSubtitle("Свой UDP-протокол: нейросеть подстраивает соединение под вашу сеть.")
+                val heroTitle = when (status) {
+                    AivpnStatus.Running -> "Подключено"
+                    AivpnStatus.Connecting -> "Подключение…"
+                    is AivpnStatus.Failed -> "Ошибка"
+                    AivpnStatus.Stopped -> "Выключен"
+                }
+                Column(
+                    Modifier.fillMaxWidth().darkCard().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(heroTitle, color = DarkText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(statusText, color = DarkMuted, fontSize = 13.sp)
+                        }
+                        DarkSwitch(active) { checked ->
+                            if (checked) connect() else AivpnTunnel.stop(context)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        DarkStatCell(value = "UDP", label = "Протокол", modifier = Modifier.weight(1f))
+                        DarkStatCell(value = "Адаптивный", label = "Режим", modifier = Modifier.weight(1f))
+                        DarkStatCell(
+                            value = if (active) "Включён" else "Выключен",
+                            label = "Статус",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Column(
+                    Modifier.fillMaxWidth().darkCard().padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Когда включать", color = DarkText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    listOf(
+                        "Для обхода блокировок",
+                        "Если обычный VPN не подключается",
+                        "При нестабильном интернете",
+                    ).forEach { line ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("•", color = DarkGoldLight, fontSize = 14.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(line, color = DarkMuted, fontSize = 14.sp)
+                        }
+                    }
+                }
+                DarkGroupLabel("Ключ")
+                DarkTextField(
+                    value = keyText,
+                    onValueChange = {
+                        keyText = it
+                        error = null
+                        provisionMessage = null
+                    },
+                    placeholder = stringResource(R.string.aivpn_key_hint),
+                )
+                if (parsedKey != null) {
+                    DarkMenuList {
+                        DarkMenuRow(
+                            title = stringResource(R.string.aivpn_server_title),
+                            sub = parsedKey.serverAddress,
+                            icon = Icons.Outlined.VpnKey,
+                        )
+                    }
+                }
+                if (provisioning) {
+                    Text(
+                        stringResource(R.string.aivpn_fetch_progress),
+                        color = DarkGoldLight,
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    provisionMessage?.let { message ->
+                        Text(message, color = DarkGoldLight, fontSize = 13.sp)
+                    }
+                }
+                DarkButton(
+                    stringResource(R.string.aivpn_paste),
+                    {
+                        val text = clipboardText
+                        if (text.isNullOrBlank()) {
+                            error = context.getString(R.string.aivpn_clipboard_empty)
+                        } else {
+                            keyText = text.filterNot { it.isWhitespace() }
+                            error = null
+                            provisionMessage = null
+                        }
+                    },
+                    Modifier.fillMaxWidth(),
+                    icon = Icons.Outlined.ContentPaste,
+                )
+                DarkButton(
+                    if (provisioning) {
+                        stringResource(R.string.aivpn_fetch_progress)
+                    } else {
+                        stringResource(R.string.aivpn_fetch_refresh)
+                    },
+                    { scope.launch { provision(force = true) } },
+                    Modifier.fillMaxWidth(),
+                    icon = Icons.Outlined.Refresh,
+                )
+                DarkButton(
+                    if (active) {
+                        stringResource(R.string.aivpn_disconnect)
+                    } else {
+                        stringResource(R.string.aivpn_connect)
+                    },
+                    {
+                        if (active) {
+                            AivpnTunnel.stop(context)
+                        } else {
+                            connect()
+                        }
+                    },
+                    Modifier.fillMaxWidth(),
+                    primary = true,
+                )
+                error?.let {
+                    Text(it, color = DarkRed, fontSize = 13.sp)
+                }
+                if (!AivpnJni.isAvailable) {
+                    Text(
+                        stringResource(R.string.aivpn_error_library_missing, AivpnJni.loadError.orEmpty()),
+                        color = DarkGoldLight,
+                        fontSize = 13.sp,
+                    )
+                }
+                Text(
+                    stringResource(R.string.aivpn_hint),
+                    color = DarkFaint,
+                    fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    } else {
+        FantasyScreenBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -394,6 +550,7 @@ fun AivpnScreen(navController: NavController) {
                 fontSize = 13.sp,
             )
             Spacer(Modifier.height(16.dp))
+        }
         }
     }
 }

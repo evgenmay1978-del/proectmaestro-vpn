@@ -131,6 +131,24 @@ private val COUNTRY_NAMES = mapOf(
     "NZ" to "Новая Зеландия",
 )
 
+/** Russian country name for an emoji flag ("🇩🇪" → "Германия"), null when unknown. */
+internal fun countryNameForFlag(flag: String): String? = COUNTRY_NAMES[flagCountryCode(flag)]
+
+/**
+ * Display name for a cleaned label (flag already stripped by [stripServerDecorations]) whose
+ * flag is known: the country from the flag, with a provider brand prefix dropped
+ * ("Яук – Германия" → "Германия", "Раю - Эстония" → "Эстония") and a trailing
+ * non-transport tag kept ("Швеция · Torrent"). Null when the flag carries no known country.
+ */
+internal fun displayNameFromFlag(clean: String, flag: String): String? {
+    val country = countryNameForFlag(flag) ?: return null
+    val segments = clean.split(" · ", " – ", " - ").map { it.trim() }.filter { it.isNotEmpty() }
+    val countryIdx = segments.indexOf(country)
+    if (countryIdx < 0) return country
+    val after = segments.drop(countryIdx + 1).filter { !TRANSPORT_SUFFIX.matches(it) }
+    return if (after.isEmpty()) country else "$country · ${after.joinToString(" · ")}"
+}
+
 /** Transport of a libbox outbound type; null for groups and service outbounds. */
 internal fun serverTransport(type: String?, subXhttp: Boolean = false): String? =
     when (type?.trim()?.lowercase(Locale.ROOT)) {
@@ -182,6 +200,19 @@ internal fun serverLabel(tag: String?, type: String? = null, subXhttp: Boolean =
         }
         // «🇫🇮 Akonit · Финляндия»: the first part is the provider brand, the rest is the place.
         subXhttp && parts.size >= 2 -> name = parts.drop(1).joinToString(" · ")
+        // «🇩🇪 Яук – Германия»: the panel prefixes the country with a provider brand
+        // ("Яук", "Раю", "Вьюга") joined by " – " / " - " / " · ". The flag is the country:
+        // its name wins and the brand is dropped (a trailing non-transport tag is kept).
+        flag.isNotEmpty() -> {
+            val resolved = displayNameFromFlag(clean, flag)
+            if (resolved != null) {
+                name = resolved
+                tagTransport = clean.split(" · ", " – ", " - ").map { it.trim() }
+                    .firstOrNull { TRANSPORT_SUFFIX.matches(it) }
+            } else {
+                name = parts.joinToString(" · ")
+            }
+        }
         parts.size >= 2 && TRANSPORT_SUFFIX.matches(parts.last()) -> {
             name = parts.dropLast(1).joinToString(" · ")
             tagTransport = parts.last()

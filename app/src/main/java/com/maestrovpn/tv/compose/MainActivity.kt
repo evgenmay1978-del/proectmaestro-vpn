@@ -1369,7 +1369,10 @@ class MainActivity :
                                 }
                             }
                             PhoneBottomNavigation(
-                                active = if (currentRoute == "buy") "account" else if (currentRoute == "claim" || currentRoute == "trial") "home" else "settings",
+                                // Prototype tab mapping: the NeuroProtocol screen is reached
+                                // from home, so it highlights Главная (device → Подписка is
+                                // handled inside the home screen itself).
+                                active = if (currentRoute == "buy") "account" else if (currentRoute == "claim" || currentRoute == "trial" || currentRoute == "settings/aivpn") "home" else "settings",
                                 home = { phoneSection("home") }, servers = { phoneSection("servers") },
                                 account = { phoneSection("account") }, settings = { phoneSection("settings") },
                                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 6.dp, vertical = 5.dp),

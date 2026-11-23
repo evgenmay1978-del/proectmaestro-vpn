@@ -8,7 +8,7 @@ import org.junit.Test
 class PhoneServerLabelTest {
     @Test fun thirdPartyRowsReadLikeOurOwn() {
         assertEquals("Германия" to "VPN", phoneServerTitle("JFL · 🇩🇪 Германия", null))
-        assertEquals("Вьюга - Швейцария" to "VPN", phoneServerTitle("WL · 🇨🇭 ⚡️Вьюга - Швейцария", null))
+        assertEquals("Швейцария" to "VPN", phoneServerTitle("WL · 🇨🇭 ⚡️Вьюга - Швейцария", null))
         assertEquals("Испания" to "VLESS", phoneServerTitle("🇪🇸 Испания · VLESS", null))
         listOf("JFL · 🇩🇪 Германия", "WL · 🇨🇭 ⚡️Вьюга - Швейцария", "xhttp:fi-1", "🇫🇮 Akonit · Финляндия").forEach { tag ->
             val (name, detail) = phoneServerTitle(tag, null)

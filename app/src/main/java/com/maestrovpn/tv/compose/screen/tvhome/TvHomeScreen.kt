@@ -54,14 +54,14 @@ import com.maestrovpn.tv.compose.theme.NeonGreen
 
 /**
  * MaestroVPN home — the universal connect screen for BOTH a TV remote (D-pad) and a
- * touch phone. TV keeps its independent full-screen layout; phone uses the fixed carved
- * gold/wood frame, a full-size obsidian/emerald eye as the connect button, and a cylindrical
- * lower menu. Orange remains the protocol-selection and purchase accent.
+ * touch phone. TV keeps its independent full-screen layout; phone uses the approved dark
+ * design (23.11.2026, prototype «MaestroVPN Mobile — моё видение»): clean dark screens,
+ * a big golden coin with the volumetric M, no wooden frame.
  *
  * Layout adapts to the screen: a TV is WIDE, so it gets a two-zone LANDSCAPE layout —
  * hero (medallion + status + account) on the left, the menu on the right — which fits in
- * roughly one screen so there's almost nothing to scroll with the D-pad. Phone keeps the
- * hero fixed and scrolls only the content below the eye.
+ * roughly one screen so there's almost nothing to scroll with the D-pad. Phone scrolls
+ * its tab pages under the bottom navigation.
  */
 @Composable
 fun TvHomeScreen(
@@ -86,11 +86,15 @@ fun TvHomeScreen(
     onShareIos: () -> Unit = {},
     onScanQr: () -> Unit = {},
     onEnterTrial: () -> Unit = {},
-    onOpenServers: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAivpn: () -> Unit = {},
     aivpnAvailable: Boolean = false,
     aivpnActive: Boolean = false,
+    /** Service start (epoch ms) for the phone session timer, when the sing-box service runs. */
+    sessionStartMs: Long? = null,
+    /** Live sing-box speeds (bytes/s), null when the service is not the transport. */
+    uplinkBytesPerSec: Float? = null,
+    downlinkBytesPerSec: Float? = null,
     phoneSection: String = "home",
     onPhoneSectionChange: (String) -> Unit = {},
     onRefreshServers: () -> Unit = {},
@@ -166,13 +170,15 @@ fun TvHomeScreen(
                     onBuy = onBuy,
                     onEnterCode = onEnterCode,
                     onSplitTunnel = onSplitTunnel,
-                    onShareIos = onShareIos,
                     onScanQr = onScanQr,
                     onEnterTrial = onEnterTrial,
-                    onOpenServers = onOpenServers,
                     onOpenSettings = onOpenSettings,
                     onOpenAivpn = onOpenAivpn,
                     aivpnAvailable = aivpnAvailable,
+                    aivpnActive = aivpnActive,
+                    sessionStartMs = sessionStartMs,
+                    uplinkBytesPerSec = uplinkBytesPerSec,
+                    downlinkBytesPerSec = downlinkBytesPerSec,
                     entrySection = phoneSection,
                     onSectionChange = onPhoneSectionChange,
                     onRefreshServers = onRefreshServers,

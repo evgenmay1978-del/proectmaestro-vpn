@@ -1,15 +1,14 @@
 package com.maestrovpn.tv.compose.premium
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -25,15 +24,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.maestrovpn.tv.R
 import kotlin.math.roundToInt
 
@@ -59,26 +53,27 @@ private fun DrawScope.art(image: ImageBitmap, source: ArtRect, x: Float, y: Floa
 }
 
 /**
- * Plates are clean nine-patch assets (built by tools/build-phone-plates.py from the approved atlas):
- * ornament, rails and shadows are byte-identical to the mockup, while the baked icon/text/chevron is
- * replaced by plain grain. Android therefore stretches only the flat interior — no grain smear, no
- * brightness step at the corner seam and no leftover letters, which the previous hand-made 9-slice
- * could not avoid.
+ * Панель утверждённого тёмного дизайна (23.11.2026): плоская тёмная карточка с тонкой
+ * золото-оттенённой обводкой вместо резной nine-patch пластины. Выбранная — светлее
+ * и с яркой золотой обводкой; навигация — полупрозрачная, с большим радиусом.
+ * Одно место покрывает все телефонные панели/кнопки/навигацию (и fantasyFrame на
+ * телефоне, который делегирует сюда же); на ТВ этот модификатор не используется.
  */
-private fun panelResource(selected: Boolean, navigation: Boolean): Int = when {
-    navigation -> R.drawable.mobile_phone_bar
-    selected -> R.drawable.mobile_phone_selected
-    else -> R.drawable.mobile_phone_panel
-}
-
 fun Modifier.approvedMobilePanel(selected: Boolean = false, navigation: Boolean = false): Modifier = composed {
-    val context = LocalContext.current
-    val plate = remember(selected, navigation) { ContextCompat.getDrawable(context, panelResource(selected, navigation)) }
-    drawBehind {
-        val drawable = plate ?: return@drawBehind
-        drawable.setBounds(0, 0, size.width.roundToInt(), size.height.roundToInt())
-        drawIntoCanvas { canvas -> drawable.draw(canvas.nativeCanvas) }
+    val bg = when {
+        navigation -> DarkPanel.copy(alpha = 0.92f)
+        selected -> DarkPanel2
+        else -> DarkPanel
     }
+    val border = when {
+        navigation -> DarkLineSoft
+        selected -> Color(0x8CD9A441) // rgba(217,164,65,.55)
+        else -> DarkLineSoft
+    }
+    val radius = if (navigation) DarkNavCorner else DarkPanelCorner
+    this
+        .background(bg, RoundedCornerShape(radius))
+        .border(1.dp, border, RoundedCornerShape(radius))
 }
 
 @Composable
@@ -116,26 +111,27 @@ internal const val CARVED_MEDALLION_TOP = 5f / 720f
 
 @Composable
 fun ApprovedMobileBackground(modifier: Modifier = Modifier) {
-    val atlas = ImageBitmap.imageResource(R.drawable.mobile_approved_atlas)
-    Box(modifier) {
-        Image(painterResource(R.drawable.phone_home_wood), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    // Утверждённый тёмный дизайн (23.11.2026): чистый тёмный фон #0d0b08 с лёгким
+    // золотым свечением сверху и снизу (как в прототипе). Дерево (phone_home_wood)
+    // и резные рейки/капитель из атласа здесь больше не рисуются.
+    Box(modifier.background(DarkBg)) {
         Canvas(Modifier.fillMaxSize()) {
-            val side = (size.width * 72f / 852f).coerceAtMost(42.dp.toPx())
-            art(atlas, ArtRect(0, 0, 72, 1628), 0f, 0f, side, size.height)
-            art(atlas, ArtRect(780, 0, 72, 1628), size.width - side, 0f, side, size.height)
-            val capSize = Size(size.width - side * 2, (size.width - side * 2) * 82f / 708f)
-            val capOrigin = Offset(side, 0f)
-            val canvas = drawContext.canvas
-            canvas.saveLayer(Rect(capOrigin, capSize), Paint())
-            art(atlas, ArtRect(72, 0, 708, 82), side, 0f, capSize.width, capSize.height)
             drawRect(
-                brush = Brush.verticalGradient(0f to Color.Black, 0.85f to Color.Black,
-                    1f to Color.Transparent, startY = 0f, endY = capSize.height),
-                topLeft = capOrigin,
-                size = capSize,
-                blendMode = BlendMode.DstIn,
+                brush = Brush.radialGradient(
+                    0f to Color(0x29D9A441), // rgba(217,164,65,.16)
+                    1f to Color.Transparent,
+                    center = Offset(size.width / 2f, -size.height * 0.06f),
+                    radius = size.width * 0.9f,
+                ),
             )
-            canvas.restore()
+            drawRect(
+                brush = Brush.radialGradient(
+                    0f to Color(0x12D9A441), // rgba(217,164,65,.07)
+                    1f to Color.Transparent,
+                    center = Offset(size.width / 2f, size.height * 1.08f),
+                    radius = size.width * 0.75f,
+                ),
+            )
         }
     }
 }
