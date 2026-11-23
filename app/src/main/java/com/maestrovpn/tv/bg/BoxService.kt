@@ -228,20 +228,44 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 // Правило вставляется до TunIpv6: конфиг для ядра — это уже финальные байты.
                 val effective = SubXhttpRuntime.patchDirectRules(pool.config)
                 EngineDiag.stage("direct-rules", effective)
+                // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
+                // untouched. The engine merges all "address" entries into the device, so the family is
+                // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and
+                // rejected the whole config (1.0.177).
+                val withIpv6 = TunIpv6.ensure(effective).let { candidate ->
+                    when {
+                        candidate === effective -> effective
+                        // The engine's own verdict on the exact bytes is the only proof they are accepted;
+                        // a rejected rewrite must never reach the tunnel.
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tun IPv6: injected")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "ipv6 rejected by the engine — kept the original config")
+                            effective
+                        }
+                    }
+                }
+                // Без снаффинга маршрутизация идёт по набранному IP: TLS/QUIC-цели, отвечающие
+                // с другого адреса, уходят мимо туннеля (YouTube чёрный на 32-битных ТВ, задача
+                // 17.11.2026). Sniffing включает парсинг SNI/Host — как у Happ и сторонних клиентов.
+                EngineDiag.log("apply", "ipv6 injected=" + (withIpv6 !== effective))
                 // Tunnel-fetch: loopback mixed inbound + an inbound-scoped rule for the panel
                 // host, so /sub and balance can ride the live tunnel when the direct path is
                 // blocked (see TunnelFetch). Guarded like the other rewrites: a config the
-                // engine refuses never reaches the tunnel.
-                val withTunnelFetch = TunnelFetch.ensure(effective).let { candidate ->
+                // engine refuses never reaches the tunnel. Runs after TunIpv6 so the wiring
+                // contract (TunIpv6.ensure(effective)) stays literally true.
+                val withTunnelFetch = TunnelFetch.ensure(withIpv6).let { candidate ->
                     when {
-                        candidate === effective -> effective
+                        candidate === withIpv6 -> withIpv6
                         runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
                             Log.d(TAG, "tunnel-fetch: injected")
                             candidate
                         }
                         else -> {
                             StartupDiag.log("apply", "tunnel-fetch rejected by the engine — kept the config without it")
-                            effective
+                            withIpv6
                         }
                     }
                 }
@@ -258,52 +282,29 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         }
                     }
                 }
-                EngineDiag.log("apply", "tunnel-fetch injected=" + (withTunnelFetch !== effective) + " dns=" + (withTunnelDns !== withTunnelFetch))
-                // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
-                // untouched. The engine merges all "address" entries into the device, so the family is
-                // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and
-                // rejected the whole config (1.0.177).
-                val withIpv6 = TunIpv6.ensure(withTunnelDns).let { candidate ->
-                    when {
-                        candidate === withTunnelDns -> withTunnelDns
-                        // The engine's own verdict on the exact bytes is the only proof they are accepted;
-                        // a rejected rewrite must never reach the tunnel.
-                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
-                            Log.d(TAG, "tun IPv6: injected")
-                            candidate
-                        }
-                        else -> {
-                            StartupDiag.log("apply", "ipv6 rejected by the engine — kept the original config")
-                            withTunnelDns
-                        }
-                    }
-                }
-                // Без снаффинга маршрутизация идёт по набранному IP: TLS/QUIC-цели, отвечающие
-                // с другого адреса, уходят мимо туннеля (YouTube чёрный на 32-битных ТВ, задача
-                // 17.11.2026). Sniffing включает парсинг SNI/Host — как у Happ и сторонних клиентов.
-                EngineDiag.log("apply", "ipv6 injected=" + (withIpv6 !== withTunnelDns))
+                EngineDiag.log("apply", "tunnel-fetch injected=" + (withTunnelFetch !== withIpv6) + " dns=" + (withTunnelDns !== withTunnelFetch))
                 // Панель пинит "stack": "system": он транслирует L3->L4 системным сетевым стеком,
                 // а на Android без root TCP-сплайсинг в ядро не выполняется — в tun приходит только
                 // UDP (DNS/QUIC). Замер r689, 18.11 00:15-00:19: inbound UDP=100, TCP=0, роутер
                 // видел лишь {=> sniff} и {udp/443 => reject} — поэтому Telegram и YouTube мертвы,
                 // хотя DNS резолвится. gVisor делает ту же трансляцию внутри netstack libbox.
                 // "mixed" заменой не является: по докам это system TCP + gvisor UDP.
-                val withStack = TunStack.ensure(withIpv6).let { candidate ->
+                val withStack = TunStack.ensure(withTunnelDns).let { candidate ->
                     when {
-                        candidate === withIpv6 -> withIpv6
+                        candidate === withTunnelDns -> withTunnelDns
                         runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
                             Log.d(TAG, "tun stack: injected gvisor")
                             candidate
                         }
                         else -> {
                             StartupDiag.log("apply", "stack rejected by the engine — kept the original config")
-                            withIpv6
+                            withTunnelDns
                         }
                     }
                 }
                 EngineDiag.log(
                     "apply",
-                    "stack injected=" + (withStack !== withIpv6) + " stack=" + TunStack.effective(withStack),
+                    "stack injected=" + (withStack !== withTunnelDns) + " stack=" + TunStack.effective(withStack),
                 )
                 val finalConfig = Sniffing.ensure(withStack).let { candidate ->
                     when {
@@ -320,7 +321,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
                 StartupDiag.log(
                     "apply",
-                    "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== withTunnelDns) +
+                    "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== effective) +
                         " stack=" + TunStack.effective(finalConfig) + " sniffInjected=" + (finalConfig !== withStack),
                 )
                 EngineDiag.stage("final", finalConfig)

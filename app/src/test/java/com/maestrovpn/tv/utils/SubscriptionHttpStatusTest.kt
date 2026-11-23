@@ -43,14 +43,14 @@ class SubscriptionHttpStatusTest {
     @Test
     fun httpClientHasExactlyOnePlaceThatThrowsTheTypedException() {
         val source = appFile("src/main/java/com/maestrovpn/tv/utils/HTTPClient.kt").readText()
-        // Both transports (pinned edge + HttpsURLConnection) must go through the shared check;
-        // a second direct throw would let them drift apart again.
+        // All transports (pinned edge + HttpsURLConnection + tunnel proxy) must go through the
+        // shared check; a second direct throw would let them drift apart again.
         assertEquals(
             "exactly one 'throw SubscriptionHttpException(' is allowed (D4)",
             1,
             Regex("throw SubscriptionHttpException\\(").findAll(source).count(),
         )
-        assertEquals(2, Regex("requireSubscriptionHttpStatus\\(status\\)").findAll(source).count())
+        assertEquals(3, Regex("requireSubscriptionHttpStatus\\(status\\)").findAll(source).count())
     }
 
     private fun appFile(path: String): File {
