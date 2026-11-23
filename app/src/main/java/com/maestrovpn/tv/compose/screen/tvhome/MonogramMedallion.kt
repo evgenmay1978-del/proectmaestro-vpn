@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -246,6 +247,12 @@ private fun DrawScope.drawCoin(
     val faceCx = cx + (thickness / 2f) * sn
     val hiddenCx = cx - (thickness / 2f) * sn
     val faceRx = r * c
+    // Гнездо (socket): монета сидит в круглом отверстии; видимая стенка —
+    // круг отверстия минус силуэт монеты. Рисуется под монетой (до ребра
+    // и лица). При 0° отверстия нет: монета закрывает его целиком.
+    if (abs(sn) > 0.001f) {
+        drawSocket(cx, cy, r, faceCx, hiddenCx, faceRx, s)
+    }
     // Ребро монеты: серп между скрытой и лицевой гранями на стороне, куда
     // монета повернулась (ширина ∝ |sin угла|; при 90° — широкая золотая
     // полоса, а не линия). Рисуется до лица: лицо накрывает его внутренний край.
@@ -299,6 +306,135 @@ private fun DrawScope.drawCoin(
             Color.White.copy(alpha = 0.14f * pulse),
             radius = s / 2f,
             center = Offset(cx, cy),
+        )
+    }
+}
+
+/**
+ * Стенка гнезда: угловой свет (sweep-градиент, 0° = восток, по часовой).
+ * База (200, 165, 90) — то же шампань-золото, что и ребро монеты; свет
+ * сверху-слева, поэтому максимум на 45° (низ-право), минимум на 225°
+ * (верх-лево). Цвета — точный пересчёт формулы мокапа
+ * (k = 0.75 + 0.5·(0.5 + 0.5·cos(a − 45°))) по шагам 45°; между
+ * остановками линейная интерполяция вместо косинуса (отклонение ≤ ~4 ед. RGB).
+ */
+private val SOCKET_WALL_COLORS = listOf(
+    Color(0xFFF7CE76), // 0°
+    Color(0xFFFFDB7D), // 45° — самая светлая (низ-право, к свету)
+    Color(0xFFF7CE76), // 90°
+    Color(0xFFD2AF64), // 135°
+    Color(0xFFAD9052), // 180°
+    Color(0xFF9E834B), // 225° — самая тёмная (верх-лево, от света)
+    Color(0xFFAD9052), // 270°
+    Color(0xFFD2AF64), // 315°
+    Color(0xFFF7CE76), // 360° = 0°
+)
+
+/**
+ * Объёмное гнездо: круглое отверстие, в котором сидит монета.
+ * Видимая стенка = круг отверстия (радиус = радиус монеты) минус силуэт
+ * монеты (объединение скрытого и лицевого эллипсов). При 0° отверстия нет —
+ * монета закрывает его; при повороте оно открывается с обеих сторон, и в
+ * выключенном, и в подключённом состоянии. Рисуется под монетой.
+ *
+ * Свет — как в проверенном мокапе (~/workspace/coin-proof/render_anim.py):
+ * яркое шампань-золото в гамме ребра монеты (база 200, 165, 90; самая тёмная
+ * часть — всё равно среднее золото, самая светлая — светлое шампанское);
+ * угловой свет сверху-слева; радиальная глубина — ярче у кромки отверстия,
+ * глубже бронза к монетке (чёрный провал запрещён); яркий блик по кромке
+ * сверху-слева; мягкая контактная тень вплотную к силуэту монеты.
+ */
+private fun DrawScope.drawSocket(
+    cx: Float,
+    cy: Float,
+    r: Float,
+    faceCx: Float,
+    hiddenCx: Float,
+    faceRx: Float,
+    s: Float,
+) {
+    val rx = faceRx.coerceAtLeast(1f)
+    val opening = Path().apply { addOval(Rect(cx - r, cy - r, cx + r, cy + r)) }
+    val hiddenOval = Path().apply {
+        addOval(Rect(hiddenCx - rx, cy - r, hiddenCx + rx, cy + r))
+    }
+    val faceOval = Path().apply {
+        addOval(Rect(faceCx - rx, cy - r, faceCx + rx, cy + r))
+    }
+    val silhouette = Path.combine(PathOperation.Union, hiddenOval, faceOval)
+    val hole = Path.combine(PathOperation.Difference, opening, silhouette)
+    // Масштаб мокапа: у него диаметр монеты 432px, в приложении — s.
+    val pxScale = s / 432f
+    clipPath(hole) {
+        // Стенка: угловой свет (sweep-градиент, центр — центр монеты).
+        drawCircle(
+            brush = Brush.sweepGradient(SOCKET_WALL_COLORS, center = Offset(cx, cy)),
+            radius = r,
+            center = Offset(cx, cy),
+        )
+        // Радиальная глубина: ярче у кромки, глубже бронза к монетке
+        // (чёрная вуаль 0.55 в центре → прозрачно у кромки, как в мокапе).
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to Color.Black.copy(alpha = 0.55f),
+                1f to Color.Transparent,
+                center = Offset(cx, cy),
+                radius = r,
+            ),
+            radius = r,
+            center = Offset(cx, cy),
+        )
+        // Блик по кромке отверстия сверху-слева + тёмная кромка снизу-справа.
+        val rimInset = 2f * pxScale
+        val rimTopLeft = Offset(cx - r + rimInset, cy - r + rimInset)
+        val rimSize = Size(2f * (r - rimInset), 2f * (r - rimInset))
+        drawArc(
+            color = Color(0xDCFAE196),
+            startAngleDegrees = 150f,
+            sweepAngleDegrees = 140f,
+            useCenter = false,
+            topLeft = rimTopLeft,
+            size = rimSize,
+            style = Stroke(width = 3f * pxScale),
+        )
+        drawArc(
+            color = Color.Black.copy(alpha = 0.55f),
+            startAngleDegrees = 330f,
+            sweepAngleDegrees = 140f,
+            useCenter = false,
+            topLeft = rimTopLeft,
+            size = rimSize,
+            style = Stroke(width = 3f * pxScale),
+        )
+        // Контактная тень: мягкая тёмная полоса вплотную к силуэту монеты.
+        // В Canvas нет размытия произвольного контура, поэтому вместо
+        // гауссова пятна мокапа — два вложенных штриха по контуру обоих
+        // эллипсов силуэта (широкий бледный + узкий плотный); внутренняя
+        // половина штрихов обрезана регионом отверстия, наружу видна
+        // только мягкая полоса (пик ~0.25 у кромки монеты, как в мокапе).
+        drawOval(
+            color = Color.Black.copy(alpha = 0.12f),
+            topLeft = Offset(hiddenCx - rx, cy - r),
+            size = Size(rx * 2f, r * 2f),
+            style = Stroke(width = 0.05f * s),
+        )
+        drawOval(
+            color = Color.Black.copy(alpha = 0.12f),
+            topLeft = Offset(faceCx - rx, cy - r),
+            size = Size(rx * 2f, r * 2f),
+            style = Stroke(width = 0.05f * s),
+        )
+        drawOval(
+            color = Color.Black.copy(alpha = 0.15f),
+            topLeft = Offset(hiddenCx - rx, cy - r),
+            size = Size(rx * 2f, r * 2f),
+            style = Stroke(width = 0.02f * s),
+        )
+        drawOval(
+            color = Color.Black.copy(alpha = 0.15f),
+            topLeft = Offset(faceCx - rx, cy - r),
+            size = Size(rx * 2f, r * 2f),
+            style = Stroke(width = 0.02f * s),
         )
     }
 }
@@ -490,32 +626,3 @@ private fun DrawScope.drawLetterCopy(
         colorFilter = tint?.let { ColorFilter.tint(it, tintBlend) },
     )
 }
-
-/**
- * Зелёное кольцо при подключении (прототип: кольцо диска зеленеет + свечение).
- * Диск без камней, поэтому кольцо — полный круг; прорисовывается за 700 мс от
- * верхней точки, дальше неподвижно. Мерцания нет (запрещено владельцем).
- */
-@Composable
-internal fun MonogramGlow(connected: Boolean, modifier: Modifier = Modifier) {
-    if (!connected) return
-    val drawn = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { drawn.animateTo(1f, tween(RING_DRAW_MS, easing = FastOutSlowInEasing)) }
-    Canvas(modifier) {
-        val boxRadius = size.minDimension / 2f
-        val stroke = 2.dp.toPx()
-        val radius = boxRadius - stroke
-        drawArc(
-            color = DarkGreen,
-            startAngle = -90f,
-            sweepAngle = 360f * drawn.value,
-            useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
-            size = Size(radius * 2f, radius * 2f),
-            style = Stroke(width = stroke),
-        )
-    }
-}
-
-/** Прорисовка кольца при подключении, мс. */
-internal const val RING_DRAW_MS = 700

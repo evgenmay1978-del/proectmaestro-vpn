@@ -304,10 +304,6 @@ internal fun PhoneDashboard(
                                     connecting = connecting,
                                     modifier = Modifier.fillMaxSize(),
                                 )
-                                MonogramGlow(
-                                    connected = connected && !connecting,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
                             }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
