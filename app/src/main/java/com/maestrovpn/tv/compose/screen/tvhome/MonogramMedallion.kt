@@ -390,8 +390,8 @@ private fun DrawScope.drawSocket(
         val rimSize = Size(2f * (r - rimInset), 2f * (r - rimInset))
         drawArc(
             color = Color(0xDCFAE196),
-            startAngleDegrees = 150f,
-            sweepAngleDegrees = 140f,
+            startAngle = 150f,
+            sweepAngle = 140f,
             useCenter = false,
             topLeft = rimTopLeft,
             size = rimSize,
@@ -399,8 +399,8 @@ private fun DrawScope.drawSocket(
         )
         drawArc(
             color = Color.Black.copy(alpha = 0.55f),
-            startAngleDegrees = 330f,
-            sweepAngleDegrees = 140f,
+            startAngle = 330f,
+            sweepAngle = 140f,
             useCenter = false,
             topLeft = rimTopLeft,
             size = rimSize,
