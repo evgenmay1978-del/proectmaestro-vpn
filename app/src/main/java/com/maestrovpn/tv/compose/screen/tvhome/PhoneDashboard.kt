@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -244,14 +245,23 @@ internal fun PhoneDashboard(
                                     selectable = true,
                                 ) { jflPicker = true }
                             }
-                            tags.forEach { tag ->
-                                PhoneServerRow(
-                                    server = phoneServer(tag, cdnView.labels[tag], types[tag]),
-                                    active = selected == tag,
-                                    selectable = true,
-                                    ping = delays[tag],
-                                    tag = tag,
-                                ) { onSelectProtocol(tag) }
+                            // Grouped by country (owner, 23.11.2026): rows with a flag go under
+                            // their country name, the rest under «Другие»; fastest first in a group.
+                            val grouped = tags.groupBy { tag ->
+                                val row = phoneServer(tag, cdnView.labels[tag], types[tag])
+                                if (row.flag.isNotEmpty()) row.name else "Другие"
+                            }
+                            grouped.entries.sortedWith(compareBy({ it.key == "Другие" }, { it.key })).forEach { (group, groupTags) ->
+                                PhoneText(group, true)
+                                groupTags.sortedBy { delays[it] ?: Int.MAX_VALUE }.forEach { tag ->
+                                    PhoneServerRow(
+                                        server = phoneServer(tag, cdnView.labels[tag], types[tag]),
+                                        active = selected == tag,
+                                        selectable = true,
+                                        ping = delays[tag],
+                                        tag = tag,
+                                    ) { onSelectProtocol(tag) }
+                                }
                             }
                             if (showCdnServers) PhoneNotice("CDN работает в мобильной сети. Для Wi-Fi выберите обычный VPN.")
                             PhoneAction("Обновить список", Icons.Default.Refresh, { refreshAccount() }, Modifier.fillMaxWidth())
@@ -261,7 +271,10 @@ internal fun PhoneDashboard(
                             MobilePremiumPanel {
                                 PhoneText("Обычный VPN", true)
                                 PhoneText(daysText)
-                                accountExpires?.let { PhoneText("Действует до $it") }
+                                // A lifetime subscription shows no expiry date (owner, 23.11.2026):
+                                // «28.02.2109» on the screen reads as a bug.
+                                if (daysLeft != null && daysLeft >= 3650) PhoneText("Подписка бессрочна")
+                                else accountExpires?.let { PhoneText("Действует до $it") }
                                 PhoneText("Трафик без ограничений")
                                 Spacer(Modifier.height(12.dp))
                                 PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
@@ -529,19 +542,22 @@ private fun PhoneServerRow(
     tag: String? = null,
     onClick: () -> Unit,
 ) {
+    // A row without a number must still say something (owner 14.11.2026). A subscription node
+    // whose probe FAILED is "недоступен"; one whose probe is still running gets a neutral dash,
+    // because "недоступен" before the answer is the same lie as a green ping on a dead node.
+    val subXhttpRow = SubXhttpRuntime.isSubXhttpTag(tag)
+    val probed = if (subXhttpRow) subXhttpPing(tag) else SubXhttpPing(null, false)
+    val effectivePing = ping ?: probed.ms
+    // An unavailable node is dimmed as well as red-captioned (owner, 23.11.2026).
+    val unavailable = subXhttpRow && probed.attempted && effectivePing == null
     Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
+        .alpha(if (unavailable) 0.5f else 1f)
         .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         PhoneServerBadge(server.flag, server.icon)
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
         }
-        // A row without a number must still say something (owner 14.11.2026). A subscription node
-        // whose probe FAILED is "недоступен"; one whose probe is still running gets a neutral dash,
-        // because "недоступен" before the answer is the same lie as a green ping on a dead node.
-        val subXhttpRow = SubXhttpRuntime.isSubXhttpTag(tag)
-        val probed = if (subXhttpRow) subXhttpPing(tag) else SubXhttpPing(null, false)
-        val effectivePing = ping ?: probed.ms
         val pingText = pingLabel(effectivePing)
             ?: when {
                 !subXhttpRow -> "—"
@@ -620,7 +636,7 @@ private fun PhoneJflPicker(
     onDismiss: () -> Unit,
 ) {
     BackHandler(enabled = true) { onDismiss() }
-    Box(Modifier.fillMaxSize().background(Color(0xF2080B0F))) {
+    Box(Modifier.fillMaxSize().background(PremiumWalnut)) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
