@@ -113,16 +113,16 @@ internal object TunnelFetch {
         val rules = route["rules"] as? JsonArray ?: return config
         val port = allocatePort() ?: return config
         val inbound = buildJsonObject {
-            put("type", "mixed")
-            put("tag", TAG)
-            put("listen", "127.0.0.1")
-            put("listen_port", port)
+            put("type", JsonPrimitive("mixed"))
+            put("tag", JsonPrimitive(TAG))
+            put("listen", JsonPrimitive("127.0.0.1"))
+            put("listen_port", JsonPrimitive(port))
         }
         val rule = buildJsonObject {
             put("inbound", JsonArray(listOf(JsonPrimitive(TAG))))
             put("domain_suffix", JsonArray(listOf(JsonPrimitive(PANEL_HOST))))
-            put("action", "route")
-            put("outbound", "select")
+            put("action", JsonPrimitive("route"))
+            put("outbound", JsonPrimitive("select"))
         }
         val list = rules.toMutableList()
         var insertAt = 0
@@ -168,8 +168,8 @@ internal object TunnelFetch {
             put("inbound", JsonArray(listOf(JsonPrimitive(TAG))))
             put("domain_suffix", JsonArray(listOf(JsonPrimitive(PANEL_HOST))))
             put("query_type", JsonArray(listOf(JsonPrimitive("A"), JsonPrimitive("AAAA"))))
-            put("action", "route")
-            put("server", "google")
+            put("action", JsonPrimitive("route"))
+            put("server", JsonPrimitive("google"))
         }
         val patchedDns = JsonObject(dns + ("rules" to JsonArray(listOf(rule) + rules)))
         return JsonObject(root + ("dns" to patchedDns)).toString()
