@@ -44,6 +44,7 @@ import com.maestrovpn.tv.whitelist.SubXhttpRuntime
 import com.maestrovpn.tv.whitelist.SubXhttpSession
 import com.maestrovpn.tv.whitelist.TunIpv6
 import com.maestrovpn.tv.whitelist.TunStack
+import com.maestrovpn.tv.whitelist.TunnelFetch
 import com.maestrovpn.tv.whitelist.WhiteListConfig
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.whitelist.WhiteListSession
@@ -227,13 +228,44 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 // Правило вставляется до TunIpv6: конфиг для ядра — это уже финальные байты.
                 val effective = SubXhttpRuntime.patchDirectRules(pool.config)
                 EngineDiag.stage("direct-rules", effective)
+                // Tunnel-fetch: loopback mixed inbound + an inbound-scoped rule for the panel
+                // host, so /sub and balance can ride the live tunnel when the direct path is
+                // blocked (see TunnelFetch). Guarded like the other rewrites: a config the
+                // engine refuses never reaches the tunnel.
+                val withTunnelFetch = TunnelFetch.ensure(effective).let { candidate ->
+                    when {
+                        candidate === effective -> effective
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tunnel-fetch: injected")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "tunnel-fetch rejected by the engine — kept the config without it")
+                            effective
+                        }
+                    }
+                }
+                val withTunnelDns = TunnelFetch.ensureDns(withTunnelFetch).let { candidate ->
+                    when {
+                        candidate === withTunnelFetch -> withTunnelFetch
+                        runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
+                            Log.d(TAG, "tunnel-fetch dns: injected")
+                            candidate
+                        }
+                        else -> {
+                            StartupDiag.log("apply", "tunnel-fetch dns rejected by the engine — kept the config without it")
+                            withTunnelFetch
+                        }
+                    }
+                }
+                EngineDiag.log("apply", "tunnel-fetch injected=" + (withTunnelFetch !== effective) + " dns=" + (withTunnelDns !== withTunnelFetch))
                 // The panel tun carries only an IPv4 prefix, so every IPv6 socket leaves the tunnel
                 // untouched. The engine merges all "address" entries into the device, so the family is
                 // appended to that list — the per-family keys of sing-box 1.10 are removed in 1.12 and
                 // rejected the whole config (1.0.177).
-                val withIpv6 = TunIpv6.ensure(effective).let { candidate ->
+                val withIpv6 = TunIpv6.ensure(withTunnelDns).let { candidate ->
                     when {
-                        candidate === effective -> effective
+                        candidate === withTunnelDns -> withTunnelDns
                         // The engine's own verdict on the exact bytes is the only proof they are accepted;
                         // a rejected rewrite must never reach the tunnel.
                         runCatching { Libbox.checkConfig(candidate) }.isSuccess -> {
@@ -242,14 +274,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         }
                         else -> {
                             StartupDiag.log("apply", "ipv6 rejected by the engine — kept the original config")
-                            effective
+                            withTunnelDns
                         }
                     }
                 }
                 // Без снаффинга маршрутизация идёт по набранному IP: TLS/QUIC-цели, отвечающие
                 // с другого адреса, уходят мимо туннеля (YouTube чёрный на 32-битных ТВ, задача
                 // 17.11.2026). Sniffing включает парсинг SNI/Host — как у Happ и сторонних клиентов.
-                EngineDiag.log("apply", "ipv6 injected=" + (withIpv6 !== effective))
+                EngineDiag.log("apply", "ipv6 injected=" + (withIpv6 !== withTunnelDns))
                 // Панель пинит "stack": "system": он транслирует L3->L4 системным сетевым стеком,
                 // а на Android без root TCP-сплайсинг в ядро не выполняется — в tun приходит только
                 // UDP (DNS/QUIC). Замер r689, 18.11 00:15-00:19: inbound UDP=100, TCP=0, роутер
@@ -288,7 +320,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
                 StartupDiag.log(
                     "apply",
-                    "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== effective) +
+                    "cdn=" + cdn + " bytes=" + finalConfig.length + " ipv6Injected=" + (withIpv6 !== withTunnelDns) +
                         " stack=" + TunStack.effective(finalConfig) + " sniffInjected=" + (finalConfig !== withStack),
                 )
                 EngineDiag.stage("final", finalConfig)
@@ -441,6 +473,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun serviceStop() {
+        // The engine stopped the box by itself: the loopback port is stale now.
+        TunnelFetch.clear()
         EngineDiag.log("core", "engine stopped the box by itself")
         EngineDiag.networkSnapshot("core-stop")
         EngineDiag.detach("core stop")
@@ -591,6 +625,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // nothing ("иногда невозможно отключить"). Idempotent: skip only if already
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
+        // The tunnel is going down: never try its (now stale) loopback port again.
+        TunnelFetch.clear()
         StartupDiag.log("stop", "requested")
         EngineDiag.logStackTrace("stop", "requested")
         status.value = Status.Stopping
@@ -653,6 +689,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
         // The message can carry a config fragment, so only the alert kind is recorded.
+        // The tunnel is going down (or never came up): drop the loopback port.
+        TunnelFetch.clear()
         StartupDiag.log("alert", type.name)
         StartupDiag.publish(service)
         EngineDiag.log("alert", type.name)
