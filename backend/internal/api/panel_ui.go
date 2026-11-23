@@ -7,7 +7,7 @@ package api
 const panelHTML = `<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MaestroVPN — Панель</title>
+<title>Excel таблица</title>
 <style>
 :root{--bg:#0e1116;--card:#171c24;--card2:#1e242e;--line:#2a323d;--fg:#e6edf3;--mut:#8b98a8;--acc:#46E05A;--accd:#2f9d40;--warn:#e0a23a;--err:#e0574a;--blue:#4aa3e0}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif}
@@ -63,7 +63,7 @@ function api(path,opts){opts=opts||{};opts.credentials='same-origin';opts.header
 function post(path,obj){return api(path,{body:JSON.stringify(obj||{})});}
 
 function showLogin(msg){document.getElementById('app').innerHTML=
- '<div class="login"><h1>MaestroVPN</h1><p>Панель управления</p>'+
+ '<div class="login"><h1>Excel таблица</h1>'+
  '<input id="pw" type="password" placeholder="Пароль" autofocus>'+
  '<button class="btn pri" id="lg">Войти</button><div class="err" id="le">'+esc(msg||'')+'</div></div>';
  function go(){el('le').textContent='';post('api/login',{password:el('pw').value}).then(function(j){CSRF=j.csrf;return api('api/me');}).then(function(me){PERMS=me.permissions||[];showApp();}).catch(function(e){el('le').textContent=(e.message==='wrong password'?'Неверный пароль':e.message==='too many attempts — try later'?'Слишком много попыток, подожди':e.message);});}
